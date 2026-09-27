@@ -1,0 +1,39 @@
+{
+    "$schema": "https://go.kicad.org/pcm/schemas/v1",
+    "name": "StripForge",
+    "description": "Stripboard (Veroboard) layout in KiCad: real footprints, live netlist, copper strips in a normal .kicad_pcb.",
+    "description_full": "StripForge turns a KiCad project's real footprints and netlist into stripboard copper on B.Cu at a 2.54 mm pitch. It snaps THT parts to the grid, splits strips by net with real copper gaps plus cut markers, proposes wire links as zero-ohm jumpers that also live in the schematic, relies on KiCad DRC to catch shorts and opens, and exports a mirrored copper-side build sheet.\n\nPre-alpha: this package is a placeholder and does not do anything yet.",
+    "identifier": "com.github.SomerledDesign.stripforge",
+    "type": "plugin",
+    "author": {
+        "name": "Somerled Design",
+        "contact": {
+            "github": "https://github.com/SomerledDesign"
+        }
+    },
+    "maintainer": {
+        "name": "Somerled Design",
+        "contact": {
+            "github": "https://github.com/SomerledDesign"
+        }
+    },
+    "license": "GPL-3.0",
+    "resources": {
+        "homepage": "https://github.com/SomerledDesign/StripForge",
+        "Issues": "https://github.com/SomerledDesign/StripForge/issues"
+    },
+    "tags": [
+        "stripboard",
+        "veroboard",
+        "pcb",
+        "prototyping"
+    ],
+    "versions": [
+        {
+            "version": "0.0.1",
+            "status": "development",
+            "kicad_version": "10.0",
+            "runtime": "ipc"
+        }
+    ]
+}
