@@ -44,8 +44,10 @@ The full design is in [Sketch.md](Sketch.md).
 
 ## Status
 
-**Pre-alpha: planning.** The package layout and CLI exist, but every module is still a stub.
-Nothing generates a board yet.
+**Pre-alpha: M1 (model and splitting) in progress.** `stripforge analyze` reads a `.kicad_pcb`
+(and optionally its netlist), snaps footprints to the hole grid, splits the strips by net and
+reports cuts, nets needing links, warnings and conflicts. It is read-only: nothing writes a board
+yet (that is M2).
 
 ## Roadmap
 
@@ -72,17 +74,21 @@ from the build sheet with no rework on the copper side.
 ```sh
 python -m venv .venv && source .venv/bin/activate
 pip install -e '.[dev]'
-stripforge --help      # stub CLI: plan | generate | drc | sheet
-ruff check .
+stripforge analyze examples/tpi-fixture/ATtiny10_TPI_Fixture.kicad_pcb \
+    --netlist examples/tpi-fixture/ATtiny10_TPI_Fixture.net      # add --json for machine output
+stripforge --help      # plan | generate | drc | sheet are still stubs
+ruff check . && ruff format --check .
 pytest
 ```
 
 ```
 src/stripforge/
-  cli.py          command-line entry (plan | generate | drc | sheet)
+  cli.py          command-line entry (analyze | plan | generate | drc | sheet)
+  analyze.py      read-only snap + split report (text or JSON)
   config.py       stripboard.toml model
   netlist.py      kicad-cli netlist (kicadsexpr) parser
-  sexpr.py        lossless S-expression reader/writer
+  sexpr.py        S-expression reader/writer
+  board.py        footprints, pads (absolute positions, rotation) and outline from a .kicad_pcb
   grid.py         2.54 grid + per-footprint snap with tolerance
   strips.py       rows -> hole-to-hole segments
   splitter.py     cut placement + net per piece
