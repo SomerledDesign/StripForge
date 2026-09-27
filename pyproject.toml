@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "stripforge"
+version = "0.0.1"
+description = "StripForge: stripboard (Veroboard) copper, cuts and links as a normal KiCad .kicad_pcb (pre-alpha)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
+authors = [{ name = "Somerled Design" }]
+keywords = ["kicad", "stripboard", "veroboard", "pcb", "electronics", "prototyping"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Electronic Design Automation (EDA)",
+]
+dependencies = []
+
+[project.optional-dependencies]
+ipc = ["kicad-python>=0.8.0,<0.9"]   # live-board backend (KiCad 10.0.1+; see Sketch.md §3)
+pdf = ["cairosvg>=2.7"]              # build-sheet PDF
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[project.urls]
+Homepage = "https://github.com/SomerledDesign/StripForge"
+Issues = "https://github.com/SomerledDesign/StripForge/issues"
+
+[project.scripts]
+stripforge = "stripforge.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

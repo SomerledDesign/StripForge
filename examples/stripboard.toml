@@ -1,0 +1,11 @@
+# StripForge board config: example for the ATtiny10 TPI fixture (placeholder values).
+# See examples/tpi-fixture/README.md and Sketch.md §4.1.
+# Usage (once implemented): stripforge plan board.kicad_pcb --config examples/stripboard.toml
+rows = 25
+cols = 64
+origin_mm = [100.0, 100.0]
+strip_width_mm = 1.8
+cut_style = "auto"
+snap_tol_mm = 0.15
+cut_marker_layer = "User.1"
+offboard_refs = []   # pin-header wire pads for switches/battery are ON-board; list true off-board refs here
