@@ -42,6 +42,7 @@ The library is 34 footprints: 32 links + 2 cut markers.
 | F.SilkS | wire between the pads, 0.12 mm, kept 0.2 mm off pad copper; Reference beside the wire (rotated 90°) |
 | F.CrtYd | rectangle 0.25 mm outside the pads (±1.1 mm × −1.1 … L + 1.1 mm) |
 | Attributes | `through_hole` (normal part: in schematic, BOM and position files) |
+| Jumper | `(jumper_pad_groups ("1" "2"))`: the wire joins the pads, so KiCad's connectivity treats them as one node. Without it a placed link joins nothing and DRC keeps reporting the net as unconnected (found in the M2 part B pass-2 check, KiCad 10.0.4) |
 
 Why these numbers: stripboard holes are 0.94–1.02 mm (BusBoard 0.94, Vero 1.02, generic 1.0; see
 `rules/README.md`), so a 1.0 mm drill matches the physical hole. The 1.7 mm pad is KiCad's usual

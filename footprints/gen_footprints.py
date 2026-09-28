@@ -96,7 +96,7 @@ class FP:
             f'(drill {fmt(drill)}) (layers "*.Cu" "*.Mask") (remove_unused_layers no) (uuid "{self.uid()}"))'
         )
 
-    def render(self, descr: str, tags: str, attr: str, body_first: list[str]) -> str:
+    def render(self, descr: str, tags: str, attr: str, body_first: list[str], extra: tuple = ()) -> str:
         head = [
             f'(footprint "{self.name}"',
             f'  (version {FORMAT_VERSION}) (generator "{GENERATOR}") (layer "F.Cu")',
@@ -104,7 +104,7 @@ class FP:
             f'  (tags "{tags}")',
         ]
         return "\n".join(
-            head + body_first + [f"  (attr {attr})"] + self.lines + ["  (embedded_fonts no)", ")", ""]
+            head + body_first + [f"  (attr {attr})", *extra] + self.lines + ["  (embedded_fonts no)", ")", ""]
         )
 
 
@@ -140,7 +140,10 @@ def make_link(k: int) -> tuple[str, str]:
     fp.pad("1", 0, 0, LINK_PAD, LINK_DRILL)
     fp.pad("2", 0, length, LINK_PAD, LINK_DRILL)
     tags = f"StripForge stripboard wire link jumper zero ohm 0R W P{length:.2f}mm"
-    return name, fp.render(descr, tags, "through_hole", props.lines)
+    # The wire joins pads 1 and 2: a jumper pad group tells KiCad's connectivity (ratsnest, DRC
+    # unconnected items) that they are one node. Without it a placed link connects nothing.
+    jumper = '  (jumper_pad_groups ("1" "2"))'
+    return name, fp.render(descr, tags, "through_hole", props.lines, (jumper,))
 
 
 def make_cut(kind: str, layer: str) -> tuple[str, str]:

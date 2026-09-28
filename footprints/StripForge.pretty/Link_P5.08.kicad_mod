@@ -7,6 +7,7 @@
   (property "Datasheet" "" (at 0 0 0) (layer "F.Fab") (hide yes) (uuid "e824663a-2010-5e8e-9b1b-9dbd5ef693b4") (effects (font (size 1 1) (thickness 0.15))))
   (property "Description" "StripForge zero-ohm wire link (W), 2 pitch = 5.08 mm, vertical: pad 2 is 5.08 mm below pad 1 (+Y), anchor on pad 1. Both pins on the same net. Drill 1.0 mm, pad 1.7 mm." (at 0 0 0) (layer "F.Fab") (hide yes) (uuid "45a85be2-11bd-54bc-8680-5c1781bcb28b") (effects (font (size 1 1) (thickness 0.15))))
   (attr through_hole)
+  (jumper_pad_groups ("1" "2"))
   (fp_line (start 0 0) (end 0 5.08) (stroke (width 0.6) (type solid)) (layer "F.Fab") (uuid "2f8cfee3-295a-5896-9bb7-09e9b5cfcabe"))
   (fp_text user "${REFERENCE}" (at 1.5 2.54 90) (layer "F.Fab") (uuid "03dbf5dc-efc7-5c79-98ef-2a1b874f0507") (effects (font (size 0.6 0.6) (thickness 0.09))))
   (fp_line (start 0 1.05) (end 0 4.03) (stroke (width 0.12) (type solid)) (layer "F.SilkS") (uuid "b035dbaf-679e-58c3-b947-4f335f20d092"))
