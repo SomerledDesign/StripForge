@@ -227,10 +227,39 @@ def test_unsaved_board(sfp, project, monkeypatch):
     assert "Save the board" in shown[-1][1] and board.saved == 0
 
 
-def test_other_toml_next_to_the_board_is_pointed_out(sfp, project):
+def test_only_other_toml_next_to_the_board_is_used(sfp, project):
     tmp, board, shown = project
     (tmp / "stripboard.toml").rename(tmp / "X56.toml")
     assert sfp.run("analyze") == 0
     text = shown[-1][1]
+    assert f"Config: {tmp / 'X56.toml'}" in text
+    assert "using X56.toml, the only .toml next to the board" in text
+    assert "grid derived from Edge.Cuts" not in text
+
+
+def test_several_other_tomls_are_pointed_out(sfp, project):
+    tmp, board, shown = project
+    (tmp / "stripboard.toml").rename(tmp / "X56.toml")
+    (tmp / "other.toml").write_text("rows = 10\n")
+    assert sfp.run("analyze") == 0
+    text = shown[-1][1]
     assert "grid derived from Edge.Cuts" in text
-    assert "X56.toml found; copy or rename it to stripboard.toml" in text
+    assert "X56.toml, other.toml found; copy or rename one of them to stripboard.toml" in text
+
+
+def test_invalid_other_toml_is_not_used(sfp, project):
+    tmp, board, shown = project
+    (tmp / "stripboard.toml").unlink()
+    (tmp / "pyproject.toml").write_text("[project]\nname = 'x'\n")
+    assert sfp.run("analyze") == 0
+    text = shown[-1][1]
+    assert "grid derived from Edge.Cuts" in text and "pyproject.toml found but not used" in text
+
+
+def test_refused_build_does_not_claim_a_stale_file(sfp, project, monkeypatch):
+    tmp, board, shown = project
+    (tmp / "fix-stripforge.kicad_pcb").write_text("stale")
+    monkeypatch.setattr(sfp, "run_cli", lambda argv: (2, "stripforge build: error: the board has conflicts"))
+    sfp.run("build")
+    text = shown[-1][1]
+    assert "Result: refused" in text and "Wrote " not in text

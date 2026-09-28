@@ -86,6 +86,26 @@ def find_config(board: Path) -> Path | None:
     return p if p.is_file() else None
 
 
+def fallback_config(board: Path) -> tuple[Path | None, str | None]:
+    """No ``stripboard.toml``: use the only other ``*.toml`` next to the board if it is a valid
+    StripForge config (e.g. ``X56.toml``), else point the other files out. Returns (config, note)."""
+    others = sorted(board.parent.glob("*.toml"))
+    if not others:
+        return None, None
+    if len(others) == 1:
+        try:
+            from stripforge.config import load
+
+            load(others[0])
+        except Exception as exc:  # not a StripForge config (or broken): say so, don't use it
+            return None, (f"NOTE: {others[0].name} found but not used ({exc}); "
+                          f"fix it or rename a StripForge config to {CONFIG_NAME}")  # fmt: skip
+        return others[0], (f"NOTE: no {CONFIG_NAME}; using {others[0].name}, the only .toml next to the "
+                           f"board (rename it to {CONFIG_NAME} to make this explicit)")  # fmt: skip
+    names = ", ".join(p.name for p in others)
+    return None, f"NOTE: {names} found; copy or rename one of them to {CONFIG_NAME} to use it"
+
+
 def find_schematic(board: Path, project_name: str = "") -> Path | None:
     """The project's root schematic: ``<project>.kicad_sch`` or ``<name>.kicad_sch`` next to the board."""
     names = [n for n in (project_name, base_stem(board)) if n]
@@ -307,11 +327,12 @@ def _run_action(
     action: str, board: Path, project_name: str, kicad_cli: str | None
 ) -> tuple[str, Path | None]:
     config = find_config(board)
-    notes = [f"Board: {board}", f"Config: {config or 'none; grid derived from Edge.Cuts'}"]
+    fallback_note = None
     if config is None:
-        others = sorted(p.name for p in board.parent.glob("*.toml"))
-        if others:
-            notes.append(f"NOTE: {', '.join(others)} found; copy or rename it to {CONFIG_NAME} to use it")
+        config, fallback_note = fallback_config(board)
+    notes = [f"Board: {board}", f"Config: {config or 'none; grid derived from Edge.Cuts'}"]
+    if fallback_note:
+        notes.append(fallback_note)
     if action == "build" and is_output_name(board):
         return (
             f"{board.name} is already a StripForge output. Open the placement board "
@@ -343,7 +364,7 @@ def _run_action(
         argv = cli_args(action, target, config, netlist, schematic if action == "drc" else None, kicad_cli)
         code, out = run_cli(argv)
     shown: Path | None = None
-    if action == "build" and built_path(board).is_file():
+    if action == "build" and code in (0, 1) and built_path(board).is_file():  # not a stale file on refusal
         shown = built_path(board)
         notes.append(f"Wrote {shown.name} next to the board; open it in KiCad to see the strips. "
                      "The open board was not changed.")  # fmt: skip

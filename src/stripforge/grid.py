@@ -261,6 +261,11 @@ def snap_footprint(fp: Footprint, grid: Grid, tol_nm: int, slot_max_nm: int | No
             f"pad {worst.number} is {worst.dev_nm / 1e6:.3f} mm from the nearest hole "
             f"(tolerance {tol_nm / 1e6:.3f} mm)"
         )
+        if slot_max_nm is None and all(abs(p.dy_nm) <= tol_nm for p in res.pads):
+            res.reason += (
+                "; its pads are off only along the strip, so if the part has slotted or off-pitch pins "
+                f'list it in the config (slotted = ["{fp.ref}"] in stripboard.toml)'
+            )
         if slot_max_nm is not None:
             res.reason += (
                 f"; as a slotted part a pad may be up to {slot_max_nm / 1e6:.3f} mm off along the strip "
