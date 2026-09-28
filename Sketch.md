@@ -124,6 +124,12 @@ Notes:
 - **Board config**, `stripboard.toml`: rows × columns (for example 25 × 64), grid origin, strip
   axis (horizontal), strip width, cut style (`hole`/`knife`/`auto`), snap tolerance, the user
   layer used for cut markers, and the refs that are off-board wire pads.
+- **Kevin's board is an X56 (2026-09-27):** 24 strips (`A`–`X`) of 56 holes, 142.24 × 60.96 mm of
+  holes. `examples/x56.toml` sets `rows = 24`, `cols = 56` and `origin_mm` (hole `A1`); with
+  rows/cols/origin omitted the grid is still derived from Edge.Cuts. A pad outside the configured
+  grid rejects its footprint as **off board**, reported with the nearest label (for example
+  `off board (near Y3)`), and the analysis carries on with the other parts. A warning is given
+  when the configured grid and the Edge.Cuts outline disagree.
 
 ### 4.2 Grid model
 

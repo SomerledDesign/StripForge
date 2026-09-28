@@ -1,0 +1,16 @@
+# StripForge board config for Kevin's X56 stripboard: 24 strips (A-X) of 56 holes each,
+# which is 142.24 x 60.96 mm of holes at 2.54 mm. See Sketch.md §4.1 and §4.2.
+# Usage: stripforge analyze <board>.kicad_pcb --config examples/x56.toml
+#
+# rows, cols and origin_mm are all given, so the grid does not come from Edge.Cuts. The origin
+# is the TPI fixture's first hole; move it to wherever hole A1 sits in your board file. Parts
+# outside A1-X56 are reported as off board.
+rows = 24                    # strips A..X
+cols = 56                    # holes 1..56 along each strip
+origin_mm = [51.27, 51.27]   # centre of hole A1 (col 0, row 0)
+pitch_mm = 2.54
+strip_width_mm = 1.8         # Mildrew to confirm
+cut_style = "auto"           # hole | knife | auto (hole where a free hole exists, else knife + warning)
+snap_tol_mm = 0.15
+cut_marker_layer = "User.1"
+offboard_refs = []   # pin-header wire pads for switches/battery are ON-board; list true off-board refs here

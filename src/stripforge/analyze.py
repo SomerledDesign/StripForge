@@ -13,7 +13,7 @@ from pathlib import Path
 from . import netlist as netlist_mod
 from .board import Board, load_board
 from .config import BoardConfig
-from .grid import ON_GRID_NM, Grid, SnapResult, snap_board
+from .grid import ON_GRID_NM, Grid, Node, SnapResult, snap_board
 from .sexpr import mm_to_nm
 from .splitter import SplitResult, split
 from .strips import HoleMap, Strip, assign_holes, build_strips
@@ -33,6 +33,7 @@ class Analysis:
     validation: list[str]
     netlist_summary: dict | None = None
     netlist_warnings: list[str] = field(default_factory=list)
+    grid_warnings: list[str] = field(default_factory=list)
 
     @property
     def tol_nm(self) -> int:
@@ -47,6 +48,11 @@ class Analysis:
         return [s for s in self.snaps if not s.accepted]
 
     @property
+    def off_board(self) -> list[SnapResult]:
+        """Footprints with at least one pad outside the configured grid."""
+        return [s for s in self.snaps if s.off_board_pads]
+
+    @property
     def off_pitch(self) -> list[SnapResult]:
         return [s for s in self.snapped if s.max_dev_nm > ON_GRID_NM]
 
@@ -56,7 +62,12 @@ class Analysis:
 
     @property
     def warnings(self) -> list[str]:
-        out = list(self.holes.warnings) + list(self.split.warnings) + list(self.netlist_warnings)
+        out = (
+            list(self.grid_warnings)
+            + list(self.holes.warnings)
+            + list(self.split.warnings)
+            + list(self.netlist_warnings)
+        )
         for s in self.snaps:
             if s.skipped_pads:
                 out.append(f"{s.ref}: non-THT pad(s) {', '.join(s.skipped_pads)} ignored (THT only in v0)")
@@ -81,6 +92,36 @@ def make_grid(board: Board, cfg: BoardConfig) -> tuple[Grid, str]:
     cols, rows = Grid._fit(ox, oy, x1 - inset, y1 - inset, pitch)
     source = "Edge.Cuts" if cfg.origin_mm is None and not cfg.rows and not cfg.cols else "config+Edge.Cuts"
     return Grid(ox, oy, cfg.cols or cols, cfg.rows or rows, pitch), source
+
+
+def _grid_warnings(board: Board, grid: Grid, source: str) -> list[str]:
+    """Warn when a configured grid and the board's Edge.Cuts outline disagree."""
+    if source == "Edge.Cuts" or board.outline is None:
+        return []
+    x0, y0, x1, y1 = board.outline
+    gx0, gy0 = grid.hole_xy(Node(0, 0))
+    gx1, gy1 = grid.hole_xy(grid.last)
+    p, half = grid.pitch_nm, grid.pitch_nm // 2
+    size = f"{grid.cols}x{grid.rows} grid ({grid.span_label}, {_mm(grid.cols * p)} x {_mm(grid.rows * p)} mm)"
+    edge = f"Edge.Cuts outline ({_mm(x1 - x0)} x {_mm(y1 - y0)} mm)"
+    out: list[str] = []
+    if gx0 - half < x0 or gy0 - half < y0 or gx1 + half > x1 or gy1 + half > y1:
+        out.append(f"grid: the configured {size} extends past the {edge}")
+    extra_cols = max(0, (x1 - half - gx1) // p)
+    extra_rows = max(0, (y1 - half - gy1) // p)
+    if extra_cols or extra_rows:
+        more = " and ".join(
+            t
+            for t in (
+                f"{extra_cols} more hole(s) per strip" if extra_cols else "",
+                f"{extra_rows} more strip(s)" if extra_rows else "",
+            )
+            if t
+        )
+        out.append(
+            f"grid: the {edge} has room for {more} than the configured {size}; parts there are off board"
+        )
+    return out
 
 
 def _check_netlist(board: Board, path: str) -> tuple[dict, list[str]]:
@@ -133,6 +174,7 @@ def analyze(board_path: str | Path, cfg: BoardConfig | None = None, netlist: str
         strips=strips,
         split=result,
         validation=validate(result, holes, strips),
+        grid_warnings=_grid_warnings(board, grid, source),
     )
     if netlist:
         a.netlist_summary, a.netlist_warnings = _check_netlist(board, str(netlist))
@@ -183,6 +225,7 @@ def to_dict(a: Analysis) -> dict:
                         "net": p.net,
                         "hole": [p.node.col, p.node.row] if p.node else None,
                         "hole_label": p.node.label if p.node else None,
+                        "near_label": p.near.label if p.near else None,
                         "offset_mm": _xy((p.dx_nm, p.dy_nm)),
                         "dev_mm": p.dev_nm / 1e6,
                     }
@@ -190,6 +233,17 @@ def to_dict(a: Analysis) -> dict:
                 ],
             }
             for s in a.snaps
+        ],
+        "off_board": [
+            {
+                "ref": s.ref,
+                "pads": [
+                    {"pad": p.number, "near": [p.near.col, p.near.row], "near_label": p.near.label}
+                    for p in s.off_board_pads
+                    if p.near is not None
+                ],
+            }
+            for s in a.off_board
         ],
         "cuts": [
             {
@@ -244,7 +298,10 @@ def format_text(a: Analysis) -> str:
         add(f"Skipped (off-board): {', '.join(a.config.offboard_refs)}")
     add("")
     tol = a.config.snap_tol_mm
-    add(f"Snap (tolerance {tol:.3f} mm): {len(a.snapped)} snapped, {len(a.rejected)} rejected")
+    add(
+        f"Snap (tolerance {tol:.3f} mm): {len(a.snapped)} snapped, {len(a.rejected)} rejected"
+        + (f" ({len(a.off_board)} off board)" if a.off_board else "")
+    )
     exact = [s.ref for s in a.snapped if s.max_dev_nm <= ON_GRID_NM]
     add(f"  on grid (<= {_mm(ON_GRID_NM)} mm): {', '.join(exact) if exact else '-'}")
     for s in a.off_pitch:
@@ -254,7 +311,15 @@ def format_text(a: Analysis) -> str:
             if p.dev_nm > ON_GRID_NM
         )
         add(f"  off pitch: {s.ref:<5} max {_mm(s.max_dev_nm)} mm  [{offs}]")
+    for s in a.off_board:
+        pads = ", ".join(f"{p.number}@{p.where}" for p in s.pads)
+        add(
+            f"  OFF BOARD: {s.ref}: {len(s.off_board_pads)} of {len(s.pads)} pad(s) outside "
+            f"{g.span_label} [{pads}]"
+        )
     for s in a.rejected:
+        if s.off_board_pads:
+            continue
         add(
             f"  REJECTED: {s.ref}: {s.reason}; a shift of ({_mm(s.shift_nm[0])}, {_mm(s.shift_nm[1])}) mm "
             f"would give max {_mm(s.max_dev_after_shift_nm)} mm"

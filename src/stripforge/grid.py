@@ -149,10 +149,18 @@ class PadSnap:
     node: Node | None  # nearest hole, or None if it lies off the board
     dx_nm: int  # pad centre minus hole centre
     dy_nm: int
+    near: Node | None = None  # nearest grid position, even when it lies off the board
 
     @property
     def dev_nm(self) -> int:
         return round(math.hypot(self.dx_nm, self.dy_nm))
+
+    @property
+    def where(self) -> str:
+        """Hole label, or ``off board (near Z31)`` for a pad outside the grid."""
+        if self.node is not None:
+            return self.node.label
+        return f"off board (near {self.near.label})" if self.near is not None else "off board"
 
 
 @dataclass
@@ -172,6 +180,10 @@ class SnapResult:
     def worst_pad(self) -> PadSnap | None:
         return max(self.pads, key=lambda p: p.dev_nm, default=None)
 
+    @property
+    def off_board_pads(self) -> list[PadSnap]:
+        return [p for p in self.pads if p.node is None]
+
 
 def snap_footprint(fp: Footprint, grid: Grid, tol_nm: int) -> SnapResult:
     """Map each THT pad of ``fp`` to its nearest hole and accept if all are within ``tol_nm``."""
@@ -189,6 +201,7 @@ def snap_footprint(fp: Footprint, grid: Grid, tol_nm: int) -> SnapResult:
                 node=node if grid.contains(node) else None,
                 dx_nm=pad.x_nm - hx,
                 dy_nm=pad.y_nm - hy,
+                near=node,
             )
         )
     if not res.pads:
@@ -201,10 +214,14 @@ def snap_footprint(fp: Footprint, grid: Grid, tol_nm: int) -> SnapResult:
     sy = -(min(dys) + max(dys)) // 2
     res.shift_nm = (sx, sy)
     res.max_dev_after_shift_nm = max(round(math.hypot(p.dx_nm + sx, p.dy_nm + sy)) for p in res.pads)
-    off_board = [p.number for p in res.pads if p.node is None]
+    off_board = res.off_board_pads
     if off_board:
         res.accepted = False
-        res.reason = f"pad(s) {', '.join(off_board)} fall outside the {grid.cols}x{grid.rows} grid"
+        where = ", ".join(f"{p.number} (near {p.near.label})" for p in off_board if p.near is not None)
+        res.reason = (
+            f"off board: {len(off_board)} of {len(res.pads)} pad(s) fall outside the "
+            f"{grid.cols}x{grid.rows} grid ({grid.span_label}): pad {where}"
+        )
     elif res.max_dev_nm > tol_nm:
         res.accepted = False
         worst = res.worst_pad

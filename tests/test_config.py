@@ -28,3 +28,18 @@ def test_defaults_derive_grid():
 def test_bad_config(data):
     with pytest.raises(ValueError):
         config.from_dict(data)
+
+
+def test_x56_config():
+    cfg = config.load(ROOT / "examples" / "x56.toml")
+    assert (cfg.cols, cfg.rows, cfg.origin_mm) == (56, 24, (51.27, 51.27))
+    base = config.load(ROOT / "examples" / "stripboard.toml")
+    for key in (
+        "pitch_mm",
+        "strip_width_mm",
+        "cut_style",
+        "snap_tol_mm",
+        "cut_marker_layer",
+        "offboard_refs",
+    ):
+        assert getattr(cfg, key) == getattr(base, key), key
