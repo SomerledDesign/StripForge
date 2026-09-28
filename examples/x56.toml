@@ -45,6 +45,16 @@ slot_max_mm = 1.0
 # draw_holes = true
 # hole_drill_mm = 1.0
 
+# Your own cuts and links, kept exactly where they are (StripForge fills in the rest). The same as
+# moving CUT markers / W links in the built board and building again; respect_edits = false makes
+# a build ignore the board's markers and links (not this table). Keep [manual] after the top-level
+# keys, like [drc].
+# respect_edits = true
+# [manual]
+# links = ["J16-T16"]        # wire link from hole J16 to hole T16
+# cuts = ["J15", "C34-C35"]  # hole cut at J15; knife cut between C34 and C35
+# no_cut = ["J17"]           # never cut at J17
+
 # DRC filters for `stripforge drc` and the plugin's Run DRC. Everything filtered is still counted
 # in the report ("filtered (config): ..."). Keep this table last in the file (TOML tables end the
 # top-level keys). Type names are KiCad 10's DRC "type" values, e.g. silk_overlap, silk_over_copper,

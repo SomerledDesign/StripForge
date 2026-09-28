@@ -170,16 +170,20 @@ hole of another (every grid hole counts, not only footprint holes; never a cut, 
 link's hole). In order of preference a link runs:
 
 1. straight down a column (`StripForge:Link_P2.54` … `Link_P81.28`, 1–32 pitches); a cut may slide
-   within its gap to free a landing hole;
+   (or a piece extend) within its gap to give both pieces a free hole in the same column;
 2. along a strip, bridging a cut (rare: two pieces of one net on one strip are only split when a
    different-net pin sits between them, and a wire can't run over that pin);
-3. on a diagonal (`diagonal_links`, default on), rotated: a `Link_P*` when the length is a whole
-   number of pitches (3-4-5 and friends), otherwise an off-pitch `Link_D<mm>` (`Link_D3.59` for a
-   1x1 offset … `Link_D81.16`; 305 footprints in the library; `off_pitch_links = false` keeps to
-   whole-pitch diagonals);
-4. as two links meeting on a **bus strip** (`bus_strips`, default on): a piece of unused bare strip
-   that the net takes over; hole cuts isolate it from the rest of that strip where that leaves a
-   useful remainder (the report says "hole cut at R5 isolates a bus strip").
+3. as two straight links meeting on a **bus strip** (`bus_strips`, default on): a piece of unused
+   bare strip that the net takes over, with a straight drop from each piece (a cut may slide to line
+   one up); hole cuts isolate the bus from the rest of that strip where that leaves a useful
+   remainder (the report says "hole cut at R5 isolates a bus strip");
+4. only when nothing straight fits, on a diagonal (`diagonal_links`, default on), rotated: a
+   `Link_P*` when the length is a whole number of pitches (3-4-5 and friends), otherwise an
+   off-pitch `Link_D<mm>` (`Link_D3.59` for a 1x1 offset … `Link_D81.16`; 305 footprints in the
+   library; `off_pitch_links = false` keeps to whole-pitch diagonals).
+
+A straight link always beats a diagonal, however long; then fewer crossings under parts, fewer
+moved cuts, shorter wire.
 
 Rules for every link: no longer than `max_link_mm` (default 81.28 mm = 32 pitches); never crossing
 or touching another link; never passing over (within 0.9 mm of) a part pin or another link's end,
@@ -188,7 +192,7 @@ part, reported). The report lists each link, with the rotation for diagonals:
 
 ```
 W4    D12 -> J12  StripForge:Link_P15.24   GND
-W19   J18 -> T16  StripForge:Link_D25.90   +5V_T  (diagonal, rotated 348.69 deg)  (to bus strip T)
+W19   J16 -> T16  StripForge:Link_P25.40   +5V_T  (to bus strip T)
 ```
 
 Add them to the schematic: one 2-pin jumper per line (`Jumper:Jumper_2_Bridged` or a 0 Ω
@@ -212,6 +216,44 @@ place, unlinkable nets, rejected parts), 2 refused (bad input, conflicts, output
 2. Add them to the schematic and press F8 in the *placement* board.
 3. Click **Build strips** again: `<name>-stripforge.kicad_pcb` is rewritten with the links placed.
 4. Click **Run DRC** (after pass 2, unconnected should be 0), then **Build sheet**.
+
+### Moving cuts and links yourself
+
+StripForge's plan is a starting point: you can move any cut or link, and building again keeps what
+you did ("locked") and only fills in what is still unjoined. Two ways:
+
+**In the built board (`<name>-stripforge.kicad_pcb`), in pcbnew:**
+1. Open the built board. Cut markers are the `CUT…` footprints on `User.1`; links are the `W…`
+   footprints (after pass 2).
+2. Move a cut: drag its `CUT…` marker onto another hole (a `CUT_Hole`) or between two holes (a
+   `CUT_Knife`). Add a cut: place a `StripForge:CUT_Hole` or `CUT_Knife` footprint (any ref, e.g.
+   `CUT99`). Remove a cut: delete its marker (if that would short two nets, StripForge puts the cut
+   back and says so).
+3. Move a link: drag the `W` footprint so both pads sit on holes (grid 2.54 mm; rotate with R for
+   an along-the-strip or diagonal link). A link has a fixed length: to make it longer or shorter,
+   change its footprint to the right `StripForge:Link_P<mm>` (Link_P2.54 per pitch; `Link_D*` for
+   off-pitch diagonals), or change it in the schematic and press F8. Delete a link you don't want
+   (and remove it from the schematic).
+4. Save, then click **Build strips** with that board open: it is rebuilt **in place** (same
+   file), keeping your markers and links where they are. Then **File > Revert** to see the result.
+   The report lists your links as "(yours, kept)", the new ones to add, and any problem.
+
+**In `stripboard.toml`, as text** (easiest; applied on every build, also on the placement board):
+
+```toml
+[manual]                         # a table: put it after the top-level keys
+links = ["J16-T16", "C42-X42"]   # wire links from hole to hole (any two free holes)
+cuts = ["J15", "C34-C35"]        # a hole cut at J15, a knife cut between C34 and C35
+no_cut = ["J17"]                 # never cut here (StripForge picks another spot in that gap)
+```
+
+Your cut replaces StripForge's cut in the same gap and is never slid. StripForge checks your edits
+and warns when: a cut or link lands on a hole with a pin in it (or a link on a cut or a slot's hole);
+a link would short two nets or lands on a strip of another net than its schematic net; your links
+cross; a missing cut would short two nets (it is put back); a cut splits a net that can't then be
+joined. Rejected links are reported, and their `W` reference is reused for the link that replaces
+them. `respect_edits = false` ignores the board's markers and links and plans from scratch (the
+`[manual]` table still applies). The build sheet marks your cuts and links "(yours)".
 
 ### Build sheet: `stripforge sheet`
 

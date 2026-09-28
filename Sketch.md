@@ -462,6 +462,17 @@ SVGs and `<out>.cuts.csv`.
   `StripForge` library for the schematic's W links needs a separate `library` package. PCM
   libraries get a `PCM_` nickname prefix by default, which is open.
 
+### 4.11 Straight links first, and your own edits (as built)
+
+Link cost is tiered before anything else: straight down a column < along a strip < bus strip with
+straight drops < whole-pitch diagonal < off-pitch diagonal. To make a straight link possible the
+planner may slide a cut within its gap (a piece grows into holes no other net needs), also for a
+leg onto a bus strip. User edits are "locked": `[manual]` links/cuts/no_cut in the toml, and the
+built board's CUT markers and on-hole `W` footprints when they differ from StripForge's own plan
+(`respect_edits`). Locked cuts are never slid; locked links are laid first; only what they leave
+unjoined is planned. Invalid edits are rejected with a warning (pin, cut or slot hole, short, wrong
+net); a deleted cut that would short is put back. The plugin rebuilds a `-stripforge` board in place.
+
 ## 5. v0 scope
 
 In scope:

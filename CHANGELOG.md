@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Your own cuts and links are kept: move, add or delete `CUT…` markers and move `W` links in the
+  built `*-stripforge.kicad_pcb`, then build again (the plugin's Build strips on a `-stripforge`
+  board rebuilds it in place; `stripforge build --in-place`): they are "locked" and StripForge only
+  links what is still unjoined. Or as text in a `[manual]` table (`links`, `cuts`, `no_cut`).
+  Checked: a link on a pin, cut or slot hole, a link shorting two nets, a missing cut that would
+  short (put back), a cut splitting a net that can't be joined. `respect_edits = false` plans from
+  scratch. The report and build sheet mark them "(yours)".
+
+### Changed
+
+- Straight links first: the planner ranks vertical < along the strip < bus strip with straight
+  drops < whole-pitch diagonal < off-pitch diagonal, and slides a cut (extends a piece) so two
+  pieces share a column or a piece reaches a bus. On the X56 test board: 34 links, no diagonals.
+
 - Build draws every stripboard hole: a board-only `SF_HOLES_<strip>` footprint per strip with a
   plated `B.Cu` pad per free hole on the strip's net (hole cuts as bare holes), so pcbnew and the
   3D viewer show the real board. `draw_holes`, `hole_drill_mm`. `stripforge drc` counts the hole
