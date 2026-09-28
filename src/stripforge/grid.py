@@ -10,11 +10,11 @@ letters ``A..Z, AA, AB, ..., ZZ`` (spreadsheet style) and holes along a strip (c
 from 1. The top-left hole is ``A1``; the 30 x 25 TPI fixture ends at ``Y30``. See
 :func:`hole_label` and :func:`parse_hole`.
 
-Snapping in M1 never moves anything. Each THT pad is mapped to its nearest hole, and the
+Snapping itself never moves anything. Each THT pad is mapped to its nearest hole, and the
 footprint *snaps* when every pad is within ``tol`` of its hole. The offsets are reported so
-slightly off-pitch parts (2.50 mm capacitors, the Littelfuse 395) are visible. For a footprint
-that does not snap we also report the rigid translation that would minimise its worst pad
-offset; applying it is M2's job.
+slightly off-pitch parts (2.50 mm capacitors, the Littelfuse 395) are visible. Every footprint
+also gets the rigid translation that minimises its worst per-axis pad offset (``shift_nm``);
+``analyze.apply_best_fit`` and ``stripforge snap`` apply it (M2).
 """
 
 from __future__ import annotations
@@ -187,7 +187,7 @@ class SnapResult:
     accepted: bool = True
     reason: str = ""
     # Rigid translation (nm) that would minimise the worst per-axis offset, and the resulting
-    # worst offset. Informational only; M1 never moves footprints.
+    # worst offset. Applied by analyze.apply_best_fit / `stripforge snap` (not for slotted parts).
     shift_nm: tuple[int, int] = (0, 0)
     max_dev_after_shift_nm: int = 0
     skipped_pads: list[str] = field(default_factory=list)  # SMD/connect pads: out of scope in v0

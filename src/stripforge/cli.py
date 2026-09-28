@@ -1,21 +1,70 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Somerled Design
-"""StripForge command line. `analyze` works (M1); the other subcommands are stubs (Sketch.md §7)."""
+"""StripForge command line. `analyze` and `snap` work; the other subcommands are stubs (Sketch.md §7)."""
 
 import argparse
 import json
 import sys
+from pathlib import Path
 
 
-def _analyze(args: argparse.Namespace) -> int:
+def _config(args: argparse.Namespace):
     from . import config as config_mod
-    from .analyze import analyze, format_text, to_dict
 
     cfg = config_mod.load(args.config) if args.config else config_mod.BoardConfig()
-    if args.cut_style:
+    if getattr(args, "cut_style", None):
         cfg.cut_style = config_mod.CutStyle(args.cut_style)
     if args.tol is not None:
         cfg.snap_tol_mm = args.tol
+    return cfg
+
+
+def _snap(args: argparse.Namespace) -> int:
+    from .analyze import analyze, apply_best_fit
+    from .board import save_board
+
+    if args.output and Path(args.output).resolve() == Path(args.board).resolve():
+        print("stripforge snap: error: -o must name a new file, not the input board", file=sys.stderr)
+        return 2
+    try:
+        before = analyze(args.board, _config(args))
+        after, moves = apply_best_fit(before)
+    except (OSError, ValueError) as exc:
+        print(f"stripforge snap: error: {exc}", file=sys.stderr)
+        return 2
+    old = {s.ref: s for s in before.snaps}
+    print(f"StripForge snap: {args.board}")
+    print(f"Best-fit moves: {len(moves)} footprint(s)" + ("" if moves else " (nothing to move)"))
+    for s in after.snaps:
+        if s.ref not in moves:
+            continue
+        dx, dy = moves[s.ref]
+        holes = ", ".join(p.where for p in s.pads)
+        print(
+            f"  {s.ref:<5} moved ({dx / 1e6:+.3f}, {dy / 1e6:+.3f}) mm; worst pad offset "
+            f"{old[s.ref].max_dev_nm / 1e6:.3f} -> {s.max_dev_nm / 1e6:.3f} mm [{holes}]"
+        )
+    kept = [s.ref for s in after.snaps if s.slotted and s.accepted]
+    if kept:
+        print(f"  not moved (slotted): {', '.join(kept)}")
+    for s in after.rejected:
+        print(f"  not moved (REJECTED): {s.ref}: {s.reason}")
+    if args.output:
+        try:
+            save_board(after.board, args.output)
+        except OSError as exc:
+            print(f"stripforge snap: error: {exc}", file=sys.stderr)
+            return 2
+        print(f"Wrote {args.output} (only the moved footprints' (at ...) lines differ from the input)")
+    else:
+        print("Dry run: nothing written (use -o <out.kicad_pcb> to write the moved board)")
+    return 1 if after.rejected else 0
+
+
+def _analyze(args: argparse.Namespace) -> int:
+    from .analyze import analyze, format_text, to_dict
+
+    cfg = _config(args)
     try:
         a = analyze(args.board, cfg, netlist=args.netlist)
     except (OSError, ValueError) as exc:
@@ -47,6 +96,20 @@ def main(argv: list[str] | None = None) -> int:
     an.add_argument("--tol", type=float, help="snap tolerance in mm (overrides the config)")
     an.add_argument("--json", action="store_true", help="machine-readable JSON output")
     an.set_defaults(func=_analyze)
+
+    sn = sub.add_parser(
+        "snap",
+        help="move each snapped footprint by its best-fit shift so its pads sit on holes",
+        description="Move every snapped footprint by the rigid shift that best centres its pads on "
+        "their holes (slotted and rejected parts stay put; no rotation). Without -o this is a dry run. "
+        "The output is the input board byte for byte except the moved footprints' (at ...). "
+        "Exit code 0 = all parts snapped, 1 = some rejected (still written), 2 = input error.",
+    )
+    sn.add_argument("board", help="path to .kicad_pcb")
+    sn.add_argument("-o", "--output", help="write the moved board here (must differ from the input)")
+    sn.add_argument("--config", help="stripboard.toml (default: derive the grid from Edge.Cuts)")
+    sn.add_argument("--tol", type=float, help="snap tolerance in mm (overrides the config)")
+    sn.set_defaults(func=_snap)
 
     for name, help_ in [
         ("plan", "snap + split + cut/link proposal, JSON report only"),

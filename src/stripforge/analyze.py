@@ -162,8 +162,12 @@ def _check_netlist(board: Board, path: str) -> tuple[dict, list[str]]:
 
 
 def analyze(board_path: str | Path, cfg: BoardConfig | None = None, netlist: str | None = None) -> Analysis:
+    return analyze_board(load_board(board_path), cfg, netlist)
+
+
+def analyze_board(board: Board, cfg: BoardConfig | None = None, netlist: str | None = None) -> Analysis:
+    """Snap, build strips and split for an in-memory board (see :func:`analyze`)."""
     cfg = cfg or BoardConfig()
-    board = load_board(board_path)
     grid, source = make_grid(board, cfg)
     slot_max = {ref: mm_to_nm(cfg.slot_max_for(ref)) for ref in cfg.slotted}
     snaps = snap_board(
@@ -187,6 +191,29 @@ def analyze(board_path: str | Path, cfg: BoardConfig | None = None, netlist: str
     if netlist:
         a.netlist_summary, a.netlist_warnings = _check_netlist(board, str(netlist))
     return a
+
+
+def best_fit_moves(a: Analysis) -> dict[str, tuple[int, int]]:
+    """``{ref: (dx_nm, dy_nm)}``: the best-fit shift of every snapped footprint that has one.
+
+    The shift centres the footprint's pad offsets on their holes (it minimises the worst per-axis
+    offset), so on-pitch parts land exactly on their holes and a 2.50 mm part splits its error
+    between its pads. Slotted parts and rejected parts are never moved; rotations are out of scope.
+    """
+    return {s.ref: s.shift_nm for s in a.snaps if s.accepted and not s.slotted and s.shift_nm != (0, 0)}
+
+
+def apply_best_fit(a: Analysis) -> tuple[Analysis, dict[str, tuple[int, int]]]:
+    """Move each snapped footprint of ``a.board`` by its best-fit shift and re-analyse.
+
+    The board model (and its S-expression document, for writing) is edited in place. Returns the
+    new analysis and the moves applied.
+    """
+    moves = best_fit_moves(a)
+    for ref, (dx, dy) in moves.items():
+        a.board.footprint(ref).move(dx, dy)
+    netlist = a.netlist_summary["path"] if a.netlist_summary else None
+    return analyze_board(a.board, a.config, netlist), moves
 
 
 # --- reporting -------------------------------------------------------------------------------

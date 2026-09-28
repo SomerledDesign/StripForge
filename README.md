@@ -77,6 +77,7 @@ pip install -e '.[dev]'
 stripforge analyze examples/tpi-fixture/ATtiny10_TPI_Fixture.kicad_pcb \
     --netlist examples/tpi-fixture/ATtiny10_TPI_Fixture.net      # add --json for machine output
 stripforge analyze <board>.kicad_pcb --config examples/x56.toml  # Kevin's X56 board (A1-X56)
+stripforge snap <board>.kicad_pcb -o <out>.kicad_pcb   # move parts by their best-fit shift (dry run without -o)
 stripforge --help      # plan | generate | drc | sheet are still stubs
 ruff check . && ruff format --check .
 pytest

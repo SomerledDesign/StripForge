@@ -146,6 +146,14 @@ Notes:
   the translation that minimises the *maximum* pad-to-node deviation. We never alter footprint
   geometry. If the best max deviation is ≤ `snap_tol` (default **0.15 mm**), we accept and log the
   deviation. Otherwise we reject with a clear error.
+  - **Applying the shift (M2 part A).** `stripforge snap <board> -o <out.kicad_pcb>` (dry run
+    without `-o`; it refuses to overwrite its input) moves every snapped footprint by its best-fit
+    translation: the midpoint of its pads' per-axis offsets, so on-pitch parts land exactly on
+    their holes and a 2.50 mm part splits its 0.04 mm between its pads (0.02 mm each). Only the
+    footprint's `(at …)` changes in the file. Slotted and rejected parts are not moved, and
+    rotation is out of scope. In code: `analyze.best_fit_moves` / `analyze.apply_best_fit` on the
+    in-memory board. Checked with `kicad-cli` 10.0.4: the moved board loads, DRC results are the
+    same as for the input, and the pads follow the footprint.
   - **C1** `CP_Radial … P2.50`, **C2/C3** `C_Disc … P2.50`: 0.04 mm short of pitch. Place one pad
     on a node; the other lands 0.04 mm off, which passes.
   - **F1** Littelfuse 395, 5.08 pitch, second pad 0.01 mm off-axis: passes.
