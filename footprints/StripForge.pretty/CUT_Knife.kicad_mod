@@ -1,0 +1,12 @@
+(footprint "CUT_Knife"
+  (version 20260206) (generator "stripforge_gen_footprints") (layer "F.Cu")
+  (descr "StripForge cut marker: knife cut between two adjacent holes, anchored midway between them (strip runs along X). Board-only, no pads, excluded from BOM and position files. The B.Cu copper gap is the electrical truth; this is only a marker.")
+  (tags "StripForge stripboard cut marker knife board_only")
+  (property "Reference" "REF**" (at 0 -2 0) (layer "User.1") (uuid "68d9b356-d15c-502e-873c-5339a27a0769") (effects (font (size 0.8 0.8) (thickness 0.12))))
+  (property "Value" "CUT_Knife" (at 0 2 0) (layer "F.Fab") (hide yes) (uuid "20d087a3-9e4f-5ea4-8534-4872f019c9b0") (effects (font (size 0.8 0.8) (thickness 0.12))))
+  (property "Datasheet" "" (at 0 0 0) (layer "F.Fab") (hide yes) (uuid "1ddd897a-934d-5b1c-a62c-ec52e924c24b") (effects (font (size 1 1) (thickness 0.15))))
+  (property "Description" "StripForge cut marker: knife cut between two adjacent holes, anchored midway between them (strip runs along X). Board-only, no pads, excluded from BOM and position files. The B.Cu copper gap is the electrical truth; this is only a marker." (at 0 0 0) (layer "F.Fab") (hide yes) (uuid "36466857-fced-5b5f-8f46-bb69a08c45a3") (effects (font (size 1 1) (thickness 0.15))))
+  (attr board_only exclude_from_pos_files exclude_from_bom allow_missing_courtyard)
+  (fp_rect (start -0.3 -1.2) (end 0.3 1.2) (stroke (width 0.1) (type solid)) (fill yes) (layer "User.1") (uuid "ad20da1a-8983-5992-9fae-957dc67656fa"))
+  (embedded_fonts no)
+)
