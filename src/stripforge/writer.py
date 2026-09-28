@@ -246,6 +246,48 @@ def _existing_output(board: Board, grid: Grid) -> tuple[list[list], list[Footpri
     return own_tracks, cuts, foreign
 
 
+@dataclass
+class Prepared:
+    """A board analysed exactly as ``stripforge build`` sees it (shared with ``stripforge sheet``)."""
+
+    analysis: Analysis
+    plan: links_mod.LinkPlan
+    moves: dict[str, tuple[int, int]]
+    config: BoardConfig
+    link_fps: list[Footprint]
+    own_tracks: list[list]
+    old_cuts: list[Footprint]
+    foreign: list[str]
+    warnings: list[str] = field(default_factory=list)
+
+
+def prepare(board: Board, cfg: BoardConfig, netlist: str | None = None) -> Prepared:
+    """Snap, split and plan links on ``board`` the way ``build`` does, without writing anything.
+
+    StripForge's own strips and cut markers from an earlier build are taken out of the in-memory
+    board (so a built board gives the same plan as its placement board) and ``W`` link footprints
+    are left out of the analysis. Raises BuildError if the board has conflicts.
+    """
+    grid, _ = make_grid(board, cfg)
+    own_tracks, old_cuts, foreign = _existing_output(board, grid)
+    root = board.doc.root
+    for node in own_tracks:
+        root.remove(node)
+    for fp in old_cuts:
+        root.remove(fp.node)
+        board.footprints.remove(fp)
+    link_fps = [fp for fp in board.footprints if is_link(fp)]
+    cfg = replace(cfg, offboard_refs=sorted(set(cfg.offboard_refs) | {fp.ref for fp in link_fps}))
+    cfg, clip_warnings = clip_to_outline(board, cfg, grid)
+
+    a = analyze_board(board, cfg, netlist)
+    a, moves = apply_best_fit(a)
+    plan = links_mod.propose(a)
+    if a.conflicts:
+        raise BuildError("the board has conflicts; fix them first:\n  " + "\n  ".join(a.conflicts))
+    return Prepared(a, plan, moves, cfg, link_fps, own_tracks, old_cuts, foreign, clip_warnings)
+
+
 def build(
     board_path: str | Path,
     cfg: BoardConfig,
@@ -263,30 +305,20 @@ def build(
     rules = resources.rules_file(rules)
     board = load_board(board_path)
     grid, _ = make_grid(board, cfg)
-    own_tracks, old_cuts, foreign = _existing_output(board, grid)
+    _, _, foreign = _existing_output(board, grid)
     if foreign:
         raise BuildError(
             f"the input board already has {len(foreign)} track/via item(s) that StripForge did not write "
             f"({', '.join(sorted(set(foreign)))}); build expects the placement board with no copper tracks"
         )
+    prep = prepare(board, cfg, netlist)
+    a, plan, moves, cfg, link_fps = prep.analysis, prep.plan, prep.moves, prep.config, prep.link_fps
     root = board.doc.root
-    for node in own_tracks:
-        root.remove(node)
-    for fp in old_cuts:
-        root.remove(fp.node)
-        board.footprints.remove(fp)
-    link_fps = [fp for fp in board.footprints if is_link(fp)]
-    cfg = replace(cfg, offboard_refs=sorted(set(cfg.offboard_refs) | {fp.ref for fp in link_fps}))
-    cfg, clip_warnings = clip_to_outline(board, cfg, grid)
 
-    a = analyze_board(board, cfg, netlist)
-    a, moves = apply_best_fit(a)
-    plan = links_mod.propose(a)
-    if a.conflicts:
-        raise BuildError("the board has conflicts; fix them first:\n  " + "\n  ".join(a.conflicts))
-
-    res = BuildResult(analysis=a, plan=plan, moves=moves, removed_previous=(len(own_tracks), len(old_cuts)))
-    res.warnings += clip_warnings
+    res = BuildResult(
+        analysis=a, plan=plan, moves=moves, removed_previous=(len(prep.own_tracks), len(prep.old_cuts))
+    )
+    res.warnings += prep.warnings
     res.warnings += resources.check_rules_width(rules.read_text(encoding="utf-8"), cfg.strip_width_mm)
 
     # pass 2: place the W footprints that F8 brought in

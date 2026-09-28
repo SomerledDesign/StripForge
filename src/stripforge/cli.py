@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Somerled Design
-"""StripForge command line: analyze, snap, build and drc (plan and sheet are stubs; Sketch.md §7)."""
+"""StripForge command line: analyze, snap, build, drc and sheet (plan is a stub; Sketch.md §7)."""
 
 from __future__ import annotations
 
@@ -168,6 +168,41 @@ def _drc(args: argparse.Namespace) -> int:
     return 0 if res.ok else 1
 
 
+def _sheet(args: argparse.Namespace) -> int:
+    from .buildsheet import write_sheet
+    from .writer import BuildError
+
+    try:
+        res = write_sheet(
+            args.board,
+            _config(args),
+            args.output,
+            netlist=args.netlist,
+            pdf=not args.no_pdf,
+            png=args.png,
+            chrome=args.chrome,
+            date=args.date,
+        )
+    except (BuildError, OSError, ValueError) as exc:
+        print(f"stripforge sheet: error: {exc}", file=sys.stderr)
+        return 2
+    m = res.model
+    a = m.a
+    print(f"StripForge sheet: {args.board}")
+    print(
+        f"Cuts: {len(a.split.cuts)}, slot jobs: {len(a.slot_jobs)}, wire links: {len(m.links)} "
+        f"({sum(r.status == 'placed' for r in m.links)} placed), "
+        f"parts: {sum(r.group != 0 for r in m.parts)}, "
+        f"nets to check: {len(m.nets)}"
+    )
+    if m.built != "built":
+        print(f"NOTE: {m.warnings[0]}")
+    for n in res.notes:
+        print(f"note: {n}")
+    print("Wrote: " + ", ".join(res.outputs))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="stripforge", description=__doc__)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -238,9 +273,33 @@ def main(argv: list[str] | None = None) -> int:
     dr.add_argument("--json", action="store_true", help="machine-readable summary")
     dr.set_defaults(func=_drc, tol=None)
 
+    sh = sub.add_parser(
+        "sheet",
+        help="write a printable build sheet (HTML, PDF when Chrome is found) for a built board",
+        description="Write a self-contained, printable HTML build sheet for a board built with 'stripforge "
+        "build': the copper side MIRRORED (as you hold the board to cut) with every cut, the component side "
+        "with parts and wire links, checklists (cuts by strip, slot jobs, links, parts in build order), "
+        "a net continuity table and warnings. Also writes <out>.copper.svg, <out>.component.svg and "
+        "<out>.cuts.csv, "
+        "and <out>.pdf through headless Chrome/Chromium when one is found. "
+        "Exit code 0 = written, 2 = input error.",
+    )
+    sh.add_argument("board", help="the built .kicad_pcb (the output of 'stripforge build')")
+    sh.add_argument("-o", "--output", required=True, help="the .html to write")
+    sh.add_argument("--netlist", help="kicadsexpr .net file to cross-check pad nets against")
+    sh.add_argument("--config", help="stripboard.toml (default: derive the grid from Edge.Cuts)")
+    sh.add_argument("--cut-style", choices=["hole", "knife", "auto"], help="override the config")
+    sh.add_argument("--tol", type=float, help="snap tolerance in mm (overrides the config)")
+    sh.add_argument("--no-pdf", action="store_true", help="HTML (and SVG/CSV) only")
+    sh.add_argument("--png", action="store_true", help="also write PNG previews of both views (needs Chrome)")
+    sh.add_argument(
+        "--chrome", help="path to Chrome/Chromium (default: $STRIPFORGE_CHROME, PATH, macOS apps)"
+    )
+    sh.add_argument("--date", help="date printed in the header (default: today, YYYY-MM-DD)")
+    sh.set_defaults(func=_sheet)
+
     for name, help_ in [
         ("plan", "snap + split + cut/link proposal, JSON report only"),
-        ("sheet", "export copper-side build sheet (SVG/PDF) + CSVs"),
     ]:
         sp = sub.add_parser(name, help=help_ + " (not implemented yet)")
         sp.add_argument("board", help="path to .kicad_pcb")

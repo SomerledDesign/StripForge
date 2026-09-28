@@ -47,3 +47,6 @@ select = ["E", "F", "W", "I", "B", "UP"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/stripforge/buildsheet.py" = ["E501"]  # SVG/HTML markup strings read better unsplit
