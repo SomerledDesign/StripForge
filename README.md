@@ -91,8 +91,8 @@ is private.
    StripForge toolbar buttons appear in the PCB editor:
    - **StripForge: Analyze**: a read-only report: snap, cuts, links needed, slot jobs, hints.
    - **StripForge: Build strips**: builds **in the open board itself** (`<name>.kicad_pcb`, the
-     project's own board, so F8 keeps working), after saving it and, the first time, copying it to
-     `<name>-pre-stripbuild.kicad_pcb`. It then reloads the board in the PCB editor. Writes
+     project's own board, so F8 keeps working), after saving it and backing it up to
+     `<name>-pre-stripbuild.kicad_pcb` (older backups rotate to `-1`, `-2`, …). It then reloads the board in the PCB editor. Writes
      `<name>.kicad_dru` and the link lists (`<name>-stripforge.links.*`) next to it. See
      **Where the build goes** below; `output = "separate"` gives the old `<name>-stripforge.kicad_pcb`.
    - **StripForge: Run DRC**: kicad-cli DRC with schematic parity on the built board, classified.
@@ -172,16 +172,28 @@ build goes** below for which file):
 | toml key | values | default |
 |---|---|---|
 | `output` | `"in_place"`: build into the board itself (`<name>.kicad_pcb`) · `"separate"`: write `<name>-stripforge.kicad_pcb` and leave the board alone | `"in_place"` |
+| `backup_keep` | how many `-pre-stripbuild` backups to keep in all (the unnumbered one counts as 1); `0` keeps every one | `0` |
 
 In place is the default because F8 (Update PCB from Schematic) only works in the project's own
 board, opened from the KiCad project manager: in a separate file pcbnew says "PCB editor is opened
-in stand-alone mode". Before the first write StripForge copies the board to
-**`<name>-pre-stripbuild.kicad_pcb`** (only if that file doesn't exist yet, so a rebuild never
-replaces the pristine copy). The report prints its path and whether it was made now or kept.
-**To undo the build:** close the board, delete `<name>.kicad_pcb`, rename
-`<name>-pre-stripbuild.kicad_pcb` back to `<name>.kicad_pcb` (and `<name>-pre-stripbuild.kicad_dru`
-to `<name>.kicad_dru` if there is one). Delete the backup when you want the next build's board to
-become the new pristine copy. On the command line `--separate` (or `-o <other file>`) overrides the
+in stand-alone mode".
+
+**Backups rotate like logrotate.** Before every in-place build, just before the board is written:
+1. if `<name>-pre-stripbuild.kicad_pcb` exists, the numbered backups move up by one, highest number
+   first (`-pre-stripbuild-2` → `-3`, then `-1` → `-2`), and then `-pre-stripbuild` → `-1`;
+2. the board as it is right now is saved as the new **`<name>-pre-stripbuild.kicad_pcb`**.
+
+So the unnumbered backup is always the board just before the latest build, `-1` the one before
+that, and the highest number is the oldest (the first build's placement board, unless `backup_keep`
+deleted it). Nothing is ever
+overwritten: if a rename fails or its target already exists, the build stops with an error before
+the board or `.kicad_dru` is written (the renames already done stay done; nothing is lost).
+`backup_keep = N` (default `0` = no limit) deletes the oldest numbered backups after rotating so
+that N backups remain in all. The report prints the backup path, which backups moved, and how to
+undo. **To undo the latest build:** close the board, delete `<name>.kicad_pcb` and rename
+`<name>-pre-stripbuild.kicad_pcb` back to `<name>.kicad_pcb`. To go further back, rename `-1`, `-2`,
+… instead. A `.kicad_dru` with other DRC rules is copied once to `<name>-pre-stripbuild.kicad_dru`
+(it doesn't rotate); rename it back too if you undo the first build. On the command line `--separate` (or `-o <other file>`) overrides the
 toml for one run; `-o <board> --in-place` is the same as the default. A `-stripforge` board (from
 `output = "separate"`) is always rebuilt in place, with no backup.
 
@@ -314,7 +326,7 @@ and says to run `link-symbols`. `place_links` is off by default. With it on, don
 `W` symbols by hand: F8 would bring in a second footprint for each link.
 
 **The same flow in KiCad** (open the project in the KiCad project manager, then its board):
-1. Click **Build strips**. The board is saved, backed up once to `<name>-pre-stripbuild.kicad_pcb`,
+1. Click **Build strips**. The board is saved, backed up to `<name>-pre-stripbuild.kicad_pcb`,
    built in place and reloaded. The report lists the `W` links.
 2. Add them to the schematic and press F8 in the *same* board.
 3. Click **Build strips** again: the links are placed on their holes (your moved cuts and links
@@ -339,7 +351,7 @@ you did ("locked") and only fills in what is still unjoined. Two ways:
    off-pitch diagonals), or change it in the schematic and press F8. Delete a link you don't want
    (and remove it from the schematic).
 4. Click **Build strips** with that board open: it is saved, rebuilt **in place** (same file),
-   keeping your markers and links where they are, and reloaded (the backup is not touched).
+   keeping your markers and links where they are, and reloaded (backed up first, like every build).
    The report lists your links as "(yours, kept)", the new ones to add, and any problem.
 
 **In `stripboard.toml`, as text** (easiest; applied on every build, also on the placement board):

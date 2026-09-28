@@ -519,7 +519,7 @@ copy (library tables with `${KIPRJMOD}` made absolute) or in place with `.bak` b
 Update Schematic from PCB (`BACK_ANNOTATE`) only changes existing symbols; for a footprint with no
 symbol it reports "Cannot find symbol for footprint".
 
-### 4.15 Build in place, with a backup (as built)
+### 4.15 Build in place, with rotating backups (as built)
 
 F8 only runs in the project's own board opened through the project manager. In the separate
 `-stripforge` board pcbnew is standalone ("Cannot update the PCB because PCB editor is opened in
@@ -527,11 +527,19 @@ stand-alone mode"), and that board would look for a `-stripforge.kicad_sch`. So 
 "in_place"` (the default) builds into `<name>.kicad_pcb` itself. `output = "separate"` keeps the old
 file, and a `-stripforge` board is still rebuilt in place.
 
-- **Backup:** just before the first write, `writer.build` copies the board (`shutil.copy2`) to
-  `<name>-pre-stripbuild.kicad_pcb`, only if that file is missing. A rebuild never replaces it, so
-  it stays the pristine placement board. A differing `.kicad_dru` with no StripForge rules is
-  copied to `<name>-pre-stripbuild.kicad_dru` the same way. To revert: delete the built board and
-  rename the backup. `BuildResult.backup` / `backup_created` feed the reports.
+- **Backups rotate (Kevin's rule, like logrotate):** just before every in-place write,
+  `writer.rotate_backups` does the following:
+  1. If `<name>-pre-stripbuild.kicad_pcb` exists, it renames `-pre-stripbuild-<n>` to `-<n+1>`,
+     highest n first (gaps are kept), then the unnumbered file to `-1`.
+  2. It copies the board as it is now (`shutil.copy2`) to `<name>-pre-stripbuild.kicad_pcb`.
+  3. `backup_keep = N` (0 = unlimited) then deletes numbered backups with n ≥ N, leaving N files.
+
+  A rename whose target exists (`os.rename` would silently replace it on POSIX), or that fails,
+  raises `BuildError` before the board or `.kicad_dru` is written. The unnumbered backup is always
+  the board just before the latest build. To revert one build: delete the board and rename the
+  unnumbered backup back. A differing `.kicad_dru` with no StripForge rules is copied once to
+  `<name>-pre-stripbuild.kicad_dru`. `BuildResult.backup`, `backups_shifted` and `backups_pruned`
+  feed the reports (`writer.backup_note`).
 - **Rebuilds** use the existing in-place logic: StripForge strips its own tracks, `CUT` markers and
   `SF_HOLES_*`, reads the user's markers and W links as locked edits, and rewrites them. The output
   stays deterministic.

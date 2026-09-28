@@ -31,14 +31,16 @@ rewritten, so a board can be rebuilt after F8. UUIDs are deterministic (uuid5), 
 unchanged board gives a byte-identical file.
 
 Output (``output`` in the config): ``"in_place"`` (default) writes into the board itself, the
-project's own ``<name>.kicad_pcb``, after copying it once to ``<name>-pre-stripbuild.kicad_pcb``
-(never replaced by a rebuild; to undo, delete the built board and rename the backup back);
+project's own ``<name>.kicad_pcb``, after saving it as it is to ``<name>-pre-stripbuild.kicad_pcb``
+(older backups rotate to ``-1``, ``-2``, ...; to undo the latest build, delete the built board and
+rename the unnumbered backup back);
 ``"separate"`` writes ``<name>-stripforge.kicad_pcb`` and leaves the board alone. The link files
 are ``<name>-stripforge.links.json/.csv/.txt`` either way.
 """
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import uuid
@@ -77,8 +79,8 @@ BACKUP_SUFFIX = "-pre-stripbuild"  # output = "in_place": <name>-pre-stripbuild.
 
 
 def base_stem(board: str | Path) -> str:
-    """``fixture`` for ``fixture.kicad_pcb``, ``fixture-stripforge.kicad_pcb`` and the backup."""
-    s = Path(board).stem
+    """``fixture`` for ``fixture.kicad_pcb``, ``fixture-stripforge.kicad_pcb`` and the backups."""
+    s = re.sub(r"(?<=.)" + re.escape(BACKUP_SUFFIX) + r"-\d+$", "", Path(board).stem)
     for suffix in (BUILT_SUFFIX, BACKUP_SUFFIX):
         if s.endswith(suffix) and len(s) > len(suffix):
             return s[: -len(suffix)]
@@ -91,10 +93,90 @@ def separate_output(board: str | Path) -> Path:
     return p.with_name(base_stem(p) + BUILT_SUFFIX + ".kicad_pcb")
 
 
-def backup_path(board: str | Path) -> Path:
-    """``<name>-pre-stripbuild.kicad_pcb``: the copy of the board before the first in-place build."""
+def backup_path(board: str | Path, n: int = 0) -> Path:
+    """``<name>-pre-stripbuild.kicad_pcb`` (the board just before the latest in-place build), or
+    ``<name>-pre-stripbuild-<n>.kicad_pcb`` (n builds further back)."""
     p = Path(board)
-    return p.with_name(p.stem + BACKUP_SUFFIX + p.suffix)
+    return p.with_name(p.stem + BACKUP_SUFFIX + (f"-{n}" if n else "") + p.suffix)
+
+
+def numbered_backups(board: str | Path) -> dict[int, Path]:
+    """The existing ``<name>-pre-stripbuild-<n>`` files next to ``board``, by n."""
+    p = Path(board)
+    pat = re.compile(re.escape(p.stem + BACKUP_SUFFIX) + r"-([1-9]\d*)" + re.escape(p.suffix) + "$")
+    found = {}
+    if p.parent.is_dir():
+        for f in p.parent.iterdir():
+            m = pat.match(f.name)
+            if m and f.is_file():
+                found[int(m.group(1))] = f
+    return found
+
+
+def backup_note(res: BuildResult, board: str | Path) -> str:
+    """How the backups rotated and how to undo, for the CLI and plugin reports."""
+    name = Path(board).name
+    parts = []
+    if res.backups_shifted:
+        older = [new for _, new in res.backups_shifted]
+        parts.append(f"Older backups moved up one: {', '.join(reversed(older))}.")
+    if res.backups_pruned:
+        parts.append(f"Deleted by backup_keep: {', '.join(res.backups_pruned)}.")
+    parts.append(
+        f"To undo this build: delete {name} and rename {Path(res.backup).name} to {name} "
+        f"(-1 is the board before the previous build, and so on)."
+    )
+    return " ".join(parts)
+
+
+@dataclass
+class Rotation:
+    backup: Path  # the new unnumbered backup
+    shifted: list[tuple[str, str]] = field(default_factory=list)  # (old name, new name), in order
+    pruned: list[str] = field(default_factory=list)  # deleted by backup_keep
+    warnings: list[str] = field(default_factory=list)
+
+
+def rotate_backups(board: str | Path, keep: int = 0) -> Rotation:
+    """Back ``board`` up like logrotate before an in-place build: shift ``-pre-stripbuild-<n>`` to
+    ``-<n+1>`` (highest first), the unnumbered backup to ``-1``, then copy the board as it is now
+    to the unnumbered name. ``keep`` > 0 then deletes the oldest numbered backups beyond ``keep``
+    files in all. Nothing is ever overwritten: a rename whose target exists, or that fails, raises
+    :class:`BuildError` before the board is copied (or written)."""
+    board = Path(board)
+    head_backup = backup_path(board)
+    rot = Rotation(backup=head_backup)
+    if head_backup.exists():
+        chain = numbered_backups(board)
+        moves = [(chain[n], backup_path(board, n + 1)) for n in sorted(chain, reverse=True)]
+        moves.append((head_backup, backup_path(board, 1)))
+        for src, dst in moves:
+            if dst.exists():
+                raise BuildError(
+                    f"backup rotation: {dst.name} already exists; not overwriting it (nothing built)"
+                )
+            try:
+                os.rename(src, dst)
+            except OSError as exc:
+                raise BuildError(
+                    f"backup rotation: could not rename {src.name} to {dst.name} ({exc}); stopped before "
+                    "writing the board"
+                ) from exc
+            rot.shifted.append((src.name, dst.name))
+    try:
+        shutil.copy2(board, head_backup)
+    except OSError as exc:
+        raise BuildError(f"could not back the board up to {head_backup.name} ({exc}); nothing built") from exc
+    if keep > 0:
+        for n, f in sorted(numbered_backups(board).items(), reverse=True):
+            if n < keep:
+                break
+            try:
+                f.unlink()
+                rot.pruned.append(f.name)
+            except OSError as exc:
+                rot.warnings.append(f"backup_keep: could not delete {f.name} ({exc})")
+    return rot
 
 
 def resolve_output(
@@ -135,8 +217,9 @@ class BuildResult:
     removed_previous: tuple[int, int] = (0, 0)  # (tracks, cut markers) from an earlier build
     holes_drawn: int = 0  # stripboard hole pads (plated and bare) written
     stretches: list = field(default_factory=list)  # lead-stretch suggestions (report only)
-    backup: str | None = None  # in-place build: <name>-pre-stripbuild.kicad_pcb
-    backup_created: bool = False  # made by this build (else it was already there and was kept)
+    backup: str | None = None  # in-place build: <name>-pre-stripbuild.kicad_pcb (made by this build)
+    backups_shifted: list = field(default_factory=list)  # (old, new) names rotated up by one
+    backups_pruned: list = field(default_factory=list)  # deleted by backup_keep
     warnings: list[str] = field(default_factory=list)
     outputs: list[str] = field(default_factory=list)
 
@@ -582,8 +665,8 @@ def build(
 
     ``in_place`` allows ``out_path`` to be ``board_path``: build into the board itself (the default
     ``output = "in_place"``) or rebuild a built board after editing it (your cuts and links are
-    kept; see :mod:`stripforge.edits`). Before the first in-place write the board is copied to
-    ``<name>-pre-stripbuild.kicad_pcb``, unless that file already exists."""
+    kept; see :mod:`stripforge.edits`). Before an in-place write the board is backed up with
+    :func:`rotate_backups` (``cfg.backup_keep``)."""
 
     board_path, out_path = Path(board_path), Path(out_path)
     if out_path.resolve() == board_path.resolve() and not in_place:
@@ -695,13 +778,12 @@ def build(
     res.warnings += _compare_saved(link_file(out_path, ".json"), plan)
     dru = out_path.with_suffix(".kicad_dru")
     if out_path.resolve() == board_path.resolve() and not board_path.stem.endswith(BUILT_SUFFIX):
-        # in place: keep a copy of the board as it was before the first build (never replaced; a
-        # -stripforge board is itself a copy made by output = "separate", so it gets none)
-        backup = backup_path(board_path)
-        res.backup = str(backup)
-        if not backup.exists():
-            shutil.copy2(board_path, backup)
-            res.backup_created = True
+        # in place: back up the board as it is now, rotating older backups (a -stripforge board is
+        # itself a copy made by output = "separate", so it gets none)
+        rot = rotate_backups(board_path, cfg.backup_keep)
+        res.backup = str(rot.backup)
+        res.backups_shifted, res.backups_pruned = rot.shifted, rot.pruned
+        res.warnings += rot.warnings
         rules_text = rules.read_bytes()
         theirs = dru.read_bytes() if dru.is_file() else rules_text
         if theirs != rules_text and b"SF strip width" not in theirs:  # not an older StripForge copy

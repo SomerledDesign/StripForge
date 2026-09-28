@@ -15,9 +15,10 @@ created with ``--system-site-packages``, so KiCad's wxPython is there for dialog
 
 "Build strips" (``output = "in_place"``, the default) saves the open board, builds into that same
 file (the project's own ``<name>.kicad_pcb``, so F8 and schematic parity keep working), and reloads
-it in the editor (the API's RevertDocument). Before the first build the board is copied to
-``<name>-pre-stripbuild.kicad_pcb``; a rebuild never replaces that copy, and keeps your cuts and
-links where you put them. To undo: delete the built board and rename the backup back.
+it in the editor (the API's RevertDocument). Every build first saves the board as it is to
+``<name>-pre-stripbuild.kicad_pcb``, rotating older backups to ``-1``, ``-2``, ... (``backup_keep``);
+a rebuild keeps your cuts and links where you put them. To undo the latest build: delete the built
+board and rename the unnumbered backup back.
 ``output = "separate"`` keeps the old behaviour: ``<name>-stripforge.kicad_pcb`` next to the board,
 the open board left alone. "Run DRC" and "Build sheet" work on the built board. Why not live edits
 through the API: see Sketch.md §4.10.
@@ -29,6 +30,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import re
 import subprocess
 import sys
 import tempfile
@@ -71,8 +73,8 @@ def board_path(project_dir: str, board_filename: str) -> Path | None:
 
 
 def base_stem(board: Path) -> str:
-    """``fixture`` for ``fixture.kicad_pcb``, ``fixture-stripforge.kicad_pcb`` and the backup."""
-    s = board.stem
+    """``fixture`` for ``fixture.kicad_pcb``, ``fixture-stripforge.kicad_pcb`` and the backups."""
+    s = re.sub(r"(?<=.)" + re.escape(BACKUP_SUFFIX) + r"-\d+$", "", board.stem)
     for suffix in (BUILT_SUFFIX, BACKUP_SUFFIX):
         if s.endswith(suffix) and len(s) > len(suffix):
             return s[: -len(suffix)]
@@ -88,7 +90,7 @@ def built_path(board: Path, mode: str = "in_place") -> Path:
 
 
 def backup_path(board: Path) -> Path:
-    """``<name>-pre-stripbuild.kicad_pcb``, made before the first in-place build."""
+    """``<name>-pre-stripbuild.kicad_pcb``: the board just before the latest in-place build."""
     return board.with_name(board.stem + BACKUP_SUFFIX + board.suffix)
 
 
@@ -255,8 +257,9 @@ class Ui:
             dlg = wx.MessageDialog(
                 None,
                 f"Build strips writes into this board file and then reloads it:\n{board}\n\n"
-                f"The board is saved first. Before the first build a copy is kept as\n"
-                f"{backup_path(board).name} (to undo: delete the built board, rename that copy back).",
+                f"The board is saved first and backed up as\n{backup_path(board).name}\n"
+                f"(older backups move up to -1, -2, ...; to undo: delete the built board and\n"
+                f"rename that backup back).",
                 "StripForge",
                 wx.OK | wx.CANCEL | wx.ICON_QUESTION,
             )
@@ -394,8 +397,6 @@ def _run_action(
     mode = output_mode(config)
     out_board = built_path(board, mode)
     in_place = action == "build" and out_board == board
-    backup = backup_path(board)
-    had_backup = backup.is_file()
     rebuild = action == "build" and has_strips(board)
     if rebuild:
         notes.append(
@@ -433,14 +434,10 @@ def _run_action(
         shown = out_board
         if in_place:
             notes.append(f"Built {shown.name} in place. {RELOAD_HINT}")
-            if backup.is_file() and not is_output_name(board):
-                how = (
-                    "kept as it was (a rebuild never replaces it)" if had_backup else "made before this build"
-                )
-                notes.append(f"Backup: {backup} ({how}). To undo the build: delete {board.name} and "
-                             f"rename {backup.name} to {board.name}.")  # fmt: skip
-                # the CLI report says the same; show it once
-                out = "\n".join(line for line in out.splitlines() if not line.startswith("Backup: "))
+            # the CLI's backup line (path, rotation, how to undo) goes up here, once
+            lines = out.splitlines()
+            notes += [line for line in lines if line.startswith("Backup: ")]
+            out = "\n".join(line for line in lines if not line.startswith("Backup: "))
         else:
             notes.append(f"Wrote {shown.name} next to the board (output = \"separate\"); open it in KiCad to "
                          "see the strips. The open board was not changed.")  # fmt: skip

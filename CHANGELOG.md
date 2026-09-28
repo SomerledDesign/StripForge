@@ -12,10 +12,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `output` toml key: `"in_place"` (default) builds into the project's own `<name>.kicad_pcb`;
   `"separate"` writes `<name>-stripforge.kicad_pcb` as before. `build --separate` overrides it for
   one run, and `-o` is now optional.
-- In-place builds first copy the board to `<name>-pre-stripbuild.kicad_pcb`, only when that file
-  doesn't exist yet, so a rebuild never replaces the pristine copy. A different existing
-  `.kicad_dru` is kept as `<name>-pre-stripbuild.kicad_dru`. The CLI and plugin reports give the
-  backup path, whether it was made or kept, and how to undo.
+- Rotating backups for in-place builds, like logrotate. Before every build the numbered backups
+  move up one, highest first (`-pre-stripbuild-2` → `-3`, `-1` → `-2`), and `-pre-stripbuild`
+  becomes `-1`. Then the board as it is now is saved as `<name>-pre-stripbuild.kicad_pcb`.
+  - Nothing is overwritten: a failed or blocked rename stops the build before the board is written.
+  - `backup_keep = N` keeps N backups in all; the default, 0, keeps every one.
+  - A different existing `.kicad_dru` is kept once as `<name>-pre-stripbuild.kicad_dru`.
+  - The CLI and plugin reports give the backup path, which backups moved, and how to undo.
 
 - `symbols/StripForge.kicad_sym`: the generic `StripForge:Link` symbol for wire links (2 passive
   pins, reference `W`, value `Link`, empty footprint, footprint filter `Link_*`). It is bundled in the

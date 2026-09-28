@@ -81,6 +81,7 @@ def test_path_helpers(sfp, tmp_path):
     b = tmp_path / "fix.kicad_pcb"
     assert sfp.base_stem(b) == "fix" and sfp.base_stem(tmp_path / "fix-stripforge.kicad_pcb") == "fix"
     assert sfp.base_stem(tmp_path / "fix-pre-stripbuild.kicad_pcb") == "fix"
+    assert sfp.base_stem(tmp_path / "fix-pre-stripbuild-12.kicad_pcb") == "fix"
     assert sfp.built_path(b) == b  # output = "in_place" (default)
     assert sfp.built_path(b, "separate") == tmp_path / "fix-stripforge.kicad_pcb"
     assert (
@@ -206,13 +207,15 @@ def test_run_analyze_build_sheet_without_kicad(sfp, project):
     backup = tmp / "fix-pre-stripbuild.kicad_pcb"
     assert path == tmp / "fix.kicad_pcb" and "Built fix.kicad_pcb in place" in text
     assert board.saved == 3 and board.reverted == 1 and "Reloaded the built board" in text
-    assert f"Backup: {backup} (made before this build)" in text and "StripForge build:" in text
+    assert f"Backup: {backup} (the board just before this build)" in text and "StripForge build:" in text
     assert text.count("Backup: ") == 1
     assert backup.read_bytes() == original and b"StripForge:CUT_" in (tmp / "fix.kicad_pcb").read_bytes()
     assert (tmp / "fix-stripforge.links.json").is_file()
 
-    assert sfp.run("build") == 0  # rebuild: the backup stays the pristine copy
-    assert "kept as it was" in shown[-1][1] and backup.read_bytes() == original
+    assert sfp.run("build") == 0  # rebuild: the original moves up to -1
+    assert "moved up one: fix-pre-stripbuild-1.kicad_pcb" in shown[-1][1]
+    assert (tmp / "fix-pre-stripbuild-1.kicad_pcb").read_bytes() == original
+    assert backup.read_bytes() == (tmp / "fix.kicad_pcb").read_bytes()  # the built board, before this build
 
     assert sfp.run("sheet") == 0
     browser, (title, text, path) = shown[-2], shown[-1]

@@ -114,7 +114,7 @@ def _analyze(args: argparse.Namespace) -> int:
 
 def _build(args: argparse.Namespace) -> int:
     from . import links as links_mod
-    from .writer import BuildError, build, resolve_output
+    from .writer import BuildError, backup_note, build, resolve_output
 
     try:
         cfg = _config(args)
@@ -137,11 +137,7 @@ def _build(args: argparse.Namespace) -> int:
     hole = sum(1 for c in a.split.cuts if c.style == "hole")
     print(f"StripForge build: {args.board} -> {out}" + (" (in place)" if in_place else ""))
     if res.backup:
-        how = "made now, before the first write" if res.backup_created else "kept as it was (not replaced)"
-        print(
-            f"Backup: {res.backup} ({how}). To undo the build: delete {Path(out).name} and rename the "
-            f"backup to {Path(out).name}"
-        )
+        print(f"Backup: {res.backup} (the board just before this build). {backup_note(res, out)}")
     print(
         f"Parts: {len(a.snapped)} snapped, {len(res.moves)} moved by their best-fit shift, "
         f"{len(a.rejected)} rejected"
@@ -324,8 +320,9 @@ def main(argv: list[str] | None = None) -> int:
         description="Snap the parts, split the strips by net, propose wire links and write the built board: "
         "B.Cu strip tracks on their nets, real gaps at the cuts with embedded StripForge:CUT_* markers, "
         'and any W link footprints (after F8) placed on their holes. By default (output = "in_place") '
-        "the board itself is rewritten, after copying it once to <name>-pre-stripbuild.kicad_pcb (a "
-        "rebuild never replaces that copy; undo = delete the built board, rename the backup back); "
+        "the board itself is rewritten, after saving it as it is to <name>-pre-stripbuild.kicad_pcb; "
+        "older backups rotate to -1, -2, ... like logrotate (backup_keep = N keeps N in all, 0 = all); "
+        "undo the latest build = delete the built board, rename the unnumbered backup back); "
         '--separate / output = "separate" writes <name>-stripforge.kicad_pcb instead. Also writes '
         "<out>.kicad_dru (the StripForge rules) and <name>-stripforge.links.json/.csv/.txt (the link "
         "proposal and schematic instructions). "
@@ -336,7 +333,7 @@ def main(argv: list[str] | None = None) -> int:
     bu.add_argument(
         "-o",
         "--output",
-        help='the .kicad_pcb to write (default, output = "in_place": the board itself, after a one-time '
+        help='the .kicad_pcb to write (default, output = "in_place": the board itself, after a rotating '
         'backup to <name>-pre-stripbuild.kicad_pcb; output = "separate": <name>-stripforge.kicad_pcb)',
     )
     bu.add_argument(

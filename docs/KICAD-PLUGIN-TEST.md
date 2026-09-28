@@ -21,13 +21,15 @@ KiCad"). Use a **copy** of a project, because Build strips writes files next to 
 7. Click **StripForge: Build strips** (open the board from the KiCad project manager, so F8 works).
    - Expect a "Save and build" dialog (OK/Cancel), then the report with "Built <name>.kicad_pcb in
      place. Reloaded the built board in the PCB editor." and "Backup: …/<name>-pre-stripbuild.kicad_pcb
-     (made before this build)".
+     (the board just before this build)".
    - The open board now shows B.Cu strips, the cut markers on User.1 and the hole pads.
    - Press F8 after adding the W links to the schematic (or with `place_links`, after
      `stripforge link-symbols <board> --in-place`), then click **Build strips** again: the links
-     are placed and the report says the backup was "kept as it was". The backup's bytes don't change.
-   - To undo: close the board, delete `<name>.kicad_pcb`, rename `<name>-pre-stripbuild.kicad_pcb`
-     back.
+     are placed. The report says "Older backups moved up one: <name>-pre-stripbuild-1.kicad_pcb"
+     (that is the first build's placement board; the unnumbered one is the board just before this
+     build).
+   - To undo the latest build: close the board, delete `<name>.kicad_pcb`, rename
+     `<name>-pre-stripbuild.kicad_pcb` back (or `-1`, `-2`, … to go further back).
 8. Click **StripForge: Run DRC**.
    - Expect "parity: checked against the schematic" (the board is `<name>.kicad_pcb`, so kicad-cli
      uses `<name>.kicad_sch` directly).
