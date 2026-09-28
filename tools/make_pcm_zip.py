@@ -13,6 +13,7 @@ Archive layout (what the PCM expects for a ``plugin`` package; docs/PCM-SUBMISSI
     plugins/sf_*.py, plugins/stripforge_plugin.py, plugins/icons/
     plugins/stripforge/      the StripForge package (src/stripforge, no caches)
     plugins/footprints/StripForge.pretty/, plugins/rules/stripforge.kicad_dru, plugins/LICENSE
+    plugins/symbols/StripForge.kicad_sym  the generic StripForge:Link symbol (stripforge link-symbols)
 
 The zip is deterministic (sorted entries, fixed timestamps and permissions), so the same tree always
 gives the same sha256. It prints the sha256, download_size and install_size for the ``versions``
@@ -74,6 +75,7 @@ def entries(root: Path = ROOT) -> list[tuple[Path, str]]:
     items += _files(root / "src/stripforge", "plugins/stripforge")
     items += _files(root / "footprints/StripForge.pretty", "plugins/footprints/StripForge.pretty")
     items += _files(root / "rules/stripforge.kicad_dru", "plugins/rules/stripforge.kicad_dru")
+    items += _files(root / "symbols/StripForge.kicad_sym", "plugins/symbols/StripForge.kicad_sym")
     items += _files(root / "LICENSE", "plugins/LICENSE")
     return sorted(items, key=lambda t: t[1])
 

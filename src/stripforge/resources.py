@@ -53,6 +53,11 @@ def rules_file(explicit: str | Path | None = None) -> Path:
     return _find(explicit, "STRIPFORGE_RULES", "rules/stripforge.kicad_dru", "DRC rules file")
 
 
+def symbol_lib(explicit: str | Path | None = None) -> Path:
+    """The ``StripForge.kicad_sym`` symbol library (the generic ``StripForge:Link`` symbol)."""
+    return _find(explicit, "STRIPFORGE_SYMBOLS", "symbols/StripForge.kicad_sym", "symbol library")
+
+
 def footprint_file(name: str, library: str | Path | None = None) -> Path:
     """Path of ``<name>.kicad_mod`` (``Link_P7.62``, ``CUT_Hole``) in the library."""
     p = library_dir(library) / f"{name}.kicad_mod"

@@ -1397,8 +1397,10 @@ def format_text(plan: LinkPlan, allowance_in: float = 0.0) -> str:
         out += [
             "",
             "To add the links to the schematic (pass 2):",
-            "  1. In Eeschema, place one 2-pin jumper symbol per link, e.g. Jumper:Jumper_2_Bridged",
-            "     (or Device:R with value 0R). Set its Reference and Footprint as listed below.",
+            "  (Or let the board lead: build with --place-links, then 'stripforge link-symbols' writes",
+            "   the StripForge:Link symbols into the schematic for you.)",
+            "  1. In Eeschema, place one 2-pin link symbol per link: StripForge:Link (symbols/), or",
+            "     Jumper:Jumper_2_Bridged, or Device:R 0R. Set its Reference and Footprint as below.",
             "  2. Connect BOTH pins of each link to the listed net (wire or net label on each pin).",
             "  3. Press F8 (Update PCB from Schematic) on the placement board, then run",
             "     'stripforge build' again: it places each W footprint on its two holes.",

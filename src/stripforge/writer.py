@@ -44,7 +44,16 @@ from . import links as links_mod
 from . import resources
 from . import stretch as stretch_mod
 from .analyze import Analysis, analyze_board, apply_best_fit, make_grid
-from .board import HOLES_LIB_ID, Board, Footprint, _norm_angle, load_board, rotate_nm, save_board
+from .board import (
+    HOLES_LIB_ID,
+    Board,
+    Footprint,
+    _norm_angle,
+    _parse_footprint,
+    load_board,
+    rotate_nm,
+    save_board,
+)
 from .config import BoardConfig
 from .grid import Grid, Node, row_label
 from .sexpr import Sym, atom, find, find_all, head, loads, mm_to_nm, nm_to_mm_text
@@ -238,6 +247,76 @@ def set_rotation(fp: Footprint, angle: float) -> None:
 def place_at(fp: Footprint, x_nm: int, y_nm: int, angle: float = 0.0) -> None:
     set_rotation(fp, angle)
     fp.move(x_nm - fp.x_nm, y_nm - fp.y_nm)
+
+
+# --- placing new W links (place_links) ---------------------------------------------------------
+
+LINK_VALUE = "Link"  # the Value of the StripForge:Link symbol
+
+
+def link_symbol_uuid(ref: str) -> str:
+    """The uuid StripForge gives the ``StripForge:Link`` symbol of link ``ref`` (deterministic)."""
+    return _u(f"link-symbol/{ref}")
+
+
+def _sheet_of(fp: Footprint) -> tuple[str, str, str] | None:
+    """(sheet path prefix, sheetname, sheetfile) of a footprint linked to a schematic symbol."""
+    node = fp.node or []
+    path = atom(find(node, "path"), 1)
+    if not path or "/" not in path:
+        return None
+    prefix = path.rsplit("/", 1)[0]
+    return prefix, atom(find(node, "sheetname"), 1) or "", atom(find(node, "sheetfile"), 1) or ""
+
+
+def link_sheet(board: Board, net: str) -> tuple[str, str, str] | None:
+    """The schematic sheet a new link on ``net`` belongs on: the sheet of most parts with a pin
+    on the net, else the sheet of most parts on the board; None if nothing is linked to a sheet."""
+    from collections import Counter
+
+    on_net: Counter = Counter()
+    anywhere: Counter = Counter()
+    for fp in board.footprints:
+        if is_link(fp):
+            continue
+        sheet = _sheet_of(fp)
+        if sheet is None:
+            continue
+        anywhere[sheet] += 1
+        if any(p.net == net for p in fp.pads):
+            on_net[sheet] += 1
+    for counts in (on_net, anywhere):
+        if counts:
+            return max(counts.items(), key=lambda kv: (kv[1], kv[0]))[0]
+    return None
+
+
+def place_new_link(board: Board, a: Analysis, lk, library) -> tuple[list, Footprint]:
+    """The footprint of proposed link ``lk`` placed on its holes: both pads on the link's net,
+    locked, Value ``Link``, and the schematic path of the symbol ``stripforge link-symbols``
+    writes for it (so F8 afterwards matches the two up instead of adding a second copy)."""
+    ref = lk.ref_hint
+    node = embed_footprint(
+        lk.footprint.split(":")[-1], ref, 0, 0, f"link/{ref}", {"1": lk.net, "2": lk.net}, library
+    )
+    layer_i = next(i for i, c in enumerate(node) if head(c) == "layer")
+    node.insert(layer_i, [Sym("locked"), Sym("yes")])
+    for prop in find_all(node, "property"):
+        if atom(prop, 1) == "Value":
+            prop[2] = LINK_VALUE
+    sheet = link_sheet(board, lk.net)
+    prefix, sheetname, sheetfile = sheet if sheet else ("", "", "")
+    extra = [[Sym("path"), f"{prefix}/{link_symbol_uuid(ref)}"]]
+    if sheetname:
+        extra.append([Sym("sheetname"), sheetname])
+    if sheetfile:
+        extra.append([Sym("sheetfile"), sheetfile])
+    last_prop = max(i for i, c in enumerate(node) if head(c) == "property")
+    node[last_prop + 1 : last_prop + 1] = extra
+    fp = _parse_footprint(node)
+    x, y = a.grid.hole_xy(Node(lk.row_a, lk.col))
+    place_at(fp, x, y, lk.rotation)
+    return node, fp
 
 
 # --- stripboard holes ------------------------------------------------------------------------
@@ -509,7 +588,18 @@ def build(
         x, y = a.grid.hole_xy(Node(lk.row_a, lk.col))
         place_at(fp, x, y, lk.rotation)
         res.placements.append(LinkPlacement(fp.ref, "placed", f"{lk.start} -> {lk.end}"))
-    if link_fps:
+    new_links: list[list] = []
+    if cfg.place_links:
+        # first pass (or links the plan added since): place the W footprints ourselves
+        present = {fp.ref for fp in link_fps}
+        for lk in plan.links:
+            if lk.ref_hint in present:
+                continue
+            node, fp = place_new_link(board, a, lk, library)
+            new_links.append(node)
+            link_fps.append(fp)
+            res.placements.append(LinkPlacement(lk.ref_hint, "placed", f"{lk.start} -> {lk.end} (new)"))
+    elif link_fps:
         present = {fp.ref for fp in link_fps}
         for lk in plan.links:
             if lk.ref_hint not in present:
@@ -537,6 +627,7 @@ def build(
         name = "CUT_Hole" if cut.style == "hole" else "CUT_Knife"
         markers.append(embed_footprint(name, f"CUT{cut.id[1:]}", x, y, f"cut/{cut.id}", library=library))
     res.cut_markers = len(markers)
+    markers = new_links + markers
     hole_fps = (
         _hole_footprints(board, a, plan, cfg, [p for p in placed_link_pads(link_fps)])
         if cfg.draw_holes

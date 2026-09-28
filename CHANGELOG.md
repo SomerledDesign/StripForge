@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `symbols/StripForge.kicad_sym`: the generic `StripForge:Link` symbol for wire links (2 passive
+  pins, reference `W`, value `Link`, empty footprint, footprint filter `Link_*`). It is bundled in the
+  plugin/PCM zip as `plugins/symbols/`.
+- `place_links` (toml) / `stripforge build --place-links`: the first build places every proposed
+  `W` link footprint on its holes, with the net on both pads, locked, and with the schematic path
+  of its future symbol. No ratsnest is left to wire. It is off by default.
+- `stripforge link-symbols <board> --schematic <root> (--out-dir DIR | --in-place)`: writes a
+  `StripForge:Link` symbol for every `W` footprint on the board that the schematic lacks. Each gets
+  its reference, Footprint field, the uuid from the footprint's path (so F8 matches them) and net
+  labels on both pins (local for `/Sheet/` nets, global otherwise; an unnamed net is named on one of
+  its pins). Output goes to a copy of the project or in place with timestamped `.bak` backups. KiCad's
+  Update Schematic from PCB can't add missing symbols, so this step fills the gap.
+- `stripforge drc`: a hint to run `link-symbols` when the only parity items are `W` footprints
+  with no symbol.
+
 - Link lengths in inches, pad-to-pad (pitches × 0.1"; diagonals to 0.01"): every `Wn` line in the
   build report and `.links.txt` (`W1  A8 -> L8  (1.1")`) and the build sheet's link list.
 - Link cut list in the report, `.links.txt` and on the build sheet: one row per length, shortest

@@ -1,6 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Somerled Design
-"""StripForge command line: analyze, snap, build, drc and sheet (plan is a stub; Sketch.md §7)."""
+"""StripForge command line: analyze, snap, build, link-symbols, drc and sheet (plan is a stub).
+
+See Sketch.md §7.
+"""
 
 from __future__ import annotations
 
@@ -18,7 +21,25 @@ def _config(args: argparse.Namespace):
         cfg.cut_style = config_mod.CutStyle(args.cut_style)
     if args.tol is not None:
         cfg.snap_tol_mm = args.tol
+    if getattr(args, "place_links", False):
+        cfg.place_links = True
     return cfg
+
+
+def _link_symbols(args: argparse.Namespace) -> int:
+    from .linksym import LinkSymbolError, add_link_symbols, format_text
+
+    try:
+        res = add_link_symbols(
+            args.schematic, args.board, out_dir=args.out_dir, in_place=args.in_place, symbol_lib=args.symbols
+        )
+    except (LinkSymbolError, OSError, ValueError) as exc:
+        print(f"stripforge link-symbols: error: {exc}", file=sys.stderr)
+        return 2
+    print(format_text(res))
+    if res.outputs:
+        print("Wrote: " + ", ".join(res.outputs))
+    return 0
 
 
 def _snap(args: argparse.Namespace) -> int:
@@ -125,7 +146,15 @@ def _build(args: argparse.Namespace) -> int:
         from .stretch import format_text as stretch_text
 
         sys.stdout.write(stretch_text(res.stretches))
-    if res.pass2:
+    if a.config.place_links and plan.links:
+        print(f"Links: {len(res.placed)} of {len(plan.links)} placed on their holes (place_links)")
+        for p in res.link_problems:
+            print(f"  {p.status.upper()}: {p.ref} {p.detail}")
+        print(
+            "Next: 'stripforge link-symbols <board> --schematic <root .kicad_sch> --out-dir DIR' (or "
+            "--in-place) writes the W symbols into the schematic; then F8 matches them up"
+        )
+    elif res.pass2:
         print(f"Pass 2: {len(res.placed)} of {len(plan.links)} link(s) placed")
         for p in res.link_problems:
             print(f"  {p.status.upper()}: {p.ref} {p.detail}")
@@ -284,7 +313,30 @@ def main(argv: list[str] | None = None) -> int:
         help="allow -o to be the input: rebuild a built board after moving its cuts and links in pcbnew "
         "(they are kept where you put them; StripForge fills in the rest)",
     )
+    bu.add_argument(
+        "--place-links",
+        action="store_true",
+        help="place the W link footprints on their holes now (place_links = true), for 'stripforge "
+        "link-symbols' to carry into the schematic",
+    )
     bu.set_defaults(func=_build)
+
+    ls = sub.add_parser(
+        "link-symbols",
+        help="write the board's W links into the schematic as StripForge:Link symbols",
+        description="Add a StripForge:Link symbol for every W link footprint on the board that the schematic "
+        "lacks (KiCad's Update Schematic from PCB can't add symbols): reference, Footprint field, and a "
+        "label with the net's name on both pins, on the sheet of the net. Written to a copy of the whole "
+        "schematic (--out-dir, with the project file, library tables and the board, ready for kicad-cli) "
+        "or in place (--in-place; every changed sheet is first copied to a timestamped .bak).",
+    )
+    ls.add_argument("board", help="the built .kicad_pcb with the W link footprints placed")
+    ls.add_argument("--schematic", required=True, help="the root .kicad_sch of the project")
+    where = ls.add_mutually_exclusive_group(required=True)
+    where.add_argument("--out-dir", help="write a copy of the schematic (and project) here")
+    where.add_argument("--in-place", action="store_true", help="edit the schematic (backups first)")
+    ls.add_argument("--symbols", help="StripForge.kicad_sym (default: the repository copy)")
+    ls.set_defaults(func=_link_symbols)
 
     dr = sub.add_parser(
         "drc",

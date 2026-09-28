@@ -179,6 +179,12 @@ class BoardConfig:
     # Build: draw every stripboard hole (a plated pad on its strip's net) in the built board, so it
     # looks like the real board in KiCad and the 3D viewer; hole cuts are drawn as bare holes.
     draw_holes: bool = True
+    # Build: place the W link footprints on their holes (with the net on both pads) on the first
+    # pass, instead of only proposing them. Each is locked and carries the schematic path of the
+    # StripForge:Link symbol that 'stripforge link-symbols' writes, so the links flow from the board
+    # to the schematic (KiCad's Update Schematic from PCB can't add symbols). Off by default: with
+    # it on, don't also add the W symbols by hand (F8 would bring in a second copy of each link).
+    place_links: bool = False
     hole_drill_mm: float = 1.0
     # Your own cuts and links. Building from a board with StripForge cut markers and placed W links
     # (e.g. the built board after moving them in pcbnew) keeps them where they are and only fills
@@ -294,6 +300,7 @@ def from_dict(data: dict) -> BoardConfig:
         "off_pitch_links",
         "bus_strips",
         "draw_holes",
+        "place_links",
         "respect_edits",
         "trim_pieces",
     ):

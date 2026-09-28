@@ -110,7 +110,10 @@ The StripForge footprint library (`footprints/StripForge.pretty`, needed for the
 `StripForge:Link_*` footprints in the schematic) is bundled in the plugin but **not registered**:
 add it to the footprint library table by hand, with nickname `StripForge`. A PCM plugin package
 can't register libraries; that needs a separate library package (see
-[docs/PCM-SUBMISSION.md](docs/PCM-SUBMISSION.md)).
+[docs/PCM-SUBMISSION.md](docs/PCM-SUBMISSION.md)). The same goes for the symbol library
+`symbols/StripForge.kicad_sym` (the generic `StripForge:Link` wire-link symbol): add it to the
+symbol library table as `StripForge` if you place links by hand. `stripforge link-symbols` embeds
+the symbol in the schematic, so it isn't needed for that.
 
 ## First test case
 
@@ -238,8 +241,10 @@ Lead stretches: 1 suggestion(s), 1 link(s) fewer (report only; nothing moved)
   replaces W26: move R2 pin 2 from O10 to P10 (R2.1 stays at K10; span 4 -> 5 pitches, +1)
 ```
 
-Add them to the schematic: one 2-pin jumper per line (`Jumper:Jumper_2_Bridged` or a 0 Ω
-resistor), Reference `W4`, Footprint `StripForge:Link_P15.24`, both pins wired to the net (`GND`).
+Add them to the schematic: one 2-pin link per line, the generic `StripForge:Link` symbol from
+`symbols/StripForge.kicad_sym` (or `Jumper:Jumper_2_Bridged`, or a 0 Ω resistor), Reference `W4`,
+Footprint `StripForge:Link_P15.24`, both pins wired to the net (`GND`). Or let StripForge do it:
+see **Links from the board to the schematic** below.
 Then press F8 (Update PCB from Schematic). `<out>.links.txt` has the full list and these steps. A
 net that still can't be joined is an error in the report, naming its pieces: move or rotate a part
 so they come closer, or free some holes.
@@ -253,6 +258,35 @@ change.
 
 Exit codes: 0 complete (every net joined, every link placed), 1 incomplete (links still to add or
 place, unlinkable nets, rejected parts), 2 refused (bad input, conflicts, output = input).
+
+**Links from the board to the schematic: `place_links` and `stripforge link-symbols`.** Instead
+of adding the `W` symbols by hand, let the board lead:
+
+```sh
+stripforge build placement.kicad_pcb -o built.kicad_pcb --config X56.toml --place-links
+stripforge link-symbols built.kicad_pcb --schematic MyProject.kicad_sch --out-dir links-copy
+#   or --in-place: edits the schematic, after copying each changed sheet to <sheet>.stripforge-<time>.bak
+```
+
+`--place-links` (or `place_links = true` in the toml) places every proposed link's
+`Link_P*`/`Link_D*` footprint on its holes in the first build, both pads on the link's net, so there
+are no ratsnest lines left to wire. Each is locked (F8's "Delete footprints with no symbols" won't
+remove it), has Value `Link`, and carries the schematic path of the symbol that `link-symbols`
+will write. `link-symbols` then adds one `StripForge:Link` symbol per `W` footprint the schematic
+lacks: its reference, its Footprint field (`StripForge:Link_P27.94`), and a label with the net's
+name on both pins. A `/Sheet/NAME` net gets local `NAME` labels on that sheet. Any other net
+(`GND`, a global label) gets global labels. An unnamed net (`Net-(SW2B-B)`) also gets a global
+label of the same name on one of its existing pins, so it keeps its name. The symbols are set out
+in a grid right of the drawing, under a note, and the paper is enlarged if they don't fit. The
+copy (`--out-dir`) holds every sheet, the project file, the library tables (with `${KIPRJMOD}`
+pointing back at the original project) and the board under the project's name, ready for
+`kicad-cli` netlist, ERC and `stripforge drc` parity. Then press F8: the symbols and footprints
+match by path, so nothing moves and no second copy appears. KiCad's own Tools > Update Schematic
+from PCB can't do this step, because it only updates symbols that already exist. For a footprint
+with no symbol it reports "Cannot find symbol for footprint" (eeschema `backannotate.cpp`, KiCad
+10.0). Until the symbols are in, `stripforge drc` counts each `W` as a parity `extra_footprint`
+and says to run `link-symbols`. `place_links` is off by default. With it on, don't also add the
+`W` symbols by hand: F8 would bring in a second footprint for each link.
 
 **The same flow in KiCad:**
 1. Open the placement board and click **Build strips**. The report lists the `W` links.
@@ -453,7 +487,7 @@ Reports use labels throughout; the `--json` output also keeps the 0-based `(col,
 
 ```
 src/stripforge/
-  cli.py          command-line entry (analyze | snap | build | drc | sheet; plan is a stub)
+  cli.py          command-line entry (analyze | snap | build | link-symbols | drc | sheet; plan is a stub)
   analyze.py      snap + split report (text or JSON), best-fit moves
   hints.py        placement hints (parts lying along a strip, 90° rotation estimate)
   config.py       stripboard.toml model
@@ -464,13 +498,16 @@ src/stripforge/
   strips.py       rows -> hole-to-hole segments
   splitter.py     cut placement + net per piece
   links.py        link proposals (pass 1), link reports
-  writer.py       stripforge build: strips, cut markers, link placement (pass 2)
+  writer.py       stripforge build: strips, cut markers, link placement (pass 2 / place_links)
+  linksym.py      stripforge link-symbols: W footprints -> StripForge:Link symbols in the schematic
   resources.py    StripForge footprint library and rules lookup
   validate.py     pure-Python short/open/parity pre-check
   drc.py          kicad-cli pcb drc wrapper + classifier
   buildsheet.py   stripforge sheet: printable HTML/PDF build sheet, view SVGs/PNGs, cuts CSV
   backends/       file (.kicad_pcb), ipc (kipy; stub), swig_fallback (isolated, unused)
 plugins/          KiCad 10 IPC plugin: plugin.json, sf_*.py entry scripts, stripforge_plugin.py, icons
+symbols/          StripForge.kicad_sym: the generic StripForge:Link symbol (2 passive pins, ref W,
+                  value Link, footprint filter Link_*); bundled in the plugin as plugins/symbols/
 tools/            make_pcm_zip.py (PCM package), make_icons.py (toolbar icons)
 ```
 

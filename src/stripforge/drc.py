@@ -280,6 +280,10 @@ def _where(v: dict, label=None) -> str:
     return "; ".join(parts)
 
 
+def _link_item(v: dict) -> bool:
+    return any(re.match(r"^W\d+$", r) for r in item_refs(v))
+
+
 def format_text(res: DrcResult, board: str, label=None, expected_links: int | None = None) -> str:
     c = res.counts()
     out = [f"StripForge DRC: {board} (kicad-cli {res.report.get('kicad_version', '?')})"]
@@ -324,6 +328,12 @@ def format_text(res: DrcResult, board: str, label=None, expected_links: int | No
             continue
         for v in items:
             out.append(f"  {name.upper()}: {v.get('type')}: {v.get('description')} [{_where(v, label)}]")
+    w_extra = [v for v in res.parity if v.get("type") == "extra_footprint" and _link_item(v)]
+    if w_extra:
+        out.append(
+            f"  hint: {len(w_extra)} W link footprint(s) have no schematic symbol yet: run 'stripforge "
+            "link-symbols <board> --schematic <root .kicad_sch> --out-dir DIR' (or --in-place), then F8"
+        )
     for v in res.other_errors:
         out.append(f"  error: {v.get('type')}: {v.get('description')} [{_where(v, label)}]")
     warn: dict[str, int] = {}

@@ -61,6 +61,7 @@ def test_zip_layout_and_determinism(mk, tmp_path):
         "plugins/stripforge/buildsheet.py",
         "plugins/footprints/StripForge.pretty/CUT_Hole.kicad_mod",
         "plugins/rules/stripforge.kicad_dru",
+        "plugins/symbols/StripForge.kicad_sym",
         "plugins/LICENSE",
     ):
         assert required in names

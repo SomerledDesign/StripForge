@@ -501,6 +501,24 @@ are taken greedily and checked together (no shared part or hole, no crossing lea
 nets are tried too. On the TPI fixture this finds R2.2 O10 -> P10 (span 4 -> 5) replacing the
 TPICLK link; R3 for HV_RST would need a line under SW2 onto the hole its big pad overhangs.
 
+### 4.14 Links from the board to the schematic (as built)
+
+Links flow from the PCB to the schematic. `place_links = true` (or `build --place-links`) places each
+proposed link's `Link_P*`/`Link_D*` footprint on its holes in the first build: both pads on the net,
+`(locked yes)`, Value `Link`, and `(path "<sheet path>/<uuid5(link-symbol/Wn)>")` with the
+sheetname/sheetfile of the parts on that net (the sheet of most parts, if the net has none).
+`stripforge link-symbols` (`linksym.py`) reads the W footprints back from the board and writes one
+`StripForge:Link` symbol per missing reference. The symbol takes the footprint's path uuid, its
+Footprint, Value and Description, and in_bom/in_pos from its attributes, so F8 and DRC parity
+match the two by path. Each pin gets a label with the net's name. `/Sheet/NAME` gives a local label
+on that sheet; other nets give a global label (verified with kicad-cli 10.0.4: a global `GND`
+label joins the power net). An unnamed `Net-(...)` also gets a global label of that name at one of
+its pins; the pin position comes from the placed symbol's library pin, with library y up, then
+rotation, then mirror. The symbol definition is embedded in `lib_symbols`. The output is a project
+copy (library tables with `${KIPRJMOD}` made absolute) or in place with `.bak` backups. KiCad's
+Update Schematic from PCB (`BACK_ANNOTATE`) only changes existing symbols; for a footprint with no
+symbol it reports "Cannot find symbol for footprint".
+
 ## 5. v0 scope
 
 In scope:
@@ -512,7 +530,7 @@ In scope:
 
 Out of scope:
 - SMD; automatic placement; vertical-strip or mixed boards; 2-sided or IC-socket special boards;
-  schematic writing.
+  schematic writing (since added for W links only: §4.14).
 - The IPC plugin UI (M3 is stretch).
 
 ## 6. Success criteria on the ATtiny10 TPI fixture (25 THT parts)
