@@ -308,6 +308,10 @@ def _run_action(
 ) -> tuple[str, Path | None]:
     config = find_config(board)
     notes = [f"Board: {board}", f"Config: {config or 'none; grid derived from Edge.Cuts'}"]
+    if config is None:
+        others = sorted(p.name for p in board.parent.glob("*.toml"))
+        if others:
+            notes.append(f"NOTE: {', '.join(others)} found; copy or rename it to {CONFIG_NAME} to use it")
     if action == "build" and is_output_name(board):
         return (
             f"{board.name} is already a StripForge output. Open the placement board "

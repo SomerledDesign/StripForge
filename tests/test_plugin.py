@@ -225,3 +225,12 @@ def test_unsaved_board(sfp, project, monkeypatch):
     monkeypatch.setattr(sfp, "board_path", lambda d, n: None)
     assert sfp.run("analyze") == 0
     assert "Save the board" in shown[-1][1] and board.saved == 0
+
+
+def test_other_toml_next_to_the_board_is_pointed_out(sfp, project):
+    tmp, board, shown = project
+    (tmp / "stripboard.toml").rename(tmp / "X56.toml")
+    assert sfp.run("analyze") == 0
+    text = shown[-1][1]
+    assert "grid derived from Edge.Cuts" in text
+    assert "X56.toml found; copy or rename it to stripboard.toml" in text
