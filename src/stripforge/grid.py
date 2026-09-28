@@ -163,6 +163,22 @@ class PadSnap:
         return f"off board (near {self.near.label})" if self.near is not None else "off board"
 
 
+@dataclass(frozen=True)
+class SlotJob:
+    """A hole to file into a short slot along the strip so an off-pitch pad fits (slotted parts)."""
+
+    ref: str
+    pad: str
+    hole: Node
+    toward: Node  # the neighbouring hole the slot points at
+    length_nm: int  # how far to elongate the hole (the pad's x offset)
+    dy_nm: int = 0  # residual offset across the strip (within tolerance)
+
+    @property
+    def text(self) -> str:
+        return f"file hole {self.hole.label} toward {self.toward.label} by {self.length_nm / 1e6:.3f} mm"
+
+
 @dataclass
 class SnapResult:
     ref: str
@@ -175,6 +191,8 @@ class SnapResult:
     shift_nm: tuple[int, int] = (0, 0)
     max_dev_after_shift_nm: int = 0
     skipped_pads: list[str] = field(default_factory=list)  # SMD/connect pads: out of scope in v0
+    slotted: bool = False  # listed in the config's ``slotted``; never moved by apply_shifts
+    slots: list[SlotJob] = field(default_factory=list)  # holes to elongate for this part
 
     @property
     def worst_pad(self) -> PadSnap | None:
@@ -185,9 +203,14 @@ class SnapResult:
         return [p for p in self.pads if p.node is None]
 
 
-def snap_footprint(fp: Footprint, grid: Grid, tol_nm: int) -> SnapResult:
-    """Map each THT pad of ``fp`` to its nearest hole and accept if all are within ``tol_nm``."""
-    res = SnapResult(ref=fp.ref)
+def snap_footprint(fp: Footprint, grid: Grid, tol_nm: int, slot_max_nm: int | None = None) -> SnapResult:
+    """Map each THT pad of ``fp`` to its nearest hole and accept if all are within ``tol_nm``.
+
+    With ``slot_max_nm`` (a slotted part), a pad further off than ``tol_nm`` is still accepted when
+    it is off along the strip only: ``|dx| <= slot_max_nm`` and ``|dy| <= tol_nm``. Each such pad
+    becomes a :class:`SlotJob` (file the hole toward the pad).
+    """
+    res = SnapResult(ref=fp.ref, slotted=slot_max_nm is not None)
     for pad in fp.pads:
         if not pad.is_tht:
             res.skipped_pads.append(pad.number)
@@ -222,6 +245,14 @@ def snap_footprint(fp: Footprint, grid: Grid, tol_nm: int) -> SnapResult:
             f"off board: {len(off_board)} of {len(res.pads)} pad(s) fall outside the "
             f"{grid.cols}x{grid.rows} grid ({grid.span_label}): pad {where}"
         )
+    elif slot_max_nm is not None and all(
+        p.dev_nm <= tol_nm or (abs(p.dx_nm) <= slot_max_nm and abs(p.dy_nm) <= tol_nm) for p in res.pads
+    ):
+        for p in res.pads:
+            if p.dev_nm > tol_nm and p.node is not None:
+                step = 1 if p.dx_nm > 0 else -1
+                toward = Node(row=p.node.row, col=p.node.col + step)
+                res.slots.append(SlotJob(fp.ref, p.number, p.node, toward, abs(p.dx_nm), p.dy_nm))
     elif res.max_dev_nm > tol_nm:
         res.accepted = False
         worst = res.worst_pad
@@ -230,7 +261,12 @@ def snap_footprint(fp: Footprint, grid: Grid, tol_nm: int) -> SnapResult:
             f"pad {worst.number} is {worst.dev_nm / 1e6:.3f} mm from the nearest hole "
             f"(tolerance {tol_nm / 1e6:.3f} mm)"
         )
-    else:
+        if slot_max_nm is not None:
+            res.reason += (
+                f"; as a slotted part a pad may be up to {slot_max_nm / 1e6:.3f} mm off along the strip "
+                f"and {tol_nm / 1e6:.3f} mm across it"
+            )
+    if res.accepted and res.pads and not off_board:
         nodes = [p.node for p in res.pads]
         dup = {n for n in nodes if nodes.count(n) > 1}
         if dup:
@@ -241,6 +277,16 @@ def snap_footprint(fp: Footprint, grid: Grid, tol_nm: int) -> SnapResult:
 
 
 def snap_board(
-    board: Board, grid: Grid, tol_nm: int, skip_refs: list[str] | tuple[str, ...] = ()
+    board: Board,
+    grid: Grid,
+    tol_nm: int,
+    skip_refs: list[str] | tuple[str, ...] = (),
+    slot_max_nm: dict[str, int] | None = None,
 ) -> list[SnapResult]:
-    return [snap_footprint(fp, grid, tol_nm) for fp in board.footprints if fp.ref not in skip_refs]
+    """Snap every footprint not in ``skip_refs``; ``slot_max_nm`` maps slotted refs to their allowance."""
+    slots = slot_max_nm or {}
+    return [
+        snap_footprint(fp, grid, tol_nm, slots.get(fp.ref))
+        for fp in board.footprints
+        if fp.ref not in skip_refs
+    ]

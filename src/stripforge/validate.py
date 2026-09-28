@@ -21,6 +21,6 @@ def validate(split: SplitResult, holes: HoleMap, strips: list[Strip]) -> list[st
         for c in sorted(strip.dead_holes):
             node = Node(strip.row, c)
             if not holes.is_free(node):
-                who = ", ".join(o.label for o in holes.occupants[node])
+                who = ", ".join(o.label for o in holes.occupants.get(node, [])) or "slot"
                 errors.append(f"hole cut at occupied hole {node} ({who})")
     return errors

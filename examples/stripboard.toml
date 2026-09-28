@@ -14,3 +14,5 @@ cut_style = "auto"           # hole | knife | auto (hole where a free hole exist
 snap_tol_mm = 0.15
 cut_marker_layer = "User.1"
 offboard_refs = []   # pin-header wire pads for switches/battery are ON-board; list true off-board refs here
+slotted = []         # refs whose pads may be filed into short slots along the strip (see x56.toml)
+slot_max_mm = 1.0

@@ -102,9 +102,13 @@ class HoleMap:
     nets: dict[Node, str | None] = field(default_factory=dict)  # occupied holes only
     conflicts: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    # Empty holes that must not be cut: the neighbour a slot job files toward.
+    reserved: set[Node] = field(default_factory=set)
+    # (row, segment) pairs a slot runs along; knife cuts go elsewhere when they can.
+    slot_segments: set[tuple[int, int]] = field(default_factory=set)
 
     def is_free(self, node: Node) -> bool:
-        return node not in self.occupants
+        return node not in self.occupants and node not in self.reserved
 
 
 def build_strips(grid: Grid) -> list[Strip]:
@@ -125,6 +129,10 @@ def assign_holes(snaps: list[SnapResult]) -> HoleMap:
                 hm.conflicts.append(f"pad {snap.ref}.{ps.number} has no hole ({snap.reason})")
                 continue
             occ[ps.node].append(Occupant(snap.ref, ps.number, ps.net))
+        if snap.accepted:
+            for job in snap.slots:
+                hm.reserved.add(job.toward)
+                hm.slot_segments.add((job.hole.row, min(job.hole.col, job.toward.col)))
     for node in sorted(occ):
         who = occ[node]
         hm.occupants[node] = who

@@ -14,3 +14,8 @@ cut_style = "auto"           # hole | knife | auto (hole where a free hole exist
 snap_tol_mm = 0.15
 cut_marker_layer = "User.1"
 offboard_refs = []   # pin-header wire pads for switches/battery are ON-board; list true off-board refs here
+# Slotted parts: a listed part's pad may sit up to slot_max_mm off its hole along the strip (and
+# within snap_tol_mm across it); the report then says "file hole V16 toward V17 by 0.318 mm".
+slotted = ["BT1"]            # MPD BH23APC battery holder (pads 0.3175 mm inboard of holes 1 and 14)
+slot_max_mm = 1.0
+# slot_max_mm_by_ref = { BT1 = 0.5 }

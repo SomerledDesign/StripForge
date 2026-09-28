@@ -13,7 +13,7 @@ from pathlib import Path
 from . import netlist as netlist_mod
 from .board import Board, load_board
 from .config import BoardConfig
-from .grid import ON_GRID_NM, Grid, Node, SnapResult, snap_board
+from .grid import ON_GRID_NM, Grid, Node, SlotJob, SnapResult, snap_board
 from .sexpr import mm_to_nm
 from .splitter import SplitResult, split
 from .strips import HoleMap, Strip, assign_holes, build_strips
@@ -54,7 +54,12 @@ class Analysis:
 
     @property
     def off_pitch(self) -> list[SnapResult]:
-        return [s for s in self.snapped if s.max_dev_nm > ON_GRID_NM]
+        return [s for s in self.snapped if s.max_dev_nm > ON_GRID_NM and not s.slots]
+
+    @property
+    def slot_jobs(self) -> list[SlotJob]:
+        """Holes to file into slots for slotted parts (kept for the M3 build sheet)."""
+        return [j for s in self.snapped for j in s.slots]
 
     @property
     def conflicts(self) -> list[str]:
@@ -160,7 +165,10 @@ def analyze(board_path: str | Path, cfg: BoardConfig | None = None, netlist: str
     cfg = cfg or BoardConfig()
     board = load_board(board_path)
     grid, source = make_grid(board, cfg)
-    snaps = snap_board(board, grid, mm_to_nm(cfg.snap_tol_mm), skip_refs=cfg.offboard_refs)
+    slot_max = {ref: mm_to_nm(cfg.slot_max_for(ref)) for ref in cfg.slotted}
+    snaps = snap_board(
+        board, grid, mm_to_nm(cfg.snap_tol_mm), skip_refs=cfg.offboard_refs, slot_max_nm=slot_max
+    )
     holes = assign_holes(snaps)
     strips = build_strips(grid)
     result = split(strips, holes, cfg.cut_style)
@@ -211,10 +219,12 @@ def to_dict(a: Analysis) -> dict:
         "pads": len(a.board.pads),
         "nets": len(a.board.nets),
         "skipped_refs": list(a.config.offboard_refs),
+        "slotted_refs": list(a.config.slotted),
         "snaps": [
             {
                 "ref": s.ref,
                 "accepted": s.accepted,
+                "slotted": s.slotted,
                 "max_dev_mm": s.max_dev_nm / 1e6,
                 "reason": s.reason,
                 "suggested_shift_mm": _xy(s.shift_nm),
@@ -233,6 +243,19 @@ def to_dict(a: Analysis) -> dict:
                 ],
             }
             for s in a.snaps
+        ],
+        "slot_jobs": [
+            {
+                "ref": j.ref,
+                "pad": j.pad,
+                "hole": [j.hole.col, j.hole.row],
+                "hole_label": j.hole.label,
+                "toward": [j.toward.col, j.toward.row],
+                "toward_label": j.toward.label,
+                "length_mm": j.length_nm / 1e6,
+                "text": j.text,
+            }
+            for j in a.slot_jobs
         ],
         "off_board": [
             {
@@ -311,6 +334,10 @@ def format_text(a: Analysis) -> str:
             if p.dev_nm > ON_GRID_NM
         )
         add(f"  off pitch: {s.ref:<5} max {_mm(s.max_dev_nm)} mm  [{offs}]")
+    for s in a.snapped:
+        if s.slots:
+            jobs = "; ".join(f"pad {j.pad}: {j.text}" for j in s.slots)
+            add(f"  slotted:   {s.ref:<5} max {_mm(s.max_dev_nm)} mm  [{jobs}]")
     for s in a.off_board:
         pads = ", ".join(f"{p.number}@{p.where}" for p in s.pads)
         add(

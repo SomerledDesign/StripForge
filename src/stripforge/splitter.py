@@ -100,7 +100,11 @@ def place_cuts(strips: list[Strip], holes: HoleMap, style: CutStyle | str) -> tu
                 strip.cut_hole(col)
                 cuts.append(Cut(cut_id, strip.row, float(col), "hole", (na, nb), (la, lb)))
                 continue
-            seg = (ca + cb - 1) // 2
+            segs = [c for c in range(ca, cb) if (strip.row, c) not in holes.slot_segments] or list(
+                range(ca, cb)
+            )
+            mid2 = ca + cb - 1  # the middle segment, doubled
+            seg = min(segs, key=lambda c: (abs(2 * c - mid2), c))
             strip.cut_knife(seg)
             cut = Cut(cut_id, strip.row, seg + 0.5, "knife", (na, nb), (la, lb))
             cuts.append(cut)

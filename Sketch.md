@@ -153,6 +153,16 @@ Notes:
     but pin numbering must come from the footprint and never be assumed (DIP runs down one side
     and up the other).
   - IDC 2×5, P10.16 axials, DO-41 and 3 mm LEDs are all on-grid; we expect deviation 0.
+- **Slotted parts (2026-09-27).** Some parts have pins that are not on a 2.54 multiple and cannot be
+  shifted onto the grid; the MPD BH23APC 23A battery holder (BT1) has pads 0.3175 mm inboard of
+  holes 1 and 14 of one strip. The config lists them (`slotted = ["BT1"]`) with an allowance
+  (`slot_max_mm`, default 1.0 mm, less than half a pitch; per-ref overrides in
+  `slot_max_mm_by_ref`). For a listed part a pad further off than `snap_tol` is accepted when it
+  lies along the strip (`|dx| ≤ slot_max`) and on the strip centreline (`|dy| ≤ snap_tol`). Each
+  such pad is a **slot job**, reported as "file hole V16 toward V17 by 0.318 mm" and kept in the
+  analysis (`Analysis.slot_jobs`, JSON `slot_jobs`) for the M3 build sheet. The hole a slot points
+  toward is never used for a hole cut, and knife cuts avoid the slotted segment where they can.
+  Slotted parts are never moved by the best-fit shift.
 - An off-grid pad still connects: every strip track endpoint sits *on the node*, and a node
   0.04 mm from the pad centre is well inside the pad copper. **[UNVERIFIED]** that KiCad's
   connectivity treats a track endpoint inside a pad (not at its exact centre) as connected. We
