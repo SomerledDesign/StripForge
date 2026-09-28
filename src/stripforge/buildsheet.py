@@ -232,7 +232,12 @@ def _link_rows(prep: Prepared) -> tuple[list[LinkRow], list[str]]:
             rows.append(LinkRow(lk, "to-add", "not in the schematic yet (pass 1): add it, F8, build again"))
             continue
         x, y = a.grid.hole_xy(Node(lk.row_a, lk.col))
-        if (fp.x_nm, fp.y_nm) == (x, y) and fp.lib_id.split(":")[-1] == lk.footprint.split(":")[-1]:
+        turned = abs((fp.angle - lk.rotation + 180.0) % 360.0 - 180.0) < 0.01
+        if (
+            (fp.x_nm, fp.y_nm) == (x, y)
+            and turned
+            and fp.lib_id.split(":")[-1] == lk.footprint.split(":")[-1]
+        ):
             rows.append(LinkRow(lk, "placed"))
         else:
             rows.append(LinkRow(lk, "on-board", "on the board but not on its holes: build again"))
@@ -293,6 +298,42 @@ def _net_rows(prep: Prepared) -> tuple[list[NetRow], int]:
     return rows, singles
 
 
+def _link_how(lk) -> str:
+    """How a link runs, for the links table (nothing for a plain straight-down link)."""
+    notes = []
+    if lk.kind == "horizontal":
+        notes.append("along the strip")
+    elif lk.kind == "diagonal":
+        notes.append(f"diagonal, {abs(lk.dx)} across and {lk.dy} down")
+    if lk.bus:
+        notes.append(f"to bus strip {lk.bus}")
+    return f"<br><small>{_e('; '.join(notes))}</small>" if notes else ""
+
+
+def _link_span(v, lk) -> tuple[float, float, float, float] | None:
+    """A link's wire clipped to view ``v`` (its rows and columns), in view mm, or None if outside."""
+    (r1, c1), (r2, c2) = (lk.row_a, lk.col), (lk.row_b, lk.end_col)
+    t0, t1 = 0.0, 1.0
+    for a, b, lo, hi in ((c1, c2, v.c0, v.c1), (r1, r2, v.r0, v.r1)):
+        d = b - a
+        if d == 0:
+            if not lo <= a <= hi:
+                return None
+            continue
+        ta, tb = sorted(((lo - a) / d, (hi - a) / d))
+        t0, t1 = max(t0, ta), min(t1, tb)
+        if t0 > t1:
+            return None
+    g = v.grid
+
+    def at(t: float) -> tuple[float, float]:
+        col, row = c1 + (c2 - c1) * t, r1 + (r2 - r1) * t
+        return v.x(g.origin_x_nm + col * g.pitch_nm), v.y(g.origin_y_nm + row * g.pitch_nm)
+
+    (xa, ya), (xb, yb) = at(t0), at(t1)
+    return xa, ya, xb, yb
+
+
 def _hole_key(label: str) -> tuple[int, int]:
     from .grid import parse_hole
 
@@ -318,10 +359,15 @@ def _overlaps(prep: Prepared) -> list[str]:
                 out.append(f"courtyards of {ra} and {rb} overlap: check the parts fit side by side")
     half = links_mod.LINK_COURTYARD_NM
     for lk in prep.plan.links:
-        x, y0 = a.grid.hole_xy(Node(lk.row_a, lk.col))
-        _, y1 = a.grid.hole_xy(Node(lk.row_b, lk.col))
-        lbox = (x - half, y0 - half, x + half, y1 + half)
-        under = [ref for ref, box in boxes if links_mod._overlap(lbox, box)]
+        n1, n2 = lk.nodes
+        if lk.kind == "vertical":
+            x, y0 = a.grid.hole_xy(n1)
+            _, y1 = a.grid.hole_xy(n2)
+            lbox = (x - half, y0 - half, x + half, y1 + half)
+            under = [ref for ref, box in boxes if links_mod._overlap(lbox, box)]
+        else:
+            p, q = a.grid.hole_xy(n1), a.grid.hole_xy(n2)
+            under = [ref for ref, box in boxes if links_mod._seg_box_distance(p, q, box) < half]
         if under:
             out.append(
                 f"link {lk.ref_hint} ({lk.start}-{lk.end}) runs under {', '.join(sorted(under, key=_natural))}: "
@@ -561,11 +607,12 @@ def copper_svg(model: SheetModel, v: _View) -> str:
                 body.append(f'<circle class="hole" cx="{_f(x)}" cy="{_f(y)}" r="0.45"/>')
     for row in model.links:
         lk = row.link
-        if not (v.has_row(lk.row_a) or v.has_row(lk.row_b)) or not v.has_col(lk.col):
+        span = _link_span(v, lk)
+        if span is None:
             continue
-        (x, ya), (_, yb) = v.hole(max(lk.row_a, v.r0), lk.col), v.hole(min(lk.row_b, v.r1), lk.col)
+        xa, ya, xb, yb = span
         body.append(
-            f'<line class="ghost" x1="{_f(x)}" y1="{_f(ya)}" x2="{_f(x)}" y2="{_f(yb)}"><title>{lk.ref_hint} '
+            f'<line class="ghost" x1="{_f(xa)}" y1="{_f(ya)}" x2="{_f(xb)}" y2="{_f(yb)}"><title>{lk.ref_hint} '
             f"(on the component side)</title></line>"
         )
     for job in a.slot_jobs:
@@ -729,15 +776,18 @@ def component_svg(model: SheetModel, v: _View) -> str:
         body.append("".join(g))
     for row in model.links:
         lk = row.link
-        if not v.has_col(lk.col) or lk.row_b < v.r0 or lk.row_a > v.r1:
+        span = _link_span(v, lk)
+        if span is None:
             continue
-        (x, ya), (_, yb) = v.hole(max(lk.row_a, v.r0), lk.col), v.hole(min(lk.row_b, v.r1), lk.col)
+        xa, ya, xb, yb = span
         cls = "wire" if row.status == "placed" else "wire proposed"
-        ym = (ya + yb) / 2
+        xm, ym = (xa + xb) / 2, (ya + yb) / 2
+        if lk.kind == "horizontal":
+            ym -= 0.35 * p
         body.append(
-            f'<g class="{cls}" data-link="{lk.ref_hint}"><line x1="{_f(x)}" y1="{_f(ya)}" x2="{_f(x)}" y2="{_f(yb)}"/>'
-            f'<circle cx="{_f(x)}" cy="{_f(ya)}" r="0.55"/><circle cx="{_f(x)}" cy="{_f(yb)}" r="0.55"/>'
-            f'<text x="{_f(x + 0.5)}" y="{_f(ym)}" font-size="{_f(0.42 * p)}">{lk.ref_hint}</text>'
+            f'<g class="{cls}" data-link="{lk.ref_hint}"><line x1="{_f(xa)}" y1="{_f(ya)}" x2="{_f(xb)}" y2="{_f(yb)}"/>'
+            f'<circle cx="{_f(xa)}" cy="{_f(ya)}" r="0.55"/><circle cx="{_f(xb)}" cy="{_f(yb)}" r="0.55"/>'
+            f'<text x="{_f(xm + 0.5)}" y="{_f(ym)}" font-size="{_f(0.42 * p)}">{lk.ref_hint}</text>'
             f"<title>{lk.ref_hint}: {lk.start} to {lk.end} [{_e(lk.net)}]</title></g>"
         )
     body.append('<g class="part-labels">' + "".join(texts) + "</g>")
@@ -1005,7 +1055,7 @@ def _link_list(model: SheetModel) -> list[str]:
         status = "placed" if r.status == "placed" else f"<b>{_e(r.detail)}</b>"
         out.append(
             f'<tr class="item" data-kind="link" data-link="{lk.ref_hint}"><td>{_box()}</td><td class="mono">{lk.ref_hint}</td>'
-            f"<td><b>{lk.start}</b></td><td><b>{lk.end}</b></td><td>{lk.pitches} ({_f(lk.length_mm)} mm)</td>"
+            f"<td><b>{lk.start}</b></td><td><b>{lk.end}</b></td><td>{lk.pitches} ({_f(lk.length_mm)} mm){_link_how(lk)}</td>"
             f'<td class="mono">{_e(lk.footprint)}</td><td>{_e(lk.net)}</td><td>{status}</td></tr>'
         )
     out.append("</table>")

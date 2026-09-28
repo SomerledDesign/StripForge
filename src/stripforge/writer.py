@@ -18,6 +18,12 @@ Starting from the placement board (after F8), the build:
    each, embedded in the board as KiCad does (refs ``CUT1``…, same number as the cut id ``X1``…;
    board-only, excluded from BOM and position files), so the board loads and passes DRC in
    ``kicad-cli`` without the library configured.
+6. draws every stripboard hole (``draw_holes``, on by default): one board-only
+   ``StripForge:Holes`` footprint per strip (ref ``SF_HOLES_<strip>``), with a plated B.Cu pad
+   (``hole_drill_mm`` drill, strip-width copper, pad number = hole label) on the strip piece's
+   net at every grid hole that has no part pin or link in it; a hole cut is drawn as a bare
+   non-plated hole. So the built board looks like real stripboard in KiCad and the 3D viewer. A
+   hole too close to another pad's drill (a slot, a mounting hole) is left out.
 
 Existing copper: a track, arc or via that StripForge did not write is refused (the build expects the
 placement board); StripForge's own strips and cut markers from an earlier build are removed and
@@ -36,9 +42,9 @@ from pathlib import Path
 from . import links as links_mod
 from . import resources
 from .analyze import Analysis, analyze_board, apply_best_fit, make_grid
-from .board import Board, Footprint, _norm_angle, load_board, rotate_nm, save_board
+from .board import HOLES_LIB_ID, Board, Footprint, _norm_angle, load_board, rotate_nm, save_board
 from .config import BoardConfig
-from .grid import Grid, Node
+from .grid import Grid, Node, row_label
 from .sexpr import Sym, atom, find, find_all, head, loads, mm_to_nm, nm_to_mm_text
 
 NS = uuid.UUID("7b1e6c1a-51f0-4e43-9b3a-5354524950f1")  # StripForge output namespace (uuid5)
@@ -46,6 +52,9 @@ LINK_REF = re.compile(r"^W\d+$")
 CUT_LIB = f"{resources.LIB_NICKNAME}:CUT_"
 LINK_LIB = f"{resources.LIB_NICKNAME}:Link_"
 TRACK_HEADS = ("segment", "arc", "via")
+HOLES_REF = "SF_HOLES_"
+HOLE_TO_HOLE_NM = 250_000  # KiCad's default minimum hole-to-hole distance
+HOLE_CLEARANCE_NM = 250_000  # KiCad's default copper-to-hole clearance
 
 
 class BuildError(ValueError):
@@ -69,6 +78,7 @@ class BuildResult:
     cut_markers: int = 0
     placements: list[LinkPlacement] = field(default_factory=list)
     removed_previous: tuple[int, int] = (0, 0)  # (tracks, cut markers) from an earlier build
+    holes_drawn: int = 0  # stripboard hole pads (plated and bare) written
     warnings: list[str] = field(default_factory=list)
     outputs: list[str] = field(default_factory=list)
 
@@ -227,6 +237,120 @@ def place_at(fp: Footprint, x_nm: int, y_nm: int, angle: float = 0.0) -> None:
     fp.move(x_nm - fp.x_nm, y_nm - fp.y_nm)
 
 
+# --- stripboard holes ------------------------------------------------------------------------
+
+
+def placed_link_pads(link_fps: list[Footprint]) -> list:
+    return [p for fp in link_fps for p in fp.pads]
+
+
+def _hole_footprints(
+    board: Board, a: Analysis, plan: links_mod.LinkPlan, cfg: BoardConfig, extra_pads
+) -> list:
+    """One board-only ``StripForge:Holes`` footprint per strip with a pad at every free grid hole.
+
+    A hole gets a plated pad (B.Cu only, no mask: stripboard has none; strip-width copper; on
+    the net of the strip piece it sits in, no net on bare strip) unless a part pin sits in it, it
+    is the hole a slot is filed toward, or its drill would come closer than KiCad's hole-to-hole
+    minimum to another pad's drill (a placed W link, a slot, a mounting hole). A hole-cut hole is
+    drawn as a bare non-plated hole (the copper round it is gone).
+    """
+    g = a.grid
+    drill = mm_to_nm(cfg.hole_drill_mm)
+    size = mm_to_nm(cfg.strip_width_mm)
+    # A proposed link's holes are drawn until its W footprint is placed there (its pads then take
+    # the hole: see the drill check below).
+    busy = set(a.holes.occupants) | set(a.holes.reserved)
+    drills = [
+        (p.x_nm, p.y_nm, max(p.drill_x_nm, p.drill_y_nm))
+        for p in [*board.pads, *extra_pads]
+        if max(p.drill_x_nm, p.drill_y_nm) > 0
+    ]
+    net_at: dict[Node, str | None] = {}
+    for piece in a.split.pieces:
+        for c in range(piece.col_start, piece.col_end + 1):
+            net_at[Node(piece.row, c)] = piece.net
+    dead = {Node(s.row, c) for s in a.strips for c in s.dead_holes}
+
+    own = max(drill // 2 + HOLE_TO_HOLE_NM, size // 2 + HOLE_CLEARANCE_NM)  # our hole, our copper
+
+    def near_drill(x: int, y: int) -> bool:
+        for px, py, d in drills:
+            reach = own + d // 2
+            if abs(px - x) < reach and abs(py - y) < reach and (px - x) ** 2 + (py - y) ** 2 < reach * reach:
+                return True
+        return False
+
+    out = []
+    for row in range(g.rows):
+        x0, y0 = g.hole_xy(Node(row, 0))
+        pads = []
+        for col in range(g.cols):
+            node = Node(row, col)
+            if node in busy:
+                continue
+            x, y = g.hole_xy(node)
+            if near_drill(x, y):
+                continue
+            at = [Sym("at"), _mm(x - x0), _mm(0)]
+            if node in dead:
+                pad = [Sym("pad"), node.label, Sym("np_thru_hole"), Sym("circle"), at,
+                       [Sym("size"), _mm(drill), _mm(drill)], [Sym("drill"), _mm(drill)],
+                       [Sym("layers"), "*.Cu"]]  # fmt: skip
+            else:
+                pad = [Sym("pad"), node.label, Sym("thru_hole"), Sym("circle"), at,
+                       [Sym("size"), _mm(size), _mm(size)], [Sym("drill"), _mm(drill)],
+                       [Sym("layers"), "B.Cu"],
+                       [Sym("remove_unused_layers"), Sym("no")]]  # fmt: skip
+                if net_at.get(node):
+                    pad.append([Sym("net"), net_at[node]])
+            pad.append([Sym("uuid"), _u(f"holes/{row}/{col}")])
+            pads.append(pad)
+        if not pads:
+            continue
+        strip = row_label(row)
+        ref = f"{HOLES_REF}{strip}"
+        text = f"StripForge stripboard holes, strip {strip} (drawn by stripforge build; not a part)"
+        out.append(
+            [
+                Sym("footprint"),
+                HOLES_LIB_ID,
+                [Sym("layer"), "F.Cu"],
+                [Sym("uuid"), _u(f"holes/{row}")],
+                [Sym("at"), _mm(x0), _mm(y0)],
+                [Sym("descr"), text],
+                [Sym("tags"), "StripForge stripboard holes board_only"],
+                _prop("Reference", ref, f"holes/{row}/ref"),
+                _prop("Value", "Holes", f"holes/{row}/value"),
+                _prop("Datasheet", "", f"holes/{row}/datasheet"),
+                _prop("Description", text, f"holes/{row}/descr"),
+                [
+                    Sym("attr"),
+                    Sym("board_only"),
+                    Sym("exclude_from_pos_files"),
+                    Sym("exclude_from_bom"),
+                    Sym("allow_missing_courtyard"),
+                ],  # fmt: skip
+                *pads,
+                [Sym("embedded_fonts"), Sym("no")],
+            ]
+        )
+    return out
+
+
+def _prop(name: str, value: str, key: str) -> list:
+    return [
+        Sym("property"),
+        name,
+        value,
+        [Sym("at"), Sym("0"), Sym("0"), Sym("0")],
+        [Sym("layer"), "F.Fab"],
+        [Sym("hide"), Sym("yes")],
+        [Sym("uuid"), _u(key)],
+        [Sym("effects"), [Sym("font"), [Sym("size"), Sym("1"), Sym("1")], [Sym("thickness"), Sym("0.15")]]],
+    ]
+
+
 # --- build -----------------------------------------------------------------------------------
 
 
@@ -276,6 +400,7 @@ def prepare(board: Board, cfg: BoardConfig, netlist: str | None = None) -> Prepa
     for fp in old_cuts:
         root.remove(fp.node)
         board.footprints.remove(fp)
+    root[:] = [n for n in root if not (head(n) == "footprint" and atom(n, 1) == HOLES_LIB_ID)]
     link_fps = [fp for fp in board.footprints if is_link(fp)]
     cfg = replace(cfg, offboard_refs=sorted(set(cfg.offboard_refs) | {fp.ref for fp in link_fps}))
     cfg, clip_warnings = clip_to_outline(board, cfg, grid)
@@ -343,7 +468,7 @@ def build(
             res.placements.append(LinkPlacement(fp.ref, "back-side", "flip it to the front (F.Cu)"))
             continue
         x, y = a.grid.hole_xy(Node(lk.row_a, lk.col))
-        place_at(fp, x, y, 0.0)
+        place_at(fp, x, y, lk.rotation)
         res.placements.append(LinkPlacement(fp.ref, "placed", f"{lk.start} -> {lk.end}"))
     if link_fps:
         present = {fp.ref for fp in link_fps}
@@ -373,6 +498,13 @@ def build(
         name = "CUT_Hole" if cut.style == "hole" else "CUT_Knife"
         markers.append(embed_footprint(name, f"CUT{cut.id[1:]}", x, y, f"cut/{cut.id}", library=library))
     res.cut_markers = len(markers)
+    hole_fps = (
+        _hole_footprints(board, a, plan, cfg, [p for p in placed_link_pads(link_fps)])
+        if cfg.draw_holes
+        else []
+    )
+    res.holes_drawn = sum(sum(1 for c in n if head(c) == "pad") for n in hole_fps)
+    markers += hole_fps
 
     last_fp = max((i for i, n in enumerate(root) if head(n) == "footprint"), default=len(root) - 1)
     root[last_fp + 1 : last_fp + 1] = markers

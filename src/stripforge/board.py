@@ -247,12 +247,17 @@ def _outline(root: list) -> Outline | None:
     return min(xs), min(ys), max(xs), max(ys)
 
 
+# The stripboard holes StripForge draws into a built board (one footprint per strip). They are not
+# parts: leave them out of Board.footprints so analysis, sheets and rebuilds ignore them.
+HOLES_LIB_ID = "StripForge:Holes"
+
+
 def parse_board(text: str, path: str | None = None) -> Board:
     doc = parse(text)
     root = doc.root
     if head(root) != "kicad_pcb":
         raise ValueError(f"not a kicad_pcb file (top-level node is {head(root)!r})")
-    fps = [_parse_footprint(fp) for fp in find_all(root, "footprint")]
+    fps = [_parse_footprint(fp) for fp in find_all(root, "footprint") if atom(fp, 1) != HOLES_LIB_ID]
     return Board(footprints=fps, outline=_outline(root), path=path, doc=doc)
 
 

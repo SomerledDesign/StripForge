@@ -49,6 +49,10 @@ MISSING_LIB_RE = re.compile(r"does not include the footprint library '([^']+)'")
 SF_RULE_RE = re.compile(r"rule '(SF [^']+)'")
 COURTYARD_TYPES = {"courtyards_overlap", "pth_inside_courtyard", "npth_inside_courtyard"}
 LINK_ITEM_RE = re.compile(r"(?:Footprint|of) W\d+\b")
+# The stripboard holes stripforge build draws (SF_HOLES_A ...): holes under part bodies are normal
+# stripboard, and the generated footprint is not in any library.
+HOLES_ITEM_RE = re.compile(r"(?:Footprint|of) SF_HOLES_[A-Z]+\b")
+HOLES_EXPECTED_TYPES = COURTYARD_TYPES | {"lib_footprint_issues", "lib_footprint_mismatch"}
 ITEM_REF_RE = re.compile(r"(?:^Footprint | of )([^\s\]]+)$")
 PARITY_FAILED_RE = re.compile(r"Failed to fetch schematic netlist|require a fully annotated schematic")
 
@@ -82,6 +86,7 @@ class DrcResult:
     other: list[dict] = field(default_factory=list)
     filtered_dangling: int = 0
     filtered_missing_library: dict[str, int] = field(default_factory=dict)
+    filtered_holes: int = 0  # stripboard holes under part courtyards / not in a library (expected)
     # [drc] table filters: {"silk_overlap": n, "courtyards_overlap J2/C2": n, ...}
     filtered_config: dict[str, int] = field(default_factory=dict)
     config_warnings: list[str] = field(default_factory=list)
@@ -112,6 +117,7 @@ class DrcResult:
             "other_warnings": len(self.other) - len(self.other_errors),
             "filtered_track_dangling": self.filtered_dangling,
             "filtered_missing_library": sum(self.filtered_missing_library.values()),
+            "filtered_holes": self.filtered_holes,
             "filtered_config": sum(self.filtered_config.values()),
             "filtered_config_by_kind": dict(self.filtered_config),
             "parity_checked": self.parity_checked,
@@ -166,6 +172,10 @@ def classify(report: dict, parity_requested: bool = False, log: str = "", drc_co
             res.filtered_config[bucket] = res.filtered_config.get(bucket, 0) + 1
         elif t in DANGLING_TYPES:
             res.filtered_dangling += 1
+        elif t in HOLES_EXPECTED_TYPES and any(
+            HOLES_ITEM_RE.search(it.get("description", "")) for it in v.get("items", [])
+        ):
+            res.filtered_holes += 1
         elif t == "lib_footprint_issues" and (m := MISSING_LIB_RE.search(desc)):
             res.filtered_missing_library[m.group(1)] = res.filtered_missing_library.get(m.group(1), 0) + 1
         elif t in SHORT_TYPES:
@@ -281,6 +291,11 @@ def format_text(res: DrcResult, board: str, label=None, expected_links: int | No
     out.append(
         f"  filtered (expected): {res.filtered_dangling} track_dangling (dead strip ends)"
         + (f", {c['filtered_missing_library']} library-not-configured ({libs})" if libs else "")
+        + (
+            f", {res.filtered_holes} stripboard-hole item(s) (holes under parts, generated footprint)"
+            if res.filtered_holes
+            else ""
+        )
     )
     if res.filtered_config:
         kinds = ", ".join(f"{n} {k}" for k, n in sorted(res.filtered_config.items()))

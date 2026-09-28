@@ -56,10 +56,10 @@ def test_counts_match_the_board(real):
     m, h = real["m2"], real["h2"]
     assert m.built == "built"
     cut_ids = items(h, "cut")
-    assert len(cut_ids) == len(m.a.split.cuts) == len(m.prep.old_cuts) == 59
+    assert len(cut_ids) == len(m.a.split.cuts) == len(m.prep.old_cuts) == 63  # incl. the bus-strip cuts
     assert sorted(cut_ids) == sorted(f"X{fp.ref[3:]}" for fp in m.prep.old_cuts)
-    assert len(re.findall(r'data-style="knife"', h)) == 24
-    assert len(items(h, "link")) == 25 and [r.status for r in m.links] == ["placed"] * 25
+    assert len(re.findall(r'data-style="knife"', h)) == 20
+    assert len(items(h, "link")) == 28 and [r.status for r in m.links] == ["placed"] * 28
     assert len(items(h, "part")) == 22
     assert len(items(h, "slot")) == 2
 
@@ -74,7 +74,7 @@ def test_header_names_project_board_date_and_version(real):
 def test_cut_list_is_grouped_by_strip_in_order(real):
     h = real["h2"]
     heads = re.findall(r'<li class="strip-head"><b>Strip (\w+)</b>', h)
-    assert heads == sorted(heads, key=lambda s: (len(s), s)) and heads[0] == "B"
+    assert heads == sorted(heads, key=lambda s: (len(s), s)) and heads[0] == "A"  # bus strip A
     assert (
         'data-cut="X1" data-style="hole"><span class="box"></span>'
         '<span class="mono">X1</span> hole <b>B24</b>' in h
@@ -87,12 +87,12 @@ def test_slot_jobs_say_which_way_and_how_far(real):
     # the BH23APC's oval slots: file each end hole 0.025" (0.635 mm) toward the part centre
     assert "file <b>U16</b> <b>0.025&quot; (0.635 mm)</b> toward <b>U17</b> (toward the part centre)" in h
     assert "file <b>U29</b> <b>0.025&quot; (0.635 mm)</b> toward <b>U28</b> (toward the part centre)" in h
-    assert "0.32 mm" not in h
+    assert not re.search(r"(?<![\d.])0\.32 mm", h)
 
 
 def test_links_list_from_to_length_and_footprint(real):
     h = real["h2"]
-    row = re.search(r'<tr class="item" data-kind="link" data-link="W1">.*?</tr>', h).group(0)
+    row = re.search(r'<tr class="item" data-kind="link" data-link="W3">.*?</tr>', h).group(0)
     assert "<b>B18</b>" in row and "<b>U18</b>" in row and "19 (48.26 mm)" in row
     assert "StripForge:Link_P48.26" in row and "placed" in row
 
@@ -125,17 +125,17 @@ def test_net_table_lists_every_hole_including_link_ends(real):
 
 def test_warnings_cover_knife_cuts_overlaps_and_unlinkable_nets(real):
     m, h = real["m2"], real["h2"]
-    assert len(m.knife_cuts) == 24 and len(m.unlinkable) == 13
-    assert len(re.findall(r'<li data-kind="knife">', h)) == 24
+    assert len(m.knife_cuts) == 20 and len(m.unlinkable) == 13
+    assert len(re.findall(r'<li data-kind="knife">', h)) == 20
     assert len(re.findall(r'<li data-kind="unlinkable">', h)) == 13
-    assert any("W1 (B18-U18) runs under BT1, J2" in o for o in m.overlaps)
+    assert any("W3 (B18-U18) runs under BT1, J2" in o for o in m.overlaps)
 
 
 def test_pass1_sheet_draws_links_dashed_and_says_so(real):
     m, h = real["m1"], real["h1"]
-    assert [r.status for r in m.links] == ["to-add"] * 25
-    assert h.count('class="wire proposed"') == 25
-    assert any("25 wire link(s) are not placed" in w for w in m.warnings)
+    assert [r.status for r in m.links] == ["to-add"] * 28
+    assert h.count('class="wire proposed"') == 28
+    assert any("28 wire link(s) are not placed" in w for w in m.warnings)
 
 
 def test_copper_view_is_mirrored_and_labelled_on_both_edges(real):
@@ -212,11 +212,11 @@ def test_cli_sheet_writes_html_svg_and_csv(real, tmp_path, capsys):
     code = main(["sheet", str(real["p2"]), "--config", str(real["board"].parents[1] / "x56.toml"),
                  "-o", str(out), "--no-pdf", "--date", DATE])  # fmt: skip
     text = capsys.readouterr().out
-    assert code == 0 and "Cuts: 59, slot jobs: 2, wire links: 25 (25 placed)" in text
+    assert code == 0 and "Cuts: 63, slot jobs: 2, wire links: 28 (28 placed)" in text
     for suffix in (".html", ".copper.svg", ".component.svg", ".cuts.csv"):
         assert out.with_suffix(suffix).exists()
     rows = out.with_suffix(".cuts.csv").read_text().splitlines()
-    assert rows[0].startswith("id,strip,style,at") and len(rows) == 60
+    assert rows[0].startswith("id,strip,style,at") and len(rows) == 64
     assert main(["sheet", str(tmp_path / "missing.kicad_pcb"), "-o", str(out), "--no-pdf"]) == 2
     shutil.rmtree(tmp_path)
 

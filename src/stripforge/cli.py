@@ -114,6 +114,8 @@ def _build(args: argparse.Namespace) -> int:
         f"Cuts: {len(a.split.cuts)} ({hole} hole, {len(a.split.cuts) - hole} knife), "
         f"{res.cut_markers} marker(s)"
     )
+    if res.holes_drawn:
+        print(f"Holes: {res.holes_drawn} stripboard hole(s) drawn (every free grid hole; hole cuts bare)")
     sys.stdout.write(links_mod.format_text(plan).split("\n\nTo add")[0].rstrip("\n") + "\n")
     if res.pass2:
         print(f"Pass 2: {len(res.placed)} of {len(plan.links)} link(s) placed")

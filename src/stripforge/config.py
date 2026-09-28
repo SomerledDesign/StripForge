@@ -154,6 +154,19 @@ class BoardConfig:
     # Parts not on the stripboard (hand-wired, panel-mounted): no snap, no strips for their pads,
     # listed as "wired off-board" on the build sheet. offboard_refs is the older name; both work.
     skip: list[str] = field(default_factory=list)
+    # Wire links (M2): the longest link the planner may propose, in mm (the Link_P* footprints go
+    # up to 32 pitches, 81.28 mm). Links run down a column, along a strip (bridging a cut), or on a
+    # diagonal from any free hole to any free hole (a rotated Link_P* when the length is a whole
+    # number of pitches, 3-4-5 and friends, else a rotated off-pitch Link_D*; off_pitch_links = false
+    # keeps to whole-pitch diagonals); with bus_strips, two links may meet on an unused bare strip.
+    max_link_mm: float = 81.28
+    diagonal_links: bool = True
+    off_pitch_links: bool = True
+    bus_strips: bool = True
+    # Build: draw every stripboard hole (a plated pad on its strip's net) in the built board, so it
+    # looks like the real board in KiCad and the 3D viewer; hole cuts are drawn as bare holes.
+    draw_holes: bool = True
+    hole_drill_mm: float = 1.0
     # Non-fatal config problems found while loading (e.g. a very large [bend]); shown as warnings.
     warnings: list[str] = field(default_factory=list)
 
@@ -192,6 +205,16 @@ def from_dict(data: dict) -> BoardConfig:
             raise ValueError(f"{name} must be a positive integer")
     if cfg.pitch_mm <= 0 or cfg.snap_tol_mm < 0:
         raise ValueError("pitch_mm must be > 0 and snap_tol_mm >= 0")
+    for name in ("max_link_mm", "hole_drill_mm"):
+        v = getattr(cfg, name)
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or v <= 0:
+            raise ValueError(f"{name} must be a number of millimetres more than 0, got {v!r}")
+        setattr(cfg, name, float(v))
+    if cfg.hole_drill_mm >= cfg.strip_width_mm:
+        raise ValueError(f"hole_drill_mm ({cfg.hole_drill_mm:g}) must be smaller than strip_width_mm")
+    for name in ("diagonal_links", "off_pitch_links", "bus_strips", "draw_holes"):
+        if not isinstance(getattr(cfg, name), bool):
+            raise ValueError(f"{name} must be true or false")
     # skip and offboard_refs mean the same; the rest of the code reads offboard_refs
     cfg.offboard_refs = list(dict.fromkeys([*cfg.offboard_refs, *cfg.skip]))
     cfg.skip = list(cfg.offboard_refs)  # the user's list (the writer adds W links to offboard_refs only)
