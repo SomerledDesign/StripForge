@@ -26,3 +26,8 @@ _autosave-*
 
 # macOS
 .DS_Store
+
+# Built by tools/make_pcm_zip.py into the zip only, never committed under plugins/
+plugins/stripforge/
+plugins/footprints/
+plugins/rules/

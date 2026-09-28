@@ -80,3 +80,27 @@ def test_real_fixture_pass1_drc(tmp_path, real_board_path, real_netlist_path):
     assert not d.stripboard_rules
     assert len(d.unconnected) == res.plan.needed
     assert d.filtered_dangling > 0
+
+
+def test_shadow_project_names_the_board_after_the_schematic(tmp_path):
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    for name in ("fix.kicad_sch", "sub.kicad_sch", "fix.kicad_pro", "sym-lib-table", "other.txt"):
+        (proj / name).write_text(name)
+    (proj / "fix-stripforge.kicad_pcb").write_text("board")
+    (proj / "fix-stripforge.kicad_dru").write_text("rules")
+    out = drc.shadow_project(proj / "fix-stripforge.kicad_pcb", proj / "fix.kicad_sch", tmp_path / "shadow")
+    assert out == tmp_path / "shadow" / "fix.kicad_pcb"
+    assert out.read_text() == "board"
+    assert out.with_suffix(".kicad_dru").read_text() == "rules"
+    names = sorted(p.name for p in out.parent.iterdir())
+    assert names == [
+        "fix.kicad_dru",
+        "fix.kicad_pcb",
+        "fix.kicad_pro",
+        "fix.kicad_sch",
+        "sub.kicad_sch",
+        "sym-lib-table",
+    ]
+    with pytest.raises(FileNotFoundError):
+        drc.shadow_project(proj / "fix-stripforge.kicad_pcb", proj / "missing.kicad_sch", tmp_path / "x")

@@ -146,22 +146,59 @@ def classify(report: dict, parity_requested: bool = False, log: str = "") -> Drc
     return res
 
 
+PROJECT_FILES = ("sym-lib-table", "fp-lib-table")
+
+
+def shadow_project(board_path: str | Path, schematic: str | Path, dest: str | Path) -> Path:
+    """Copy ``board_path`` into ``dest`` under the schematic's name, with the schematic beside it.
+
+    kicad-cli's schematic parity only looks for ``<board stem>.kicad_sch``, but a built board is a
+    sibling such as ``fixture-stripforge.kicad_pcb``. This makes ``dest/<sch stem>.kicad_pcb`` (and its
+    ``.kicad_dru``) next to copies of every ``.kicad_sch`` in the schematic's folder (sub-sheets),
+    ``<sch stem>.kicad_pro`` and the project library tables, and returns the board copy's path.
+    Nothing next to the real board or schematic is touched.
+    """
+    board, sch, dest = Path(board_path), Path(schematic), Path(dest)
+    if not sch.is_file():
+        raise FileNotFoundError(f"schematic not found: {sch}")
+    dest.mkdir(parents=True, exist_ok=True)
+    for f in sorted(sch.parent.glob("*.kicad_sch")):
+        shutil.copy2(f, dest / f.name)
+    for name in (sch.stem + ".kicad_pro", *PROJECT_FILES):
+        if (sch.parent / name).is_file():
+            shutil.copy2(sch.parent / name, dest / name)
+    out = dest / (sch.stem + ".kicad_pcb")
+    shutil.copy2(board, out)
+    dru = board.with_suffix(".kicad_dru")
+    if dru.is_file():
+        shutil.copy2(dru, out.with_suffix(".kicad_dru"))
+    return out
+
+
 def run_drc(
     board_path: str | Path,
     kicad_cli: str | None = None,
     parity: bool = True,
     report_path: str | Path | None = None,
+    schematic: str | Path | None = None,
 ) -> DrcResult:
-    """Run kicad-cli DRC on ``board_path`` and classify it. Raises KiCadCliMissing or RuntimeError."""
+    """Run kicad-cli DRC on ``board_path`` and classify it. Raises KiCadCliMissing or RuntimeError.
+
+    ``schematic``: check parity against this ``.kicad_sch`` even though the board has another name
+    (the DRC then runs on a copy, see :func:`shadow_project`).
+    """
     cli = find_kicad_cli(kicad_cli)
     if cli is None:
         raise KiCadCliMissing("kicad-cli not found (set KICAD_CLI or pass --kicad-cli)")
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(report_path) if report_path else Path(tmp) / "drc.json"
+        target = Path(board_path)
+        if parity and schematic and Path(schematic).stem != target.stem:
+            target = shadow_project(target, schematic, Path(tmp) / "project")
         cmd = [cli, "pcb", "drc", "--format", "json", "--severity-all", "--units", "mm"]
         if parity:
             cmd.append("--schematic-parity")
-        cmd += ["-o", str(out), str(board_path)]
+        cmd += ["-o", str(out), str(target)]
         proc = subprocess.run(cmd, capture_output=True, text=True)
         log = "\n".join(
             line for line in (proc.stdout + proc.stderr).splitlines() if not line.startswith("Fontconfig")
@@ -202,7 +239,7 @@ def format_text(res: DrcResult, board: str, label=None, expected_links: int | No
             "over a part courtyard"
         )
     if res.parity_checked is False:
-        out.append("  parity: NOT checked (kicad-cli found no schematic next to the board)")
+        out.append("  parity: NOT checked (kicad-cli found no schematic next to the board; pass --schematic)")
     elif res.parity_checked:
         out.append("  parity: checked against the schematic")
     for name in REAL:

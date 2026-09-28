@@ -142,7 +142,13 @@ def _drc(args: argparse.Namespace) -> int:
     except (OSError, ValueError):
         pass
     try:
-        res = drc.run_drc(args.board, args.kicad_cli, parity=not args.no_parity, report_path=args.report)
+        res = drc.run_drc(
+            args.board,
+            args.kicad_cli,
+            parity=not args.no_parity,
+            report_path=args.report,
+            schematic=args.schematic,
+        )
     except drc.KiCadCliMissing as exc:
         print(f"stripforge drc: skipped: {exc}", file=sys.stderr)
         return 3
@@ -269,6 +275,10 @@ def main(argv: list[str] | None = None) -> int:
     dr.add_argument("--config", help="stripboard.toml, to label positions with holes (A1...)")
     dr.add_argument("--kicad-cli", help="path to kicad-cli (default: $KICAD_CLI, PATH, the macOS app)")
     dr.add_argument("--no-parity", action="store_true", help="skip the schematic parity check")
+    dr.add_argument(
+        "--schematic",
+        help="check parity against this .kicad_sch (a <name>-stripforge board has none beside it)",
+    )
     dr.add_argument("--report", help="also keep kicad-cli's JSON report here")
     dr.add_argument("--json", action="store_true", help="machine-readable summary")
     dr.set_defaults(func=_drc, tol=None)

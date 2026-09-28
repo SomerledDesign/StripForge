@@ -1,0 +1,52 @@
+{
+    "$schema": "https://go.kicad.org/api/schemas/v1",
+    "identifier": "com.github.somerleddesign.stripforge",
+    "name": "StripForge",
+    "description": "Stripboard (Veroboard) layout: strip copper, cuts and wire links in a normal .kicad_pcb, KiCad DRC, and a printable build sheet.",
+    "runtime": {
+        "type": "python",
+        "min_version": "3.9"
+    },
+    "actions": [
+        {
+            "identifier": "stripforge.analyze",
+            "name": "StripForge: Analyze",
+            "description": "Snap the parts to the stripboard grid and report cuts, links needed, slot jobs and placement hints (read-only)",
+            "show-button": true,
+            "scopes": ["pcb"],
+            "entrypoint": "sf_analyze.py",
+            "icons-light": ["icons/analyze-24.png", "icons/analyze-48.png"],
+            "icons-dark": ["icons/analyze-24.png", "icons/analyze-48.png"]
+        },
+        {
+            "identifier": "stripforge.build",
+            "name": "StripForge: Build strips",
+            "description": "Write the strip copper, cuts and wire links into a NEW board file next to this one (<name>-stripforge.kicad_pcb); the open board is not changed",
+            "show-button": true,
+            "scopes": ["pcb"],
+            "entrypoint": "sf_build.py",
+            "icons-light": ["icons/build-24.png", "icons/build-48.png"],
+            "icons-dark": ["icons/build-24.png", "icons/build-48.png"]
+        },
+        {
+            "identifier": "stripforge.drc",
+            "name": "StripForge: Run DRC",
+            "description": "Run KiCad's DRC (kicad-cli) on the built board and sort real problems from expected stripboard noise",
+            "show-button": true,
+            "scopes": ["pcb"],
+            "entrypoint": "sf_drc.py",
+            "icons-light": ["icons/drc-24.png", "icons/drc-48.png"],
+            "icons-dark": ["icons/drc-24.png", "icons/drc-48.png"]
+        },
+        {
+            "identifier": "stripforge.sheet",
+            "name": "StripForge: Build sheet",
+            "description": "Write the printable build sheet (mirrored copper side, checklists, net check) for the built board and open it in a browser",
+            "show-button": true,
+            "scopes": ["pcb"],
+            "entrypoint": "sf_sheet.py",
+            "icons-light": ["icons/sheet-24.png", "icons/sheet-48.png"],
+            "icons-dark": ["icons/sheet-24.png", "icons/sheet-48.png"]
+        }
+    ]
+}

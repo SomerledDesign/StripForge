@@ -1,9 +1,9 @@
 {
     "$schema": "https://go.kicad.org/pcm/schemas/v1",
     "name": "StripForge",
-    "description": "Stripboard (Veroboard) layout in KiCad: real footprints, live netlist, copper strips in a normal .kicad_pcb.",
-    "description_full": "StripForge turns a KiCad project's real footprints and netlist into stripboard copper on B.Cu at a 2.54 mm pitch. It snaps THT parts to the grid, splits strips by net with real copper gaps plus cut markers, proposes wire links as zero-ohm jumpers that also live in the schematic, relies on KiCad DRC to catch shorts and opens, and exports a mirrored copper-side build sheet.\n\nPre-alpha: this package is a placeholder and does not do anything yet.",
-    "identifier": "com.github.SomerledDesign.stripforge",
+    "description": "Stripboard (Veroboard) layout in KiCad: strip copper, cuts and wire links in a normal .kicad_pcb, KiCad DRC and a printable build sheet.",
+    "description_full": "StripForge turns a KiCad project's real footprints and netlist into stripboard copper on B.Cu at a 2.54 mm pitch. It snaps THT parts to the hole grid, splits the strips by net with real copper gaps plus cut markers, proposes wire links as zero-ohm jumpers that also live in the schematic, runs KiCad's DRC with schematic parity to catch shorts and opens, and writes a printable build sheet: the mirrored copper side with every cut, the component side, and checklists for cuts, slots, links, parts and a continuity check.\n\nThe PCB editor gets four toolbar actions: StripForge: Analyze, Build strips, Run DRC and Build sheet. Nothing edits the open board; Build strips writes <name>-stripforge.kicad_pcb next to it.\n\nKiCad 10 IPC plugin (the IPC API must be enabled in Preferences > Plugins). Pre-alpha.",
+    "identifier": "com.github.somerleddesign.stripforge",
     "type": "plugin",
     "author": {
         "name": "Somerled Design",
@@ -25,13 +25,14 @@
     "tags": [
         "stripboard",
         "veroboard",
-        "pcb",
-        "prototyping"
+        "perfboard",
+        "prototyping",
+        "build-sheet"
     ],
     "versions": [
         {
-            "version": "0.0.1",
-            "status": "development",
+            "version": "0.1.0",
+            "status": "testing",
             "kicad_version": "10.0",
             "runtime": "ipc"
         }

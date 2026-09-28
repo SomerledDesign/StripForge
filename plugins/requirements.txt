@@ -1,0 +1,4 @@
+# Installed by KiCad into this plugin's own virtual environment (KiCad 10 IPC plugin).
+# The StripForge package itself is bundled next to this file (see tools/make_pcm_zip.py).
+kicad-python==0.8.0
+tomli>=1.1; python_version < "3.11"
