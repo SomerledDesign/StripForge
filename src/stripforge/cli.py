@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Somerled Design
-"""StripForge command line: analyze, snap and build (plan, drc and sheet are stubs; Sketch.md §7)."""
+"""StripForge command line: analyze, snap, build and drc (plan and sheet are stubs; Sketch.md §7)."""
 
 import argparse
 import json
@@ -127,6 +127,45 @@ def _build(args: argparse.Namespace) -> int:
     return 0 if res.ok else 1
 
 
+def _drc(args: argparse.Namespace) -> int:
+    from . import drc
+
+    label = None
+    try:
+        from .analyze import make_grid
+        from .board import load_board
+
+        grid, _ = make_grid(load_board(args.board), _config(args))
+        label = lambda x, y: grid.nearest(round(x * 1e6), round(y * 1e6)).label  # noqa: E731
+    except (OSError, ValueError):
+        pass
+    try:
+        res = drc.run_drc(args.board, args.kicad_cli, parity=not args.no_parity, report_path=args.report)
+    except drc.KiCadCliMissing as exc:
+        print(f"stripforge drc: skipped: {exc}", file=sys.stderr)
+        return 3
+    except (OSError, RuntimeError, ValueError) as exc:
+        print(f"stripforge drc: error: {exc}", file=sys.stderr)
+        return 2
+    if args.json:
+        json.dump(
+            {"board": args.board, **res.counts(), "unconnected_nets": res.unconnected_nets()},
+            sys.stdout,
+            indent=2,
+        )
+        sys.stdout.write("\n")
+    else:
+        expected = None
+        links_json = Path(args.board).with_suffix(".links.json")
+        if links_json.exists():
+            try:
+                expected = json.loads(links_json.read_text(encoding="utf-8")).get("links_needed")
+            except (OSError, ValueError):
+                pass
+        sys.stdout.write(drc.format_text(res, args.board, label, expected_links=expected))
+    return 0 if res.ok else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="stripforge", description=__doc__)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -180,9 +219,25 @@ def main(argv: list[str] | None = None) -> int:
     bu.add_argument("--rules", help="stripforge.kicad_dru (default: the repository copy)")
     bu.set_defaults(func=_build)
 
+    dr = sub.add_parser(
+        "drc",
+        help="run kicad-cli DRC and classify shorts, clearance, unconnected and parity",
+        description="Run 'kicad-cli pcb drc --format json --severity-all --schematic-parity' and sort the "
+        "result into real problems (shorts, clearance, unconnected, parity, StripForge rules, other errors) "
+        "and expected noise (track_dangling from dead strip ends, library-not-configured warnings), which "
+        "is counted but filtered. Exit code 0 = clean, 1 = real problems, 2 = kicad-cli failed, "
+        "3 = kicad-cli not found (skipped).",
+    )
+    dr.add_argument("board", help="path to .kicad_pcb")
+    dr.add_argument("--config", help="stripboard.toml, to label positions with holes (A1...)")
+    dr.add_argument("--kicad-cli", help="path to kicad-cli (default: $KICAD_CLI, PATH, the macOS app)")
+    dr.add_argument("--no-parity", action="store_true", help="skip the schematic parity check")
+    dr.add_argument("--report", help="also keep kicad-cli's JSON report here")
+    dr.add_argument("--json", action="store_true", help="machine-readable summary")
+    dr.set_defaults(func=_drc, tol=None)
+
     for name, help_ in [
         ("plan", "snap + split + cut/link proposal, JSON report only"),
-        ("drc", "run kicad-cli DRC and classify shorts/opens/parity"),
         ("sheet", "export copper-side build sheet (SVG/PDF) + CSVs"),
     ]:
         sp = sub.add_parser(name, help=help_ + " (not implemented yet)")
