@@ -1,4 +1,4 @@
-"""Integration test on Kevin's ATtiny10 TPI fixture (examples/tpi-fixture)."""
+"""Integration test on the frozen M1 TPI fixture (tests/fixtures/tpi-m1)."""
 
 import json
 from pathlib import Path
