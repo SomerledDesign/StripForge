@@ -2,7 +2,7 @@
 	(version "E")
 	(design
 		(source "/Users/kmurphy/Library/CloudStorage/Dropbox/KiCad/ATtiny10_TPI_Fixture/ATtiny10_TPI_Fixture.kicad_sch")
-		(date "2026-09-27T14:34:45")
+		(date "2026-09-27T17:28:57")
 		(tool "Eeschema 10.0.4")
 		(textvar
 			(name "DRWN_BY") "KM")
@@ -162,11 +162,11 @@
 	(components
 		(comp
 			(ref "BT1")
-			(value "12V (23A or 8xAA pack)")
-			(footprint "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical")
+			(value "12V 23A cell (MPD BH23APC)")
+			(footprint "ATtiny10_TPI_Fixture:BatteryHolder_MPD_BH23APC_1x23A_Stripboard_H0-H13")
 			(fields
 				(field
-					(name "Footprint") "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical")
+					(name "Footprint") "ATtiny10_TPI_Fixture:BatteryHolder_MPD_BH23APC_1x23A_Stripboard_H0-H13")
 				(field
 					(name "Datasheet")
 				)
@@ -1201,23 +1201,23 @@
 			)
 		)
 		(comp
-			(ref "SW1A")
-			(value "4PDT on-on (pole A)")
-			(footprint "Connector_PinHeader_2.54mm:PinHeader_1x03_P2.54mm_Vertical")
+			(ref "SW1")
+			(value "CHIP SEL 6PDT (MSS6200 on adapter)")
+			(footprint "ATtiny10_TPI_Fixture:MSS6200_Adapter_2x09_P2.54mm")
+			(datasheet "https://media.digikey.com/pdf/Data%20Sheets/Tyco%20Electronics%20Alcoswitch%20PDFs/MSS,MSSA%20Series.pdf")
 			(fields
 				(field
-					(name "Footprint") "Connector_PinHeader_2.54mm:PinHeader_1x03_P2.54mm_Vertical")
+					(name "Footprint") "ATtiny10_TPI_Fixture:MSS6200_Adapter_2x09_P2.54mm")
 				(field
-					(name "Datasheet")
-				)
+					(name "Datasheet") "https://media.digikey.com/pdf/Data%20Sheets/Tyco%20Electronics%20Alcoswitch%20PDFs/MSS,MSSA%20Series.pdf")
 				(field
 					(name "Description")
 				)
 			)
 			(libsource
-				(lib "Switch")
-				(part "SW_SPDT")
-				(description "Switch, single pole double throw")
+				(lib "ATtiny10_TPI_Fixture")
+				(part "SW_6PDT_MSS6200")
+				(description "Switch, six pole double throw (6PDT on-on slide, TE/Alcoswitch MSS6200 type), one unit per pole: A/C = throws, B = common")
 			)
 			(property
 				(name "Sheetname")
@@ -1229,229 +1229,16 @@
 			)
 			(property
 				(name "ki_keywords")
-				(value "switch single-pole double-throw spdt ON-ON")
+				(value "switch slide 6PDT six-pole double-throw ON-ON MSS6200")
 			)
 			(sheetpath
 				(names "/SCHEMATIC DIAGRAM/")
 				(tstamps "/65b6d203-8468-41c0-a7c2-9b529ea4fa7d/")
 			)
-			(tstamps "9fd76bce-dc7a-4967-b25c-887e34b803eb")
-			(units
-				(unit
-					(name "A")
-					(pins
-						(pin
-							(num "2")
-						)
-						(pin
-							(num "1")
-						)
-						(pin
-							(num "3")
-						)
-					)
-				)
+			(tstamps "9fd76bce-dc7a-4967-b25c-887e34b803eb" "9758ee8d-7bbb-42a3-9327-5ce412f81255"
+				"472fc135-86cd-491e-b45d-00095933dba8" "c40f3e02-827c-412f-b047-54ec885b2a01"
+				"2f052355-4359-4f90-91b0-8cb6e72c8599" "28a42d5c-da1f-4518-baef-285505feb7f2"
 			)
-		)
-		(comp
-			(ref "SW1B")
-			(value "4PDT on-on (pole B)")
-			(footprint "Connector_PinHeader_2.54mm:PinHeader_1x03_P2.54mm_Vertical")
-			(fields
-				(field
-					(name "Footprint") "Connector_PinHeader_2.54mm:PinHeader_1x03_P2.54mm_Vertical")
-				(field
-					(name "Datasheet")
-				)
-				(field
-					(name "Description")
-				)
-			)
-			(libsource
-				(lib "Switch")
-				(part "SW_SPDT")
-				(description "Switch, single pole double throw")
-			)
-			(property
-				(name "Sheetname")
-				(value "SCHEMATIC DIAGRAM")
-			)
-			(property
-				(name "Sheetfile")
-				(value "[03] SCHEMATIC DIAGRAM.kicad_sch")
-			)
-			(property
-				(name "ki_keywords")
-				(value "switch single-pole double-throw spdt ON-ON")
-			)
-			(sheetpath
-				(names "/SCHEMATIC DIAGRAM/")
-				(tstamps "/65b6d203-8468-41c0-a7c2-9b529ea4fa7d/")
-			)
-			(tstamps "2f052355-4359-4f90-91b0-8cb6e72c8599")
-			(units
-				(unit
-					(name "A")
-					(pins
-						(pin
-							(num "2")
-						)
-						(pin
-							(num "1")
-						)
-						(pin
-							(num "3")
-						)
-					)
-				)
-			)
-		)
-		(comp
-			(ref "SW1C")
-			(value "4PDT on-on (pole C)")
-			(footprint "Connector_PinHeader_2.54mm:PinHeader_1x03_P2.54mm_Vertical")
-			(fields
-				(field
-					(name "Footprint") "Connector_PinHeader_2.54mm:PinHeader_1x03_P2.54mm_Vertical")
-				(field
-					(name "Datasheet")
-				)
-				(field
-					(name "Description")
-				)
-			)
-			(libsource
-				(lib "Switch")
-				(part "SW_SPDT")
-				(description "Switch, single pole double throw")
-			)
-			(property
-				(name "Sheetname")
-				(value "SCHEMATIC DIAGRAM")
-			)
-			(property
-				(name "Sheetfile")
-				(value "[03] SCHEMATIC DIAGRAM.kicad_sch")
-			)
-			(property
-				(name "ki_keywords")
-				(value "switch single-pole double-throw spdt ON-ON")
-			)
-			(sheetpath
-				(names "/SCHEMATIC DIAGRAM/")
-				(tstamps "/65b6d203-8468-41c0-a7c2-9b529ea4fa7d/")
-			)
-			(tstamps "9758ee8d-7bbb-42a3-9327-5ce412f81255")
-			(units
-				(unit
-					(name "A")
-					(pins
-						(pin
-							(num "2")
-						)
-						(pin
-							(num "1")
-						)
-						(pin
-							(num "3")
-						)
-					)
-				)
-			)
-		)
-		(comp
-			(ref "SW1D")
-			(value "4PDT on-on (pole D)")
-			(footprint "Connector_PinHeader_2.54mm:PinHeader_1x03_P2.54mm_Vertical")
-			(fields
-				(field
-					(name "Footprint") "Connector_PinHeader_2.54mm:PinHeader_1x03_P2.54mm_Vertical")
-				(field
-					(name "Datasheet")
-				)
-				(field
-					(name "Description")
-				)
-			)
-			(libsource
-				(lib "Switch")
-				(part "SW_SPDT")
-				(description "Switch, single pole double throw")
-			)
-			(property
-				(name "Sheetname")
-				(value "SCHEMATIC DIAGRAM")
-			)
-			(property
-				(name "Sheetfile")
-				(value "[03] SCHEMATIC DIAGRAM.kicad_sch")
-			)
-			(property
-				(name "ki_keywords")
-				(value "switch single-pole double-throw spdt ON-ON")
-			)
-			(sheetpath
-				(names "/SCHEMATIC DIAGRAM/")
-				(tstamps "/65b6d203-8468-41c0-a7c2-9b529ea4fa7d/")
-			)
-			(tstamps "472fc135-86cd-491e-b45d-00095933dba8")
-			(units
-				(unit
-					(name "A")
-					(pins
-						(pin
-							(num "2")
-						)
-						(pin
-							(num "1")
-						)
-						(pin
-							(num "3")
-						)
-					)
-				)
-			)
-		)
-		(comp
-			(ref "SW2")
-			(value "MODE NORMAL/HV")
-			(footprint "Connector_PinHeader_2.54mm:PinHeader_1x06_P2.54mm_Vertical")
-			(fields
-				(field
-					(name "Footprint") "Connector_PinHeader_2.54mm:PinHeader_1x06_P2.54mm_Vertical")
-				(field
-					(name "Datasheet")
-				)
-				(field
-					(name "Description")
-				)
-			)
-			(libsource
-				(lib "Switch")
-				(part "SW_DPDT_x2")
-				(description "Switch, dual pole double throw, separate symbols")
-			)
-			(property
-				(name "Sheetname")
-				(value "SCHEMATIC DIAGRAM")
-			)
-			(property
-				(name "Sheetfile")
-				(value "[03] SCHEMATIC DIAGRAM.kicad_sch")
-			)
-			(property
-				(name "ki_keywords")
-				(value "switch dual-pole double-throw DPDT spdt ON-ON")
-			)
-			(property
-				(name "ki_fp_filters")
-				(value "SW*DPDT*")
-			)
-			(sheetpath
-				(names "/SCHEMATIC DIAGRAM/")
-				(tstamps "/65b6d203-8468-41c0-a7c2-9b529ea4fa7d/")
-			)
-			(tstamps "f5e1d010-f10e-4f93-a31d-f86da9404f20" "2da47b27-b9cf-476f-942b-9f5fee02570d")
 			(units
 				(unit
 					(name "A")
@@ -1481,26 +1268,82 @@
 						)
 					)
 				)
+				(unit
+					(name "C")
+					(pins
+						(pin
+							(num "8")
+						)
+						(pin
+							(num "7")
+						)
+						(pin
+							(num "9")
+						)
+					)
+				)
+				(unit
+					(name "D")
+					(pins
+						(pin
+							(num "11")
+						)
+						(pin
+							(num "10")
+						)
+						(pin
+							(num "12")
+						)
+					)
+				)
+				(unit
+					(name "E")
+					(pins
+						(pin
+							(num "14")
+						)
+						(pin
+							(num "13")
+						)
+						(pin
+							(num "15")
+						)
+					)
+				)
+				(unit
+					(name "F")
+					(pins
+						(pin
+							(num "17")
+						)
+						(pin
+							(num "16")
+						)
+						(pin
+							(num "18")
+						)
+					)
+				)
 			)
 		)
 		(comp
-			(ref "SW3")
-			(value "HV POWER")
-			(footprint "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical")
+			(ref "SW2")
+			(value "MODE NORMAL/HV")
+			(footprint "ATtiny10_TPI_Fixture:SW_Slide_SPDT_SS12D00G_P2.50mm_Vertical")
+			(datasheet "https://file.icallin.com/static/lcsc/documents/2026-01-27/6402f08e338c80bb8688b5e0c20705c0.pdf")
 			(fields
 				(field
-					(name "Footprint") "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical")
+					(name "Footprint") "ATtiny10_TPI_Fixture:SW_Slide_SPDT_SS12D00G_P2.50mm_Vertical")
 				(field
-					(name "Datasheet")
-				)
+					(name "Datasheet") "https://file.icallin.com/static/lcsc/documents/2026-01-27/6402f08e338c80bb8688b5e0c20705c0.pdf")
 				(field
 					(name "Description")
 				)
 			)
 			(libsource
 				(lib "Switch")
-				(part "SW_SPST")
-				(description "Single Pole Single Throw (SPST) switch")
+				(part "SW_SPDT")
+				(description "Switch, single pole double throw")
 			)
 			(property
 				(name "Sheetname")
@@ -1512,7 +1355,60 @@
 			)
 			(property
 				(name "ki_keywords")
-				(value "switch lever")
+				(value "switch single-pole double-throw spdt ON-ON")
+			)
+			(sheetpath
+				(names "/SCHEMATIC DIAGRAM/")
+				(tstamps "/65b6d203-8468-41c0-a7c2-9b529ea4fa7d/")
+			)
+			(tstamps "2da47b27-b9cf-476f-942b-9f5fee02570d")
+			(units
+				(unit
+					(name "A")
+					(pins
+						(pin
+							(num "2")
+						)
+						(pin
+							(num "1")
+						)
+						(pin
+							(num "3")
+						)
+					)
+				)
+			)
+		)
+		(comp
+			(ref "SW3")
+			(value "HV POWER")
+			(footprint "ATtiny10_TPI_Fixture:SW_Slide_SPDT_SS12D00G_P2.50mm_Vertical")
+			(datasheet "https://file.icallin.com/static/lcsc/documents/2026-01-27/6402f08e338c80bb8688b5e0c20705c0.pdf")
+			(fields
+				(field
+					(name "Footprint") "ATtiny10_TPI_Fixture:SW_Slide_SPDT_SS12D00G_P2.50mm_Vertical")
+				(field
+					(name "Datasheet") "https://file.icallin.com/static/lcsc/documents/2026-01-27/6402f08e338c80bb8688b5e0c20705c0.pdf")
+				(field
+					(name "Description")
+				)
+			)
+			(libsource
+				(lib "Switch")
+				(part "SW_SPDT")
+				(description "Switch, single pole double throw")
+			)
+			(property
+				(name "Sheetname")
+				(value "SCHEMATIC DIAGRAM")
+			)
+			(property
+				(name "Sheetfile")
+				(value "[03] SCHEMATIC DIAGRAM.kicad_sch")
+			)
+			(property
+				(name "ki_keywords")
+				(value "switch single-pole double-throw spdt ON-ON")
 			)
 			(sheetpath
 				(names "/SCHEMATIC DIAGRAM/")
@@ -1524,10 +1420,13 @@
 					(name "A")
 					(pins
 						(pin
+							(num "2")
+						)
+						(pin
 							(num "1")
 						)
 						(pin
-							(num "2")
+							(num "3")
 						)
 					)
 				)
@@ -1536,10 +1435,10 @@
 		(comp
 			(ref "SW4")
 			(value "HV ENABLE (guarded)")
-			(footprint "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical")
+			(footprint "ATtiny10_TPI_Fixture:SW_Push_Round_D6mm_1x02_P2.54mm_PROVISIONAL")
 			(fields
 				(field
-					(name "Footprint") "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical")
+					(name "Footprint") "ATtiny10_TPI_Fixture:SW_Push_Round_D6mm_1x02_P2.54mm_PROVISIONAL")
 				(field
 					(name "Datasheet")
 				)
@@ -1587,6 +1486,116 @@
 	(groups)
 	(variants)
 	(libparts
+		(libpart
+			(lib "ATtiny10_TPI_Fixture")
+			(part "SW_6PDT_MSS6200")
+			(description "Switch, six pole double throw (6PDT on-on slide, TE/Alcoswitch MSS6200 type), one unit per pole: A/C = throws, B = common")
+			(docs "https://media.digikey.com/pdf/Data%20Sheets/Tyco%20Electronics%20Alcoswitch%20PDFs/MSS,MSSA%20Series.pdf")
+			(fields
+				(field
+					(name "Reference") "SW")
+				(field
+					(name "Value") "SW_6PDT")
+				(field
+					(name "Footprint") "ATtiny10_TPI_Fixture:MSS6200_Adapter_2x09_P2.54mm")
+				(field
+					(name "Datasheet") "https://media.digikey.com/pdf/Data%20Sheets/Tyco%20Electronics%20Alcoswitch%20PDFs/MSS,MSSA%20Series.pdf")
+				(field
+					(name "Description") "Switch, six pole double throw (6PDT on-on slide, TE/Alcoswitch MSS6200 type), one unit per pole: A/C = throws, B = common")
+			)
+			(pins
+				(pin
+					(num "1")
+					(name "A")
+					(type "passive")
+				)
+				(pin
+					(num "2")
+					(name "B")
+					(type "passive")
+				)
+				(pin
+					(num "3")
+					(name "C")
+					(type "passive")
+				)
+				(pin
+					(num "4")
+					(name "A")
+					(type "passive")
+				)
+				(pin
+					(num "5")
+					(name "B")
+					(type "passive")
+				)
+				(pin
+					(num "6")
+					(name "C")
+					(type "passive")
+				)
+				(pin
+					(num "7")
+					(name "A")
+					(type "passive")
+				)
+				(pin
+					(num "8")
+					(name "B")
+					(type "passive")
+				)
+				(pin
+					(num "9")
+					(name "C")
+					(type "passive")
+				)
+				(pin
+					(num "10")
+					(name "A")
+					(type "passive")
+				)
+				(pin
+					(num "11")
+					(name "B")
+					(type "passive")
+				)
+				(pin
+					(num "12")
+					(name "C")
+					(type "passive")
+				)
+				(pin
+					(num "13")
+					(name "A")
+					(type "passive")
+				)
+				(pin
+					(num "14")
+					(name "B")
+					(type "passive")
+				)
+				(pin
+					(num "15")
+					(name "C")
+					(type "passive")
+				)
+				(pin
+					(num "16")
+					(name "A")
+					(type "passive")
+				)
+				(pin
+					(num "17")
+					(name "B")
+					(type "passive")
+				)
+				(pin
+					(num "18")
+					(name "C")
+					(type "passive")
+				)
+			)
+		)
 		(libpart
 			(lib "Connector_Generic")
 			(part "Conn_02x05_Odd_Even")
@@ -2079,60 +2088,6 @@
 		)
 		(libpart
 			(lib "Switch")
-			(part "SW_DPDT_x2")
-			(description "Switch, dual pole double throw, separate symbols")
-			(footprints
-				(fp "SW*DPDT*")
-			)
-			(fields
-				(field
-					(name "Reference") "SW")
-				(field
-					(name "Value") "SW_DPDT_x2")
-				(field
-					(name "Footprint")
-				)
-				(field
-					(name "Datasheet")
-				)
-				(field
-					(name "Description") "Switch, dual pole double throw, separate symbols")
-			)
-			(pins
-				(pin
-					(num "1")
-					(name "A")
-					(type "passive")
-				)
-				(pin
-					(num "2")
-					(name "B")
-					(type "passive")
-				)
-				(pin
-					(num "3")
-					(name "C")
-					(type "passive")
-				)
-				(pin
-					(num "4")
-					(name "A")
-					(type "passive")
-				)
-				(pin
-					(num "5")
-					(name "B")
-					(type "passive")
-				)
-				(pin
-					(num "6")
-					(name "C")
-					(type "passive")
-				)
-			)
-		)
-		(libpart
-			(lib "Switch")
 			(part "SW_Push")
 			(description "Push button switch, generic, two pins")
 			(fields
@@ -2198,39 +2153,12 @@
 				)
 			)
 		)
-		(libpart
-			(lib "Switch")
-			(part "SW_SPST")
-			(description "Single Pole Single Throw (SPST) switch")
-			(fields
-				(field
-					(name "Reference") "SW")
-				(field
-					(name "Value") "SW_SPST")
-				(field
-					(name "Footprint")
-				)
-				(field
-					(name "Datasheet")
-				)
-				(field
-					(name "Description") "Single Pole Single Throw (SPST) switch")
-			)
-			(pins
-				(pin
-					(num "1")
-					(name "A")
-					(type "passive")
-				)
-				(pin
-					(num "2")
-					(name "B")
-					(type "passive")
-				)
-			)
-		)
 	)
 	(libraries
+		(library
+			(logical "ATtiny10_TPI_Fixture")
+			(uri "${KIPRJMOD}/lib/ATtiny10_TPI_Fixture.kicad_sym")
+		)
 		(library
 			(logical "Connector_Generic")
 			(uri "${KICAD10_SYMBOL_DIR}/Connector_Generic.kicad_sym")
@@ -2265,7 +2193,7 @@
 				(pintype "passive")
 			)
 			(node
-				(ref "SW1A")
+				(ref "SW1")
 				(pin "2")
 				(pinfunction "B_2")
 				(pintype "passive")
@@ -2282,9 +2210,9 @@
 				(pintype "passive")
 			)
 			(node
-				(ref "SW1C")
-				(pin "1")
-				(pinfunction "A_1")
+				(ref "SW1")
+				(pin "7")
+				(pinfunction "A_7")
 				(pintype "passive")
 			)
 		)
@@ -2299,9 +2227,9 @@
 				(pintype "passive")
 			)
 			(node
-				(ref "SW1C")
-				(pin "3")
-				(pinfunction "C_3")
+				(ref "SW1")
+				(pin "9")
+				(pinfunction "C_9")
 				(pintype "passive")
 			)
 		)
@@ -2316,9 +2244,9 @@
 				(pintype "passive")
 			)
 			(node
-				(ref "SW1D")
-				(pin "1")
-				(pinfunction "A_1")
+				(ref "SW1")
+				(pin "10")
+				(pinfunction "A_10")
 				(pintype "passive")
 			)
 		)
@@ -2333,30 +2261,14 @@
 				(pintype "passive")
 			)
 			(node
-				(ref "SW1D")
-				(pin "3")
-				(pinfunction "C_3")
+				(ref "SW1")
+				(pin "12")
+				(pinfunction "C_12")
 				(pintype "passive")
 			)
 		)
 		(net
 			(code "6")
-			(name "/SCHEMATIC DIAGRAM/HV_ARMED")
-			(class "Default")
-			(node
-				(ref "R3")
-				(pin "1")
-				(pintype "passive")
-			)
-			(node
-				(ref "SW2")
-				(pin "6")
-				(pinfunction "C_6")
-				(pintype "passive")
-			)
-		)
-		(net
-			(code "7")
 			(name "/SCHEMATIC DIAGRAM/HV_RST")
 			(class "Default")
 			(node
@@ -2383,18 +2295,17 @@
 			)
 		)
 		(net
-			(code "8")
+			(code "7")
 			(name "/SCHEMATIC DIAGRAM/HV_SW")
 			(class "Default")
 			(node
-				(ref "R5")
+				(ref "R3")
 				(pin "1")
 				(pintype "passive")
 			)
 			(node
-				(ref "SW2")
-				(pin "5")
-				(pinfunction "B_5")
+				(ref "R5")
+				(pin "1")
 				(pintype "passive")
 			)
 			(node
@@ -2405,7 +2316,7 @@
 			)
 		)
 		(net
-			(code "9")
+			(code "8")
 			(name "/SCHEMATIC DIAGRAM/MOSI")
 			(class "Default")
 			(node
@@ -2421,7 +2332,7 @@
 			)
 		)
 		(net
-			(code "10")
+			(code "9")
 			(name "/SCHEMATIC DIAGRAM/PROG_RST")
 			(class "Default")
 			(node
@@ -2438,13 +2349,13 @@
 			)
 		)
 		(net
-			(code "11")
+			(code "10")
 			(name "/SCHEMATIC DIAGRAM/RESET_BUS")
 			(class "Default")
 			(node
-				(ref "SW1B")
-				(pin "2")
-				(pinfunction "B_2")
+				(ref "SW1")
+				(pin "5")
+				(pinfunction "B_5")
 				(pintype "passive")
 			)
 			(node
@@ -2455,7 +2366,7 @@
 			)
 		)
 		(net
-			(code "12")
+			(code "11")
 			(name "/SCHEMATIC DIAGRAM/RST0")
 			(class "Default")
 			(node
@@ -2465,14 +2376,14 @@
 				(pintype "passive")
 			)
 			(node
-				(ref "SW1B")
-				(pin "1")
-				(pinfunction "A_1")
+				(ref "SW1")
+				(pin "4")
+				(pinfunction "A_4")
 				(pintype "passive")
 			)
 		)
 		(net
-			(code "13")
+			(code "12")
 			(name "/SCHEMATIC DIAGRAM/RST1")
 			(class "Default")
 			(node
@@ -2482,14 +2393,14 @@
 				(pintype "passive")
 			)
 			(node
-				(ref "SW1B")
-				(pin "3")
-				(pinfunction "C_3")
+				(ref "SW1")
+				(pin "6")
+				(pinfunction "C_6")
 				(pintype "passive")
 			)
 		)
 		(net
-			(code "14")
+			(code "13")
 			(name "/SCHEMATIC DIAGRAM/SCK")
 			(class "Default")
 			(node
@@ -2505,7 +2416,7 @@
 			)
 		)
 		(net
-			(code "15")
+			(code "14")
 			(name "/SCHEMATIC DIAGRAM/TPICLK")
 			(class "Default")
 			(node
@@ -2514,14 +2425,14 @@
 				(pintype "passive")
 			)
 			(node
-				(ref "SW1C")
-				(pin "2")
-				(pinfunction "B_2")
+				(ref "SW1")
+				(pin "8")
+				(pinfunction "B_8")
 				(pintype "passive")
 			)
 		)
 		(net
-			(code "16")
+			(code "15")
 			(name "/SCHEMATIC DIAGRAM/TPIDATA")
 			(class "Default")
 			(node
@@ -2530,14 +2441,14 @@
 				(pintype "passive")
 			)
 			(node
-				(ref "SW1D")
-				(pin "2")
-				(pinfunction "B_2")
+				(ref "SW1")
+				(pin "11")
+				(pinfunction "B_11")
 				(pintype "passive")
 			)
 		)
 		(net
-			(code "17")
+			(code "16")
 			(name "/SCHEMATIC DIAGRAM/VCC0")
 			(class "Default")
 			(node
@@ -2557,14 +2468,14 @@
 				(pintype "passive")
 			)
 			(node
-				(ref "SW1A")
+				(ref "SW1")
 				(pin "1")
 				(pinfunction "A_1")
 				(pintype "passive")
 			)
 		)
 		(net
-			(code "18")
+			(code "17")
 			(name "/SCHEMATIC DIAGRAM/VCC1")
 			(class "Default")
 			(node
@@ -2584,14 +2495,14 @@
 				(pintype "passive")
 			)
 			(node
-				(ref "SW1A")
+				(ref "SW1")
 				(pin "3")
 				(pinfunction "C_3")
 				(pintype "passive")
 			)
 		)
 		(net
-			(code "19")
+			(code "18")
 			(name "GND")
 			(class "Default")
 			(node
@@ -2682,7 +2593,7 @@
 			)
 		)
 		(net
-			(code "20")
+			(code "19")
 			(name "Net-(BT1-+)")
 			(class "Default")
 			(node
@@ -2698,7 +2609,7 @@
 			)
 		)
 		(net
-			(code "21")
+			(code "20")
 			(name "Net-(D1-A)")
 			(class "Default")
 			(node
@@ -2714,7 +2625,7 @@
 			)
 		)
 		(net
-			(code "22")
+			(code "21")
 			(name "Net-(D2-A)")
 			(class "Default")
 			(node
@@ -2730,7 +2641,7 @@
 			)
 		)
 		(net
-			(code "23")
+			(code "22")
 			(name "Net-(D4-A)")
 			(class "Default")
 			(node
@@ -2746,29 +2657,13 @@
 			)
 		)
 		(net
-			(code "24")
+			(code "23")
 			(name "Net-(SW3-A)")
 			(class "Default")
-			(node
-				(ref "F1")
-				(pin "2")
-				(pintype "passive")
-			)
 			(node
 				(ref "SW3")
 				(pin "1")
 				(pinfunction "A_1")
-				(pintype "passive")
-			)
-		)
-		(net
-			(code "25")
-			(name "Net-(SW3-B)")
-			(class "Default")
-			(node
-				(ref "SW3")
-				(pin "2")
-				(pinfunction "B_2")
 				(pintype "passive")
 			)
 			(node
@@ -2779,7 +2674,23 @@
 			)
 		)
 		(net
-			(code "26")
+			(code "24")
+			(name "Net-(SW3-B)")
+			(class "Default")
+			(node
+				(ref "F1")
+				(pin "2")
+				(pintype "passive")
+			)
+			(node
+				(ref "SW3")
+				(pin "2")
+				(pinfunction "B_2")
+				(pintype "passive")
+			)
+		)
+		(net
+			(code "25")
 			(name "unconnected-(J1-Pin_3-Pad3)")
 			(class "Default")
 			(node
@@ -2790,7 +2701,7 @@
 			)
 		)
 		(net
-			(code "27")
+			(code "26")
 			(name "unconnected-(J1-Pin_9-Pad9)")
 			(class "Default")
 			(node
@@ -2801,7 +2712,7 @@
 			)
 		)
 		(net
-			(code "28")
+			(code "27")
 			(name "unconnected-(J2-Pin_4-Pad4)")
 			(class "Default")
 			(node
@@ -2812,7 +2723,7 @@
 			)
 		)
 		(net
-			(code "29")
+			(code "28")
 			(name "unconnected-(J2-Pin_5-Pad5)")
 			(class "Default")
 			(node
@@ -2823,7 +2734,7 @@
 			)
 		)
 		(net
-			(code "30")
+			(code "29")
 			(name "unconnected-(J2-Pin_6-Pad6)")
 			(class "Default")
 			(node
@@ -2834,7 +2745,7 @@
 			)
 		)
 		(net
-			(code "31")
+			(code "30")
 			(name "unconnected-(J2-Pin_10-Pad10)")
 			(class "Default")
 			(node
@@ -2845,7 +2756,7 @@
 			)
 		)
 		(net
-			(code "32")
+			(code "31")
 			(name "unconnected-(J2-Pin_13-Pad13)")
 			(class "Default")
 			(node
@@ -2856,7 +2767,7 @@
 			)
 		)
 		(net
-			(code "33")
+			(code "32")
 			(name "unconnected-(J2-Pin_14-Pad14)")
 			(class "Default")
 			(node
@@ -2867,7 +2778,7 @@
 			)
 		)
 		(net
-			(code "34")
+			(code "33")
 			(name "unconnected-(J2-Pin_15-Pad15)")
 			(class "Default")
 			(node
@@ -2878,7 +2789,7 @@
 			)
 		)
 		(net
-			(code "35")
+			(code "34")
 			(name "unconnected-(J2-Pin_16-Pad16)")
 			(class "Default")
 			(node
@@ -2889,13 +2800,79 @@
 			)
 		)
 		(net
-			(code "36")
-			(name "unconnected-(SW2B-A-Pad4)")
+			(code "35")
+			(name "unconnected-(SW1E-A-Pad13)")
 			(class "Default")
 			(node
-				(ref "SW2")
-				(pin "4")
-				(pinfunction "A_4")
+				(ref "SW1")
+				(pin "13")
+				(pinfunction "A_13")
+				(pintype "passive+no_connect")
+			)
+		)
+		(net
+			(code "36")
+			(name "unconnected-(SW1E-B-Pad14)")
+			(class "Default")
+			(node
+				(ref "SW1")
+				(pin "14")
+				(pinfunction "B_14")
+				(pintype "passive+no_connect")
+			)
+		)
+		(net
+			(code "37")
+			(name "unconnected-(SW1E-C-Pad15)")
+			(class "Default")
+			(node
+				(ref "SW1")
+				(pin "15")
+				(pinfunction "C_15")
+				(pintype "passive+no_connect")
+			)
+		)
+		(net
+			(code "38")
+			(name "unconnected-(SW1F-A-Pad16)")
+			(class "Default")
+			(node
+				(ref "SW1")
+				(pin "16")
+				(pinfunction "A_16")
+				(pintype "passive+no_connect")
+			)
+		)
+		(net
+			(code "39")
+			(name "unconnected-(SW1F-B-Pad17)")
+			(class "Default")
+			(node
+				(ref "SW1")
+				(pin "17")
+				(pinfunction "B_17")
+				(pintype "passive+no_connect")
+			)
+		)
+		(net
+			(code "40")
+			(name "unconnected-(SW1F-C-Pad18)")
+			(class "Default")
+			(node
+				(ref "SW1")
+				(pin "18")
+				(pinfunction "C_18")
+				(pintype "passive+no_connect")
+			)
+		)
+		(net
+			(code "41")
+			(name "unconnected-(SW3-C-Pad3)")
+			(class "Default")
+			(node
+				(ref "SW3")
+				(pin "3")
+				(pinfunction "C_3")
 				(pintype "passive+no_connect")
 			)
 		)
