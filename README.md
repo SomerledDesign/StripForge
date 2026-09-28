@@ -46,13 +46,15 @@ The full design is in [Sketch.md](Sketch.md).
 
 ## Status
 
-**Pre-alpha: M1 and M2 done (build sheet and IPC are M3).** `stripforge analyze` reads a
+**Pre-alpha, 0.1.0: M1, M2 and M3 done.** StripForge runs inside KiCad 10's PCB editor as an
+IPC plugin (see [Install in KiCad](#install-in-kicad)) and as a command line. `stripforge analyze` reads a
 `.kicad_pcb` (and optionally its netlist), snaps footprints to the hole grid, splits the strips by
 net and reports cuts, nets needing links, slot jobs, off-board parts, placement hints, warnings and
 conflicts, using hole labels (`A1`…). `stripforge snap -o` writes a copy of the board with each
 part moved by its best-fit shift. `stripforge build` writes the strip copper, the cuts and the wire
 links into a copy of the board, and `stripforge drc` runs KiCad's DRC through `kicad-cli` and sorts
-the results into real problems and expected stripboard noise.
+the results into real problems and expected stripboard noise. `stripforge sheet` writes a printable
+build sheet (HTML, and PDF when Chrome is available).
 
 ## Roadmap
 
@@ -65,8 +67,49 @@ the results into real problems and expected stripboard noise.
 
 ## Target
 
-**KiCad 10.** v0 works headless through a file backend plus `kicad-cli`. The IPC API
-(kicad-python) backend comes later, and the SWIG `pcbnew` API is avoided because KiCad 11 removes it.
+**KiCad 10** (tested with 10.0.4). The work is done by a file backend plus `kicad-cli`, both
+headless. The KiCad plugin uses the IPC API (kicad-python) to find and save the open board. The
+SWIG `pcbnew` API is avoided because KiCad 11 removes it. Python 3.9+ (KiCad 10's bundled Python on
+macOS is 3.9).
+
+## Install in KiCad
+
+StripForge is a KiCad 10 **IPC plugin**. It isn't in the official PCM yet, because the repository
+is private.
+
+1. KiCad > Preferences > Plugins: tick **Enable KiCad API**, and check that the Python interpreter
+   is KiCad's own (the default on macOS).
+2. Install it one of two ways:
+   - **From the package:** build it with `python tools/make_pcm_zip.py` (writes
+     `dist/StripForge-<version>-pcm.zip`), then Plugin and Content Manager > **Install from
+     File…**.
+   - **By hand:** copy the *contents* of the zip's `plugins/` folder to
+     `~/Documents/KiCad/10.0/plugins/com.github.somerleddesign.stripforge/` (macOS; on Linux
+     `~/.local/share/kicad/10.0/plugins/`, on Windows `Documents\KiCad\10.0\plugins\`).
+3. Restart KiCad and open a board in the PCB editor. KiCad creates the plugin's Python environment
+   (kicad-python, from `plugins/requirements.txt`) the first time, which takes a minute. Four
+   StripForge toolbar buttons appear in the PCB editor:
+   - **StripForge: Analyze**: a read-only report: snap, cuts, links needed, slot jobs, hints.
+   - **StripForge: Build strips**: writes `<name>-stripforge.kicad_pcb` (plus `.kicad_dru` and
+     the link lists) **next to the board**. The open board is never changed. Open that file to see
+     the strips.
+   - **StripForge: Run DRC**: kicad-cli DRC with schematic parity on the built board, classified.
+   - **StripForge: Build sheet**: writes `<name>-stripforge.sheet.html` (and `.pdf` if Chrome is
+     installed) and opens it in the browser.
+
+Each action offers to save the board first, because StripForge reads the saved file. It uses
+`stripboard.toml` next to the board if there is one, otherwise it derives the grid from the
+Edge.Cuts outline. If `<project>.kicad_sch` is there, it exports a fresh netlist with kicad-cli to
+cross-check pad nets. Results appear in a dialog ("Show in Finder", "Copy report"). If a button
+does nothing, see the status-bar warnings or Preferences > Plugins > "Recreate Plugin
+Environment". To uninstall a hand install, delete the folder from step 2. Manual test steps:
+[docs/KICAD-PLUGIN-TEST.md](docs/KICAD-PLUGIN-TEST.md).
+
+The StripForge footprint library (`footprints/StripForge.pretty`, needed for the `W` links'
+`StripForge:Link_*` footprints in the schematic) is bundled in the plugin but **not registered**:
+add it to the footprint library table by hand, with nickname `StripForge`. A PCM plugin package
+can't register libraries; that needs a separate library package (see
+[docs/PCM-SUBMISSION.md](docs/PCM-SUBMISSION.md)).
 
 ## First test case
 
@@ -85,8 +128,10 @@ stripforge analyze examples/tpi-fixture/ATtiny10_TPI_Fixture.kicad_pcb \
 stripforge analyze <board>.kicad_pcb --config examples/x56.toml  # Kevin's X56 board (A1-X56)
 stripforge snap <board>.kicad_pcb -o <out>.kicad_pcb   # move parts by their best-fit shift (dry run without -o)
 stripforge build <board>.kicad_pcb --netlist <board>.net --config examples/x56.toml -o <out>.kicad_pcb
-stripforge drc <out>.kicad_pcb                          # kicad-cli DRC, classified
-stripforge --help      # plan | sheet are still stubs
+stripforge drc <out>.kicad_pcb [--schematic <board>.kicad_sch]   # kicad-cli DRC, classified
+stripforge sheet <out>.kicad_pcb --netlist <board>.net --config examples/x56.toml -o <out>.sheet.html
+python tools/make_pcm_zip.py   # the KiCad PCM package in dist/
+stripforge --help      # plan is still a stub
 ruff check . && ruff format --check .
 pytest
 ```
@@ -138,6 +183,35 @@ change.
 Exit codes: 0 complete (every net joined, every link placed), 1 incomplete (links still to add or
 place, unlinkable nets, rejected parts), 2 refused (bad input, conflicts, output = input).
 
+**The same flow in KiCad:**
+1. Open the placement board and click **Build strips**. The report lists the `W` links.
+2. Add them to the schematic and press F8 in the *placement* board.
+3. Click **Build strips** again: `<name>-stripforge.kicad_pcb` is rewritten with the links placed.
+4. Click **Run DRC** (after pass 2, unconnected should be 0), then **Build sheet**.
+
+### Build sheet: `stripforge sheet`
+
+`stripforge sheet <built board> [--netlist <net>] [--config <toml>] -o <out>.html [--png] [--no-pdf]`
+writes one self-contained, printable HTML file (Letter landscape, light background, works offline).
+When Chrome/Chromium is found (`--chrome`, `$STRIPFORGE_CHROME`, `PATH`, or the macOS app) it
+also writes `<out>.pdf`. `--png` adds `<out>.copper.png` / `<out>.component.png` previews. The two
+view SVGs and `<out>.cuts.csv` are always written. The sheet has:
+
+1. **Copper side (bottom), MIRRORED:** as seen with the board flipped over to cut (hole 1 on the
+   right). It shows cuts (hole ✕, knife bar), solder points, link ends and slot jobs, with strip
+   letters and hole numbers on every edge, an A1 corner mark and a 10-hole ruler.
+2. **Component side (top):** part outlines, refs, values, pin-1 marks and links drawn as wires.
+3. **Checklists in build order** with checkboxes:
+   - cuts grouped by strip;
+   - slot jobs ("file U16 toward U17 by 0.32 mm");
+   - wire links (ref, from, to, length in holes, footprint);
+   - parts, low-profile first, with every pin's hole.
+4. **Net check:** every net and every hole it must touch, for a continuity meter.
+5. **Warnings:** knife cuts, courtyard overlaps, unlinkable nets, links still to add, and a banner
+   if the file isn't a (current) StripForge build.
+
+Large boards are split across pages.
+
 ### DRC: `stripforge drc`
 
 `stripforge drc <board.kicad_pcb> [--no-parity] [--report drc.json] [--json]` runs
@@ -152,7 +226,9 @@ place, unlinkable nets, rejected parts), 2 refused (bad input, conflicts, output
   other warnings (silk), summarised by type.
 
 Schematic parity needs the `.kicad_sch` (and `.kicad_pro`) next to the board with the same name;
-without it kicad-cli skips parity and the report says so. After pass 1 the unconnected items are
+without it kicad-cli skips parity and the report says so. For a built board with another name
+(`<name>-stripforge.kicad_pcb`), pass `--schematic <name>.kicad_sch`: DRC then runs on a shadow copy
+of the project in a temp folder. The KiCad plugin does this automatically. After pass 1 the unconnected items are
 exactly the links still to add; after pass 2 they should be 0. Exit 3 means kicad-cli was not found
 (the tests needing it are skipped in CI).
 
@@ -172,7 +248,7 @@ Reports use labels throughout; the `--json` output also keeps the 0-based `(col,
 
 ```
 src/stripforge/
-  cli.py          command-line entry (analyze | snap | build | drc; plan | sheet are stubs)
+  cli.py          command-line entry (analyze | snap | build | drc | sheet; plan is a stub)
   analyze.py      snap + split report (text or JSON), best-fit moves
   hints.py        placement hints (parts lying along a strip, 90° rotation estimate)
   config.py       stripboard.toml model
@@ -187,8 +263,10 @@ src/stripforge/
   resources.py    StripForge footprint library and rules lookup
   validate.py     pure-Python short/open/parity pre-check
   drc.py          kicad-cli pcb drc wrapper + classifier
-  buildsheet.py   copper-side SVG/PDF + cut/link CSV
-  backends/       file (.kicad_pcb), ipc (kipy), swig_fallback (isolated, unused)
+  buildsheet.py   stripforge sheet: printable HTML/PDF build sheet, view SVGs/PNGs, cuts CSV
+  backends/       file (.kicad_pcb), ipc (kipy; stub), swig_fallback (isolated, unused)
+plugins/          KiCad 10 IPC plugin: plugin.json, sf_*.py entry scripts, stripforge_plugin.py, icons
+tools/            make_pcm_zip.py (PCM package), make_icons.py (toolbar icons)
 ```
 
 ### Icon

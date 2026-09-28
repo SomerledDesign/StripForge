@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-09-27
+
+M3: build sheet and KiCad plugin.
+
+### Added
+
+- `stripforge sheet <built board> [--netlist] [--config] -o <out>.html`: a printable,
+  self-contained HTML build sheet, and a PDF when Chrome/Chromium is found. `--png` adds previews
+  of both views. The two view SVGs and a cuts CSV are always written. The sheet contains:
+  - a header;
+  - the copper side, MIRRORED as held for cutting, with labels on every edge, an A1 mark and a
+    ruler;
+  - the component side (outlines, refs, values, pin-1, links as wires);
+  - checklists in build order: cuts by strip, slot jobs, wire links, and parts low-profile first
+    with every pin's hole;
+  - a net continuity table and warnings;
+  - pages split for large boards, and a banner when the board isn't built or differs from the plan.
+- KiCad 10 IPC plugin (`plugins/`): four PCB editor actions: StripForge: Analyze, Build strips,
+  Run DRC and Build sheet.
+  - It gets the open board through kicad-python, offers to save, and uses `stripboard.toml` next to
+    the board (or Edge.Cuts).
+  - It exports the netlist with kicad-cli and shows the report in a dialog.
+  - Build strips writes `<name>-stripforge.kicad_pcb` and never edits the open board.
+- `stripforge drc --schematic <sch>`: schematic parity for a board whose name differs from the
+  schematic's (runs on a shadow copy of the project).
+- `tools/make_pcm_zip.py`: builds a deterministic PCM package zip and prints the sha256,
+  download_size and install_size. `tools/make_icons.py` regenerates the toolbar icons.
+- `docs/PCM-SUBMISSION.md`: how to submit to KiCad's official PCM repository.
+
+### Changed
+
+- Runs on Python 3.9 too (KiCad 10's bundled Python on macOS): `tomli` fallback, no `StrEnum` or
+  `zip(strict=)`. CI tests 3.9, 3.11 and 3.12.
+- `build` is split into `writer.prepare()` (plan only, shared with the sheet) and the writer.
+- The library and rules are also found in the plugin bundle.
+- `metadata.json` is now the real PCM metadata: identifier `com.github.somerleddesign.stripforge`,
+  version 0.1.0, `runtime: ipc`, schema v2.
+
 ### Added
 
 - M2 part B: board output and DRC.

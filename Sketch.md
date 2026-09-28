@@ -2,7 +2,7 @@
 
 *StripForge is a KiCad stripboard (Veroboard) layout tool. This sketch was originally drafted as the "KiCad Stripboard Layout Tool" v0 plan.*
 
-*Status: v0 plan (2026-09-27). M1 (model and splitting) is done; M2 part A (labels, X56, slotted parts, best-fit moves, placement hints, byte-exact writer) and part B (`stripforge build`: strip copper, cuts, the two-pass link flow; `stripforge drc`) are implemented; see the README and CHANGELOG. Mutation tests (criterion 4) are still to do. Target: KiCad 10.0.4.*
+*Status: v0 plan (2026-09-27). M1 and M2 are done. M3 is done as 0.1.0: `stripforge sheet` (a printable HTML/PDF build sheet) and a KiCad 10 IPC plugin with four PCB-editor actions, packaged for the PCM (§4.9, §4.10). The live-board IPC backend (§3) is still a stub; see §4.10 for why the plugin writes new files instead.*
 *Owners: Jarvis (scaffolding, generator, net splitting, build sheet, planning) and Mildrew (EE: strip, cut and link footprints, DRC rules, board validation).*
 
 Anything marked **[UNVERIFIED]** must be checked against a real KiCad 10.0.4 install during M0.
@@ -370,22 +370,83 @@ We make KiCad's **built-in** electrical checks do the work rather than inventing
   and parity 0 against Mildrew's schematic; the simulated pass 2 (25 `W` links) gives 14
   unconnected, exactly the 13 unlinkable nets' remaining joins.
 
-### 4.9 Build sheet
+### 4.9 Build sheet (as built in M3)
 
-- A custom SVG renderer (`buildsheet.py`) draws the **copper side, mirrored**:
-  - strips, with cut holes and knife cuts shown as red ✕ marks;
-  - pads as dots labelled `ref.pin`;
-  - links drawn dashed, as ghosted component-side items;
-  - strip letters (`A…`) and hole numbers (`1…`) that match the physical board and the reports;
-  - a board outline and an orientation marker (a notched corner), so the classic "built it
-    mirrored" error is hard to make.
-- A second page shows the **component side**: part outlines, refs and link positions.
-- Tables: a cut list (`X1 C12 hole`), a link list (`W3 D18–H18 10.16 mm`), and
-  a parts list.
-- PDF comes from the SVG via `cairosvg` (optional dependency). As a cross-check, also run
-  `kicad-cli pcb export pdf --mirror --layers B.Cu,User.1,Edge.Cuts,B.Fab` so KiCad renders the
-  same board.
-- Print at 1:1 scale; the sheet includes a 10-hole ruler for checking scale.
+`stripforge sheet <built board> [--netlist] [--config] -o <out>.html` (`buildsheet.py`) writes a
+single self-contained HTML file (inline SVG and CSS, no scripts or network, light background, Letter
+landscape print CSS). When Chrome/Chromium is found it also writes a PDF next to it (headless
+`--print-to-pdf`). With `--png` it writes PNG previews of both views. It always writes the two view
+SVGs and `<out>.cuts.csv`.
+
+- **Header:** project, board file, board size (strips × holes, mm, hole range), date, StripForge
+  version, and a count line (cuts, slot jobs, links placed, parts, nets, warnings).
+- **1. Copper side (bottom), MIRRORED:** drawn as seen with the board flipped left-to-right to cut
+  (hole 1 on the right), with a red banner saying so. It shows the strips, hole cuts (red ✕ on
+  the hole), knife cuts (red bar between holes), solder points, link ends and slot filings. Strip
+  letters are on both sides and hole numbers on top and bottom. A red corner mark shows hole A1,
+  and there is a 10-hole ruler.
+- **2. Component side (top):** part outlines (courtyard or fab box), refs, values, pin-1 squares,
+  and links drawn as wires with their refs.
+- Large boards split into pages of at most 60 holes × 36 strips, with labels on every page.
+  The scale is capped at 2× and fits 250 × 160 mm.
+- **3. Checklists in build order**, each line with a checkbox:
+  - cuts grouped by strip (hole or knife);
+  - slot jobs ("file U16 toward U17 by 0.32 mm");
+  - wire links (ref, from, to, length in holes, footprint, net, placed or not);
+  - parts, low profile first (links, resistors, diodes, then ICs/sockets, capacitors, headers,
+    switches, other), with the hole of every pin.
+- **4. Net check:** every net and every hole it must reach, for a continuity meter.
+- **5. Warnings:** knife cuts, courtyard overlaps, unlinkable nets, links still to add, rejected
+  parts, and a board cross-check.
+- **Board cross-check:** the sheet re-plans from the board's parts and compares that plan with the
+  strips and cuts in the file. If the file isn't built or differs, a red banner says so, so a stale
+  sheet can't pass as current.
+- Decisions: HTML plus headless Chrome instead of cairosvg or weasyprint (neither is on Kevin's
+  Mac or KiCad's Python; Chrome is on both). Chrome on macOS writes the file and then doesn't
+  exit, so StripForge polls for a stable file and then kills Chrome's process group. The planned
+  `kicad-cli pcb export pdf --mirror` cross-check was left out.
+
+### 4.10 KiCad plugin (as built in M3)
+
+- **Format:** KiCad 10 IPC plugin. `plugins/plugin.json` (schema
+  <https://go.kicad.org/api/schemas/v1>), runtime `python`, identifier
+  `com.github.somerleddesign.stripforge`, four actions (scope `pcb`, toolbar buttons with 24/48 px
+  icons):
+  - StripForge: Analyze
+  - Build strips
+  - Run DRC
+  - Build sheet
+- **Runtime:** KiCad creates a venv for the plugin from `requirements.txt` (`kicad-python==0.8.0`,
+  `tomli`) with `--system-site-packages`, so KiCad's wxPython is available for dialogs. KiCad 10
+  ignores `args` for Python actions, so each action has its own entry script (`sf_<action>.py`).
+  StripForge supports Python 3.9 because KiCad 10.0.4's bundled Python on macOS is 3.9.13.
+- **Flow:**
+  1. kipy gives the open board (`board.name`, `project.path`; checked against KiCad 10.0.4).
+  2. A dialog offers to save first. The API has no "modified" flag, so the plugin always asks.
+  3. It uses `stripboard.toml` next to the board, otherwise derives the grid from Edge.Cuts, and
+     points out any other `*.toml` found there.
+  4. It exports a fresh netlist from `<project>.kicad_sch` with kicad-cli (path from
+     `get_kicad_binary_path`).
+  5. It runs the CLI code in-process and shows the report in a dialog, with "Show in Finder" and
+     "Copy report" buttons. The sheet opens in the browser.
+- **New file only, no live edits:** "Build strips" writes `<name>-stripforge.kicad_pcb` (plus
+  `.kicad_dru` and link lists) next to the board and never changes the open board. Live editing
+  through the API was rejected for 0.1.0:
+  - KiCad 10.0.4's API can't place a library footprint (`place_footprint_from_library` is
+    KiCad 11), so the embedded CUT markers and W links couldn't be written live.
+  - There is no dirty flag.
+  - A 1000+ track commit through the API is slow, and the file writer is already deterministic
+    and tested.
+- **DRC parity for the built sibling:** `stripforge drc --schematic` runs kicad-cli on a shadow
+  copy named after the schematic (with sub-sheets, `.kicad_pro`, library tables and links to the
+  project's folders), so parity works for `<name>-stripforge.kicad_pcb`.
+- **PCM package:** `tools/make_pcm_zip.py` builds `metadata.json` + `resources/icon.png` +
+  `plugins/**` (with the `stripforge` package, footprints and rules bundled). It is
+  `type: plugin`, `runtime: ipc`, `kicad_version: 10.0`, schema v2.
+- **Footprint library:** a plugin package can't register a footprint library (the metadata
+  repository's validator only allows `footprints/*.pretty` in `library` packages), so the
+  `StripForge` library for the schematic's W links needs a separate `library` package. PCM
+  libraries get a `PCM_` nickname prefix by default, which is open.
 
 ## 5. v0 scope
 
@@ -458,6 +519,9 @@ real-parts board: 22 footprints, 41 nets, 86 pads, with BT1 slotted.*
 **M3: Build sheet and IPC (stretch).**
 - SVG/PDF build sheet and CSVs.
 - IPC backend (live board, one-commit undo) and an optional IPC plugin wrapper (`plugin.json`).
+- *Status (0.1.0):* the build sheet (§4.9), the IPC plugin and the PCM package (§4.10) are done.
+  The live IPC backend was deferred on purpose (§4.10). Kevin's in-KiCad click test and the M2
+  mutation tests are open.
 - *Exit:* criterion 5 passes. Kevin's real build (criterion 8) is the final sign-off.
 
 ## 8. Jarvis / Mildrew split
