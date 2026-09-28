@@ -19,10 +19,10 @@ Rotation conventions (KiCad file format):
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-from .sexpr import atom, find, find_all, head, loads, mm_to_nm
+from .sexpr import Document, Sym, atom, find, find_all, head, mm_to_nm, nm_to_mm_text, parse
 
 Outline = tuple[int, int, int, int]  # (x_min, y_min, x_max, y_max) in nm
 
@@ -58,6 +58,28 @@ class Footprint:
     angle: float
     layer: str
     pads: list[Pad] = field(default_factory=list)
+    node: list | None = field(default=None, repr=False, compare=False)  # its S-expression node
+
+    def move(self, dx_nm: int, dy_nm: int) -> None:
+        """Translate the footprint (and its pads) rigidly; also edits its ``(at x y [angle])``.
+
+        KiCad stores pad (and footprint text/graphics) positions relative to the footprint, so
+        the footprint's own ``at`` is the only thing written; the angle is left as it is.
+        """
+        if dx_nm == 0 and dy_nm == 0:
+            return
+        self.x_nm += dx_nm
+        self.y_nm += dy_nm
+        self.pads = [replace(p, x_nm=p.x_nm + dx_nm, y_nm=p.y_nm + dy_nm) for p in self.pads]
+        if self.node is not None:
+            at = find(self.node, "at")
+            if at is None:
+                at = type(self.node)([Sym("at")])
+                self.node.insert(1 + sum(not isinstance(c, list) for c in self.node), at)
+            while len(at) < 3:
+                at.append(Sym("0"))
+            at[1] = Sym(nm_to_mm_text(self.x_nm))
+            at[2] = Sym(nm_to_mm_text(self.y_nm))
 
 
 @dataclass
@@ -65,6 +87,7 @@ class Board:
     footprints: list[Footprint]
     outline: Outline | None
     path: str | None = None
+    doc: Document | None = field(default=None, repr=False, compare=False)  # for writing back
 
     @property
     def pads(self) -> list[Pad]:
@@ -131,7 +154,7 @@ def _parse_footprint(fp: list) -> Footprint:
     ref = _reference(fp)
     fx, fy, fa = _at(find(fp, "at"))
     layer = atom(find(fp, "layer"), 1, "F.Cu") or "F.Cu"
-    out = Footprint(ref=ref, lib_id=atom(fp, 1, "") or "", x_nm=fx, y_nm=fy, angle=fa, layer=layer)
+    out = Footprint(ref=ref, lib_id=atom(fp, 1, "") or "", x_nm=fx, y_nm=fy, angle=fa, layer=layer, node=fp)
     for pad in find_all(fp, "pad"):
         px, py, pa = _at(find(pad, "at"))
         rx, ry = rotate_nm(px, py, fa)
@@ -193,13 +216,27 @@ def _outline(root: list) -> Outline | None:
 
 
 def parse_board(text: str, path: str | None = None) -> Board:
-    root = loads(text)
+    doc = parse(text)
+    root = doc.root
     if head(root) != "kicad_pcb":
         raise ValueError(f"not a kicad_pcb file (top-level node is {head(root)!r})")
     fps = [_parse_footprint(fp) for fp in find_all(root, "footprint")]
-    return Board(footprints=fps, outline=_outline(root), path=path)
+    return Board(footprints=fps, outline=_outline(root), path=path, doc=doc)
 
 
 def load_board(path: str | Path) -> Board:
     p = Path(path)
-    return parse_board(p.read_text(encoding="utf-8"), path=str(p))
+    with open(p, encoding="utf-8", newline="") as fh:  # keep line endings: byte-exact writes
+        return parse_board(fh.read(), path=str(p))
+
+
+def board_text(board: Board) -> str:
+    """The board file text with every footprint move applied (untouched text is byte-exact)."""
+    if board.doc is None:
+        raise ValueError("board was not parsed from text; nothing to write")
+    return board.doc.dumps()
+
+
+def save_board(board: Board, path: str | Path) -> None:
+    with open(path, "w", encoding="utf-8", newline="") as fh:
+        fh.write(board_text(board))

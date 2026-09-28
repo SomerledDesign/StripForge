@@ -260,7 +260,14 @@ We make KiCad's **built-in** electrical checks do the work rather than inventing
 ### 4.7 `.kicad_pcb` output
 
 - **File backend (v0 default, headless, testable on the box).** Round-trip the F8-populated board
-  with a small, lossless S-expression reader and writer that preserves unknown nodes. It then:
+  with a small, lossless S-expression reader and writer that preserves unknown nodes.
+  **Byte-exact (M2 part A):** `sexpr.parse` keeps the source text and every node's span, so an
+  unmodified parse-then-write returns the input byte for byte (tested on the fixture `.kicad_pcb`
+  and `.net`). Only edited nodes are re-emitted: their untouched children and whitespace still come
+  from the source, replaced atoms are written fresh, and new child lists are rendered in KiCad's
+  tab-indented style. Moving a footprint rewrites only its `(at x y [angle])`: KiCad stores pad,
+  text and graphic positions relative to the footprint (pad *angles* are absolute, but a
+  translation does not change them). It then:
   - moves footprints to their snapped positions;
   - removes the tool's previous output (tagged by a group named `stripforge:*`);
   - appends `segment` nodes on `B.Cu` with nets, cut markers on the user layer, row and column
