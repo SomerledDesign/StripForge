@@ -683,6 +683,7 @@ def component_svg(model: SheetModel, v: _View) -> str:
             body.append(f'<circle class="hole" cx="{_f(x)}" cy="{_f(y)}" r="0.4"/>')
     skip = set(a.config.offboard_refs)
     snapped = {s.ref for s in a.snapped}
+    texts: list[str] = []  # part labels go on top of the wire links so a link never hides a ref
     for fp in a.board.footprints:
         if fp.ref in skip or fp.ref not in snapped:
             continue
@@ -711,11 +712,11 @@ def component_svg(model: SheetModel, v: _View) -> str:
         if one is not None and len(pads) > 1:
             g.append(f'<circle class="pin1dot" cx="{_f(one[0])}" cy="{_f(one[1])}" r="0.35"/>')
         fs = 0.5 * p
-        g.append(f'<text class="ref" x="{_f(cx)}" y="{_f(cy)}" font-size="{_f(fs)}">{_e(fp.ref)}</text>')
+        texts.append(f'<text class="ref" x="{_f(cx)}" y="{_f(cy)}" font-size="{_f(fs)}">{_e(fp.ref)}</text>')
         val = _value(fp)
         if val:
             short = val if len(val) <= 18 else val[:17] + "…"
-            g.append(
+            texts.append(
                 f'<text class="val" x="{_f(cx)}" y="{_f(cy + fs * 0.95)}" font-size="{_f(fs * 0.62)}">'
                 f"{_e(short)}<title>{_e(val)}</title></text>"
             )
@@ -734,6 +735,7 @@ def component_svg(model: SheetModel, v: _View) -> str:
             f'<text x="{_f(x + 0.5)}" y="{_f(ym)}" font-size="{_f(0.42 * p)}">{lk.ref_hint}</text>'
             f"<title>{lk.ref_hint}: {lk.start} to {lk.end} [{_e(lk.net)}]</title></g>"
         )
+    body.append('<g class="part-labels">' + "".join(texts) + "</g>")
     body += _labels(v) + _a1_mark(v) + _ruler(v)
     return _svg(v, body, f"{model.project}: component side")
 
@@ -796,8 +798,8 @@ svg .fab { fill: none; stroke: #2b2b2b; stroke-width: 0.18; }
 svg .pad { fill: #fff; stroke: #555; stroke-width: 0.18; }
 svg .pin1 { fill: #ffe9a8; stroke: #b00; stroke-width: 0.25; }
 svg .pin1dot { fill: #b00; }
-svg .ref { fill: #000; font-weight: bold; text-anchor: middle; stroke: #fff; stroke-width: 0.2; paint-order: stroke; }
-svg .val { fill: #333; text-anchor: middle; stroke: #fff; stroke-width: 0.15; paint-order: stroke; }
+svg .ref { fill: #000; font-weight: bold; text-anchor: middle; stroke: #fff; stroke-width: 0.4; paint-order: stroke; }
+svg .val { fill: #333; text-anchor: middle; stroke: #fff; stroke-width: 0.3; paint-order: stroke; }
 svg .wire line { stroke: #1f5fbf; stroke-width: 0.6; stroke-linecap: round; }
 svg .wire circle { fill: #1f5fbf; }
 svg .wire text { fill: #1f5fbf; font-weight: bold; stroke: #fff; stroke-width: 0.2; paint-order: stroke; }
