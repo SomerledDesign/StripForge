@@ -92,7 +92,7 @@ def test_report_files(tmp_path):
     assert data["links"][0] == {
         "ref": "W1", "net": "A", "from": "A2", "to": "C2", "col": 1, "row_a": 0, "col_b": 1, "row_b": 2,
         "kind": "vertical", "rotation": 0.0, "bus": "", "locked": "", "pitches": 2, "length_mm": 5.08,
-        "footprint": "StripForge:Link_P5.08",
+        "length_in": 0.2, "footprint": "StripForge:Link_P5.08",
     }  # fmt: skip
     assert data["links_needed"] == 1
     assert to_csv(res.plan).splitlines() == [

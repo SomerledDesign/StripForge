@@ -117,7 +117,14 @@ def _build(args: argparse.Namespace) -> int:
     )
     if res.holes_drawn:
         print(f"Holes: {res.holes_drawn} stripboard hole(s) drawn (every free grid hole; hole cuts bare)")
-    sys.stdout.write(links_mod.format_text(plan).split("\n\nTo add")[0].rstrip("\n") + "\n")
+    sys.stdout.write(
+        links_mod.format_text(plan, a.config.link_lead_allowance_in).split("\n\nTo add")[0].rstrip("\n")
+        + "\n"
+    )
+    if res.stretches:
+        from .stretch import format_text as stretch_text
+
+        sys.stdout.write(stretch_text(res.stretches))
     if res.pass2:
         print(f"Pass 2: {len(res.placed)} of {len(plan.links)} link(s) placed")
         for p in res.link_problems:

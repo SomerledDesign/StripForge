@@ -95,7 +95,7 @@ def test_slot_jobs_say_which_way_and_how_far(real):
 def test_links_list_from_to_length_and_footprint(real):
     h = real["h2"]
     row = re.search(r'<tr class="item" data-kind="link" data-link="W7">.*?</tr>', h).group(0)
-    assert "<b>B18</b>" in row and "<b>U18</b>" in row and "19 (48.26 mm)" in row
+    assert "<b>B18</b>" in row and "<b>U18</b>" in row and "1.9&quot;" in row and "19 holes, 48.26 mm" in row
     assert "StripForge:Link_P48.26" in row and "placed" in row
 
 

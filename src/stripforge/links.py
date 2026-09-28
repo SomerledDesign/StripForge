@@ -179,6 +179,16 @@ class LinkProposal:
         return round(self.span * PITCH_MM, 2)
 
     @property
+    def length_in(self) -> float:
+        """Pad-to-pad length in inches: pitches x 0.1" (a diagonal: its real length, to 0.01")."""
+        return round(self.span * PITCH_MM / 25.4, 2)
+
+    @property
+    def inches(self) -> str:
+        """``1.1"``, ``0.36"``: :attr:`length_in` for the report and build sheet."""
+        return inch_text(self.length_in)
+
+    @property
     def rotation(self) -> float:
         """Footprint rotation (KiCad degrees) that puts pad 2 on the far hole; pad 2 of a Link_P*
         footprint is ``pitches`` below pad 1 at rotation 0."""
@@ -214,8 +224,48 @@ class LinkProposal:
             "locked": self.origin,
             "pitches": self.pitches,
             "length_mm": self.length_mm,
+            "length_in": self.length_in,
             "footprint": self.footprint,
         }
+
+
+def inch_text(v: float) -> str:
+    """``1.1"``, ``1.0"``, ``0.36"``: at least one decimal, at most two."""
+    s = f"{v:.2f}".rstrip("0")
+    return (s + "0" if s.endswith(".") else s) + '"'
+
+
+def cut_list(links) -> list[tuple[float, list[str]]]:
+    """The link cut list: ``(length in inches, [refs])`` per length, shortest first, so every link
+    of one length can be cut and bent in one go. Refs keep the plan's order (W1, W7, W15, ...)."""
+    by: dict[float, list[str]] = {}
+    for lk in links:
+        by.setdefault(lk.length_in, []).append(lk.ref_hint)
+    return sorted(by.items())
+
+
+LEAD_NOTE = (
+    "Lengths are the pad-to-pad span only. Remember to add wire for both legs: through the board, "
+    'plus the bend and the solder or clinch (roughly 0.1" to 0.2" a leg).'
+)
+
+
+def format_cut_list(links, allowance_in: float = 0.0) -> list[str]:
+    """The cut list as text lines (report and .links.txt). ``allowance_in`` > 0 (the config's
+    ``link_lead_allowance_in``) adds a cut-length column: span + 2 x allowance."""
+    rows = cut_list(links)
+    if not rows:
+        return []
+    out = [f"Link cut list (pad-to-pad): {len(rows)} length(s), {sum(len(r) for _, r in rows)} link(s)"]
+    cut = allowance_in > 0
+    out.append(f"  {'Length':>7}  {'Qty':>3}  " + (f"{'Cut':>7}  " if cut else "") + "Links")
+    for v, refs in rows:
+        extra = f"{inch_text(round(v + 2 * allowance_in, 2)):>7}  " if cut else ""
+        out.append(f"  {inch_text(v):>7}  {len(refs):>3}  {extra}{', '.join(refs)}")
+    out.append(f"  Note: {LEAD_NOTE}")
+    if cut:
+        out.append(f"  Cut = pad-to-pad + 2 x {inch_text(allowance_in)} (link_lead_allowance_in).")
+    return out
 
 
 @dataclass
@@ -1313,11 +1363,13 @@ def refs_to_add(plan: LinkPlan) -> str:
     return ", ".join(refs)
 
 
-def format_text(plan: LinkPlan) -> str:
+def format_text(plan: LinkPlan, allowance_in: float = 0.0) -> str:
     """The link report plus step-by-step instructions for adding the links to the schematic."""
     out = [f"Links: {len(plan.links)} proposed for {plan.needed} needed"]
     if plan.joins != len(plan.links):
         out[0] += f" ({plan.joins} joins; a bus-strip join takes two links)"
+    if plan.links:
+        out[0] += '; lengths pad-to-pad in inches (0.1" a pitch)'
     for lk in plan.links:
         how = ""
         if lk.kind != "vertical":
@@ -1328,7 +1380,10 @@ def format_text(plan: LinkPlan) -> str:
             how += "  (yours, kept)"
         elif lk.origin == "config":
             how += "  ([manual] links)"
-        out.append(f"  {lk.ref_hint:<4} {lk.start:>4} -> {lk.end:<4} {lk.footprint:<24} {lk.net}{how}")
+        inch = f"({lk.inches})"
+        out.append(
+            f"  {lk.ref_hint:<4} {lk.start:>4} -> {lk.end:<4} {inch:<8} {lk.footprint:<24} {lk.net}{how}"
+        )
     for cut in plan.bus_cuts:
         out.append(f"  note: {cut.id}: {cut.style} cut at {cut.label} isolates a bus strip")
     for m in plan.cut_moves:
@@ -1336,6 +1391,7 @@ def format_text(plan: LinkPlan) -> str:
     if plan.unlinkable:
         out.append(f"Unlinkable nets: {len(plan.unlinkable)}")
         out += [f"  ERROR: {u.text}" for u in plan.unlinkable]
+    out += format_cut_list(plan.links, allowance_in)
     to_add = [lk for lk in plan.links if lk.origin != "board"]
     if to_add:
         out += [

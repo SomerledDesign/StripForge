@@ -191,8 +191,51 @@ since bare wire would short to it; part courtyards avoided where possible (a wir
 part, reported). The report lists each link, with the rotation for diagonals:
 
 ```
-W4    D12 -> J12  StripForge:Link_P15.24   GND
-W19   J16 -> T16  StripForge:Link_P25.40   +5V_T  (to bus strip T)
+W4    D12 -> J12  (0.6")   StripForge:Link_P15.24   GND
+W19   J16 -> T16  (1.0")   StripForge:Link_P25.40   +5V_T  (to bus strip T)
+```
+
+Each link's length is in inches, **pad-to-pad** (pitches × 0.1"; a diagonal's real length to
+0.01"). After the list comes a **link cut list**, one row per length, shortest first, so you can
+cut and bend every link of one length and fit them in one go:
+
+```
+Link cut list (pad-to-pad): 14 length(s), 34 link(s)
+   Length  Qty  Links
+     0.1"    8  W3, W15, W18, W21, W24, W26, W31, W33
+     0.2"    5  W2, W11, W12, W13, W14
+  ...
+  Note: Lengths are the pad-to-pad span only. Remember to add wire for both legs: ...
+```
+
+The lengths are the span between the two holes only: add wire for both legs through the board, the
+bend and the solder or clinch (roughly 0.1"–0.2" a leg). `link_lead_allowance_in = 0.15` (inches a
+leg, default 0 = off) adds a **Cut** column: pad-to-pad + 2 × allowance. The build sheet has the
+same chart (with checkboxes) under the wire-link list.
+
+**Lead-stretch suggestions** (report only, on by default): after the plan, StripForge checks
+whether a longer lead on a leaded two-pin part (R, C, D, L, F) could take the place of a link: the
+part keeps one pin where it is and its pin on the link's net moves to a free hole on the far side,
+so that `W` need not go into the schematic. It is suggested only when the net stays connected
+without the link, the new hole is free and already on that net (no new cut, no short, not beside a
+`knife_cuts` part's big pad), the new line crosses no link, passes over no lead and runs under no
+part it didn't already, and the span grows by at most `max_pitches` (axial, default 6) or
+`radial_max_pitches` (legged caps, LEDs, fuses; default 2). Nothing is moved: change the part's
+footprint (longer pitch or rotated) so the pin lands on the new hole, leave the link out and build
+again.
+
+```toml
+[stretch]
+# enabled = true            # false: no suggestions
+# max_pitches = 6           # axial parts: how much longer the span may get
+# radial_max_pitches = 2    # radial parts
+# skip = ["C1"]             # never stretch these
+# allow_under_parts = false # true: also suggest a new line under another part
+```
+
+```
+Lead stretches: 1 suggestion(s), 1 link(s) fewer (report only; nothing moved)
+  replaces W26: move R2 pin 2 from O10 to P10 (R2.1 stays at K10; span 4 -> 5 pitches, +1)
 ```
 
 Add them to the schematic: one 2-pin jumper per line (`Jumper:Jumper_2_Bridged` or a 0 Ω
@@ -270,8 +313,10 @@ view SVGs and `<out>.cuts.csv` are always written. The sheet has:
 3. **Checklists in build order** with checkboxes:
    - cuts grouped by strip;
    - slot jobs ("file U16 0.025" (0.635 mm) toward U17 (toward the part centre)");
-   - wire links (ref, from, to, length in holes, footprint, and "diagonal, 4 across and 3 down",
-     "along the strip" or "to bus strip R"); both views draw every link at its real angle;
+   - wire links (ref, from, to, length pad-to-pad in inches and holes, footprint, and "diagonal,
+     4 across and 3 down", "along the strip" or "to bus strip R"); both views draw every link at
+     its real angle; then the **link cut list** (length | qty | links, shortest first, with the
+     reminder to add wire for the legs) and any lead-stretch suggestions;
    - parts, low-profile first, with every pin's hole.
 4. **Net check:** every net and every hole it must touch, for a continuity meter.
 5. **Warnings:** knife cuts, courtyard overlaps, unlinkable nets, links still to add, and a banner

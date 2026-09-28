@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Link lengths in inches, pad-to-pad (pitches × 0.1"; diagonals to 0.01"): every `Wn` line in the
+  build report and `.links.txt` (`W1  A8 -> L8  (1.1")`) and the build sheet's link list.
+- Link cut list in the report, `.links.txt` and on the build sheet: one row per length, shortest
+  first (Length | Qty | Links), to pre-cut and bend all links of a length in one go, with a reminder
+  that the lengths are pad-to-pad and the legs need extra wire. `link_lead_allowance_in` (inches a
+  leg, default 0 = off) adds a cut-length column.
+- Lead-stretch suggestions (report only, on by default; `[stretch]` table: `enabled`,
+  `max_pitches` = 6, `radial_max_pitches` = 2, `skip`, `allow_under_parts`): links that a longer
+  lead on a two-pin leaded part could replace, with the pin, the new hole and the new span. In the
+  report, `.links.txt`, `.links.json` (`lead_stretches`) and on the build sheet.
+
 - `knife_cuts = ["SW2"]`: every cut next to a listed part's pins is a knife cut, placed so the hole
   beside each pin stays on that pin's net (its big pad overhangs it); the planner never slides those
   cuts closer. Pins too close for that get a warning. Build sheet: "knife, per SW2 setting".

@@ -42,6 +42,7 @@ from pathlib import Path
 from . import edits as edits_mod
 from . import links as links_mod
 from . import resources
+from . import stretch as stretch_mod
 from .analyze import Analysis, analyze_board, apply_best_fit, make_grid
 from .board import HOLES_LIB_ID, Board, Footprint, _norm_angle, load_board, rotate_nm, save_board
 from .config import BoardConfig
@@ -80,6 +81,7 @@ class BuildResult:
     placements: list[LinkPlacement] = field(default_factory=list)
     removed_previous: tuple[int, int] = (0, 0)  # (tracks, cut markers) from an earlier build
     holes_drawn: int = 0  # stripboard hole pads (plated and bare) written
+    stretches: list = field(default_factory=list)  # lead-stretch suggestions (report only)
     warnings: list[str] = field(default_factory=list)
     outputs: list[str] = field(default_factory=list)
 
@@ -384,6 +386,7 @@ class Prepared:
     old_cuts: list[Footprint]
     foreign: list[str]
     warnings: list[str] = field(default_factory=list)
+    stretches: list = field(default_factory=list)  # lead-stretch suggestions (stretch.Stretch)
 
 
 def prepare(board: Board, cfg: BoardConfig, netlist: str | None = None) -> Prepared:
@@ -429,7 +432,8 @@ def prepare(board: Board, cfg: BoardConfig, netlist: str | None = None) -> Prepa
             warnings += theirs.warnings
     if a.conflicts:
         raise BuildError("the board has conflicts; fix them first:\n  " + "\n  ".join(a.conflicts))
-    return Prepared(a, plan, moves, cfg, link_fps, own_tracks, old_cuts, foreign, warnings)
+    stretches = stretch_mod.suggest(a, plan, cfg) if plan.links or plan.unlinkable else []
+    return Prepared(a, plan, moves, cfg, link_fps, own_tracks, old_cuts, foreign, warnings, stretches)
 
 
 def _edited(a, plan: links_mod.LinkPlan, theirs) -> bool:
@@ -475,6 +479,7 @@ def build(
         analysis=a, plan=plan, moves=moves, removed_previous=(len(prep.own_tracks), len(prep.old_cuts))
     )
     res.warnings += prep.warnings
+    res.stretches = list(prep.stretches)
     res.warnings += resources.check_rules_width(rules.read_text(encoding="utf-8"), cfg.strip_width_mm)
 
     # pass 2: place the W footprints that F8 brought in
@@ -554,7 +559,7 @@ def build(
     dru = out_path.with_suffix(".kicad_dru")
     shutil.copyfile(rules, dru)
     res.outputs.append(str(dru))
-    res.outputs += write_link_files(plan, out_path)
+    res.outputs += write_link_files(plan, out_path, res.stretches, cfg.link_lead_allowance_in)
 
     # re-read what was written: it must parse and carry exactly the tracks we meant to write
     check = load_board(out_path)
@@ -573,16 +578,26 @@ def link_file(out_path: str | Path, suffix: str) -> Path:
     return p.with_name(p.stem + ".links" + suffix)
 
 
-def write_link_files(plan: links_mod.LinkPlan, out_path: str | Path) -> list[str]:
-    """Write the link proposal (JSON, CSV, and a text report with schematic instructions)."""
+def write_link_files(
+    plan: links_mod.LinkPlan, out_path: str | Path, stretches=(), allowance_in: float = 0.0
+) -> list[str]:
+    """Write the link proposal (JSON, CSV, and a text report with schematic instructions), with
+    any lead-stretch suggestions in the JSON and the text report."""
+    import json
+
+    data = json.loads(links_mod.to_json(plan, Path(out_path).name))
+    text = links_mod.format_text(plan, allowance_in)
+    if stretches:
+        data["lead_stretches"] = [s.to_dict() for s in stretches]
+        text += "\n" + stretch_mod.format_text(stretches)
     out = []
-    for suffix, text in (
-        (".json", links_mod.to_json(plan, Path(out_path).name)),
+    for suffix, body in (
+        (".json", json.dumps(data, indent=2) + "\n"),
         (".csv", links_mod.to_csv(plan)),
-        (".txt", links_mod.format_text(plan)),
+        (".txt", text),
     ):
         p = link_file(out_path, suffix)
-        p.write_text(text, encoding="utf-8")
+        p.write_text(body, encoding="utf-8")
         out.append(str(p))
     return out
 

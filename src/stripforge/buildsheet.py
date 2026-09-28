@@ -1050,7 +1050,7 @@ def _link_list(model: SheetModel) -> list[str]:
     if not model.links:
         return out + ['<p class="muted">No wire links.</p>']
     out.append(
-        '<table class="list"><tr><th></th><th>Ref</th><th>From</th><th>To</th><th>Length (holes)</th>'
+        '<table class="list"><tr><th></th><th>Ref</th><th>From</th><th>To</th><th>Length (pad-to-pad)</th>'
         "<th>Footprint</th><th>Net</th><th>Status</th></tr>"
     )
     for r in model.links:
@@ -1060,10 +1060,55 @@ def _link_list(model: SheetModel) -> list[str]:
             status += " <b>(yours)</b>" if lk.origin == "board" else " <b>([manual])</b>"
         out.append(
             f'<tr class="item" data-kind="link" data-link="{lk.ref_hint}"><td>{_box()}</td><td class="mono">{lk.ref_hint}</td>'
-            f"<td><b>{lk.start}</b></td><td><b>{lk.end}</b></td><td>{lk.pitches} ({_f(lk.length_mm)} mm){_link_how(lk)}</td>"
+            f"<td><b>{lk.start}</b></td><td><b>{lk.end}</b></td><td><b>{_e(lk.inches)}</b> ({lk.pitches} holes, {_f(lk.length_mm)} mm){_link_how(lk)}</td>"
             f'<td class="mono">{_e(lk.footprint)}</td><td>{_e(lk.net)}</td><td>{status}</td></tr>'
         )
     out.append("</table>")
+    out += _link_cut_list(model)
+    out += _stretch_list(model)
+    return out
+
+
+def _link_cut_list(model: SheetModel) -> list[str]:
+    """One row per link length, shortest first: pre-cut and bend every link of a length in one go."""
+    rows = links_mod.cut_list([r.link for r in model.links])
+    allowance = float(getattr(model.prep.config, "link_lead_allowance_in", 0.0) or 0.0)
+    cut = allowance > 0
+    out = [
+        f"<h4>Link cut list ({len(rows)} length(s))</h4>",
+        '<table class="list cutlist"><tr><th></th><th>Length (inches, pad-to-pad)</th><th>Qty</th>'
+        + ("<th>Cut length</th>" if cut else "")
+        + "<th>Links</th></tr>",
+    ]
+    for v, refs in rows:
+        extra = f"<td><b>{_e(links_mod.inch_text(round(v + 2 * allowance, 2)))}</b></td>" if cut else ""
+        out.append(
+            f'<tr class="item" data-kind="link-length" data-length="{v:g}"><td>{_box()}</td>'
+            f"<td><b>{_e(links_mod.inch_text(v))}</b></td><td>{len(refs)}</td>{extra}"
+            f'<td class="mono">{_e(", ".join(refs))}</td></tr>'
+        )
+    out.append("</table>")
+    note = links_mod.LEAD_NOTE
+    if cut:
+        note += f" Cut length = pad-to-pad + 2 x {links_mod.inch_text(allowance)} (link_lead_allowance_in)."
+    out.append(f'<p class="legend cutlist-note"><b>Reminder:</b> {_e(note)}</p>')
+    return out
+
+
+def _stretch_list(model: SheetModel) -> list[str]:
+    """Lead-stretch suggestions (report only): links a longer lead on a two-pin part could replace."""
+    items = list(getattr(model.prep, "stretches", []) or [])
+    if not items:
+        return []
+    out = [
+        f"<h4>Lead-stretch suggestions ({len(items)})</h4>",
+        '<p class="legend">Optional: a longer lead on a two-pin part could stand in for these links. '
+        "Nothing was moved; to take one, change the part's footprint so the pin lands on the new hole, "
+        "leave the link out of the schematic and build again.</p>",
+        '<ul class="warn">',
+    ]
+    out += [f'<li data-kind="stretch">{_e(s.text())}</li>' for s in items]
+    out.append("</ul>")
     return out
 
 

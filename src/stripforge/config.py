@@ -170,6 +170,9 @@ class BoardConfig:
     # number of pitches, 3-4-5 and friends, else a rotated off-pitch Link_D*; off_pitch_links = false
     # keeps to whole-pitch diagonals); with bus_strips, two links may meet on an unused bare strip.
     max_link_mm: float = 81.28
+    # The link cut list gives pad-to-pad lengths; set this (inches a leg, e.g. 0.15) to add a
+    # "cut" column: pad-to-pad + 2 x allowance for the legs through the holes. 0 = no column.
+    link_lead_allowance_in: float = 0.0
     diagonal_links: bool = True
     off_pitch_links: bool = True
     bus_strips: bool = True
@@ -183,6 +186,12 @@ class BoardConfig:
     # links = ["J16-T16"], cuts = ["J15", "C34-C35"] (hole, knife), no_cut = ["J17"].
     respect_edits: bool = True
     manual: dict = field(default_factory=dict)
+    # The [stretch] table: lead-stretch suggestions (report only, on by default). After the link
+    # plan, list the links a longer lead on a two-pin leaded part (R, C, D, L, F) could replace:
+    # which pin to move to which hole. enabled = false turns them off; max_pitches (6) and
+    # radial_max_pitches (2) cap how much longer an axial / radial part's span may get; skip lists
+    # parts never to stretch; allow_under_parts = true also allows a new line under another part.
+    stretch: dict = field(default_factory=dict)
     # Non-fatal config problems found while loading (e.g. a very large [bend]); shown as warnings.
     warnings: list[str] = field(default_factory=list)
 
@@ -191,6 +200,41 @@ class BoardConfig:
         if ref not in self.slotted:
             return None
         return self.slot_max_mm_by_ref.get(ref, self.slot_max_mm)
+
+
+STRETCH_KEYS = {"enabled", "max_pitches", "radial_max_pitches", "skip", "allow_under_parts"}
+
+
+def stretch_from_dict(data: object) -> dict:
+    """Check the [stretch] table (see BoardConfig.stretch) and fill in its defaults."""
+    if not isinstance(data, dict):
+        raise ValueError("[stretch] must be a table")
+    unknown = sorted(set(data) - STRETCH_KEYS)
+    if unknown:
+        raise ValueError(f"unknown [stretch] key(s): {', '.join(unknown)}")
+    out = {
+        "enabled": True,
+        "max_pitches": 6.0,
+        "radial_max_pitches": 2.0,
+        "skip": [],
+        "allow_under_parts": False,
+    }
+    for name in ("enabled", "allow_under_parts"):
+        if name in data:
+            if not isinstance(data[name], bool):
+                raise ValueError(f"[stretch] {name} must be true or false")
+            out[name] = data[name]
+    for name in ("max_pitches", "radial_max_pitches"):
+        if name in data:
+            v = data[name]
+            if isinstance(v, bool) or not isinstance(v, (int, float)) or v < 0:
+                raise ValueError(f"[stretch] {name} must be a number of pitches, 0 or more, got {v!r}")
+            out[name] = float(v)
+    skip = data.get("skip", [])
+    if not isinstance(skip, list) or not all(isinstance(r, str) and r for r in skip):
+        raise ValueError('[stretch] skip must be a list of references, e.g. skip = ["C1"]')
+    out["skip"] = list(skip)
+    return out
 
 
 def from_dict(data: dict) -> BoardConfig:
@@ -203,12 +247,14 @@ def from_dict(data: dict) -> BoardConfig:
         raise ValueError("unknown stripboard config key(s): warnings")
     drc = drc_from_dict(data.pop("drc", {}))
     bend, bend_warns = bend_from_dict(data.pop("bend", {}))
+    stretch = stretch_from_dict(data.pop("stretch", {}))
     from .edits import manual_from_dict
 
     manual = manual_from_dict(data.pop("manual", {}))
     cfg = BoardConfig(**data)
     cfg.drc = drc
     cfg.bend = bend
+    cfg.stretch = stretch
     cfg.manual = manual
     cfg.warnings = bend_warns
     if not isinstance(cfg.skip, list) or not all(isinstance(r, str) and r for r in cfg.skip):
@@ -237,6 +283,10 @@ def from_dict(data: dict) -> BoardConfig:
         if isinstance(v, bool) or not isinstance(v, (int, float)) or v <= 0:
             raise ValueError(f"{name} must be a number of millimetres more than 0, got {v!r}")
         setattr(cfg, name, float(v))
+    v = cfg.link_lead_allowance_in
+    if isinstance(v, bool) or not isinstance(v, (int, float)) or not 0 <= v <= 1:
+        raise ValueError(f"link_lead_allowance_in must be inches a leg, 0 to 1, got {v!r}")
+    cfg.link_lead_allowance_in = float(v)
     if cfg.hole_drill_mm >= cfg.strip_width_mm:
         raise ValueError(f"hole_drill_mm ({cfg.hole_drill_mm:g}) must be smaller than strip_width_mm")
     for name in (

@@ -481,6 +481,26 @@ hole beside each pin on that pin's net; the planner never slides those cuts clos
 least `trim_min_free` (default 4) holes as bare strip. A retry with pieces trimmed first is tried
 when a net is left unjoined.
 
+### 4.13 Link cut list and lead-stretch suggestions (as built)
+
+Every link's length is shown in inches, pad-to-pad (`LinkProposal.length_in`: span × 2.54 mm /
+25.4, so whole pitches give 0.1" steps and diagonals their real length to 0.01"). The report,
+`.links.txt` and the build sheet add a cut list grouped by length, shortest first, with a reminder
+that the builder adds wire for both legs; `link_lead_allowance_in` adds a cut column (+2 × allowance).
+
+`stretch.suggest` runs after the plan (report only; it never moves a part). Joins are the plan's
+links, a bus strip's two links counting as one join. For each join, every leaded two-pin part (ref
+prefix R/C/D/L/F/FB, two THT pads, not slotted or skipped) with a pin on the net is tried: the other
+pin stays, the pin moves to a free hole (not a pad, cut, slot filing hole, live link end, or the
+hole beside a `knife_cuts` pin) on a piece already carrying the net. Accepted when the net is still
+one component (pieces joined by the remaining links, the pin counted at its new hole), the part's
+new line crosses no link and passes no lead within `LEAD_CLEAR_NM`, it goes under no courtyard it
+didn't already (`allow_under_parts` lifts this), and the span stays in limits (axial: +`max_pitches`,
+no shorter than body + 2 mm; radial: +`radial_max_pitches`). Best = least extra span. Suggestions
+are taken greedily and checked together (no shared part or hole, no crossing leads); unlinkable
+nets are tried too. On the TPI fixture this finds R2.2 O10 -> P10 (span 4 -> 5) replacing the
+TPICLK link; R3 for HV_RST would need a line under SW2 onto the hole its big pad overhangs.
+
 ## 5. v0 scope
 
 In scope:
