@@ -1,5 +1,7 @@
 # StripForge
 
+<p align="center"><img src="assets/StripForge-icon-1024x1024.png" alt="StripForge: netlist to stripboard" width="320"></p>
+
 **Lay out stripboard (Veroboard) circuits in KiCad with real footprints and a live netlist, and get a normal `.kicad_pcb` whose copper is the strips.**
 
 [![CI](https://github.com/SomerledDesign/StripForge/actions/workflows/ci.yml/badge.svg)](https://github.com/SomerledDesign/StripForge/actions/workflows/ci.yml)
@@ -111,6 +113,13 @@ src/stripforge/
   buildsheet.py   copper-side SVG/PDF + cut/link CSV
   backends/       file (.kicad_pcb), ipc (kipy), swig_fallback (isolated, unused)
 ```
+
+### Icon
+
+The StripForge icon is `assets/StripForge-icon-1024x1024.png` (1488 × 1328 px; a JPEG copy sits
+next to it). The KiCad plugin manager icon is `resources/icon.png`, a 64 × 64 px crop of the "S".
+The PCM `metadata.json` schema has no icon field: the PCM takes the icon from `resources/icon.png`
+in the package archive, and from an `icon.png` next to `metadata.json` in the metadata repository.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) and [CHANGELOG.md](CHANGELOG.md).
 
