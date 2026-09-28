@@ -46,13 +46,13 @@ The full design is in [Sketch.md](Sketch.md).
 
 ## Status
 
-**Pre-alpha: M1 done; M2 part A done.** `stripforge analyze` reads a `.kicad_pcb` (and optionally
-its netlist), snaps footprints to the hole grid, splits the strips by net and reports cuts, nets
-needing links, slot jobs, off-board parts, placement hints, warnings and conflicts, using hole
-labels (`A1`…). `stripforge snap -o` writes a copy of the board with each snapped footprint moved by
-its best-fit shift; the writer is byte-exact for everything it doesn't change. Still to come in M2
-part B (needs Mildrew's strip, cut and link footprints): writing strips, cuts and links into the
-board, the `kicad-cli` DRC wrapper and the two-pass link flow.
+**Pre-alpha: M1 and M2 done (build sheet and IPC are M3).** `stripforge analyze` reads a
+`.kicad_pcb` (and optionally its netlist), snaps footprints to the hole grid, splits the strips by
+net and reports cuts, nets needing links, slot jobs, off-board parts, placement hints, warnings and
+conflicts, using hole labels (`A1`…). `stripforge snap -o` writes a copy of the board with each
+part moved by its best-fit shift. `stripforge build` writes the strip copper, the cuts and the wire
+links into a copy of the board, and `stripforge drc` runs KiCad's DRC through `kicad-cli` and sorts
+the results into real problems and expected stripboard noise.
 
 ## Roadmap
 
@@ -70,7 +70,8 @@ board, the `kicad-cli` DRC wrapper and the two-pass link flow.
 
 ## First test case
 
-An **ATtiny10 TPI programming fixture** (25 THT parts, 36 nets). See [examples/tpi-fixture](examples/tpi-fixture/).
+An **ATtiny10 TPI programming fixture** (22 real THT parts, 41 nets; the earlier 25-part M1 board is
+frozen in `tests/fixtures/tpi-m1/`). See [examples/tpi-fixture](examples/tpi-fixture/).
 It is done when every part snaps, DRC with schematic parity is clean, and the fixture can be built
 from the build sheet with no rework on the copper side.
 
@@ -83,10 +84,84 @@ stripforge analyze examples/tpi-fixture/ATtiny10_TPI_Fixture.kicad_pcb \
     --netlist examples/tpi-fixture/ATtiny10_TPI_Fixture.net      # add --json for machine output
 stripforge analyze <board>.kicad_pcb --config examples/x56.toml  # Kevin's X56 board (A1-X56)
 stripforge snap <board>.kicad_pcb -o <out>.kicad_pcb   # move parts by their best-fit shift (dry run without -o)
-stripforge --help      # plan | generate | drc | sheet are still stubs
+stripforge build <board>.kicad_pcb --netlist <board>.net --config examples/x56.toml -o <out>.kicad_pcb
+stripforge drc <out>.kicad_pcb                          # kicad-cli DRC, classified
+stripforge --help      # plan | sheet are still stubs
 ruff check . && ruff format --check .
 pytest
 ```
+
+### Building a board: `stripforge build` and the two-pass link flow
+
+`stripforge build <board> [--netlist <net>] [--config <toml>] -o <out.kicad_pcb>` never touches its
+input. It snaps the parts (as `snap` does), splits the strips by net and writes into `<out>`:
+
+- **strips**: one `B.Cu` track per pair of neighbouring holes, hole centre to hole centre,
+  `strip_width_mm` wide, on the piece's net. Uncut bare strip is written as copper with no net (it
+  is physically there; KiCad only calls it `track_dangling`, which `stripforge drc` filters);
+- **cuts**: a real gap in the copper (a hole cut leaves no copper touching the hole; a knife cut
+  removes the track between two holes) plus a `StripForge:CUT_Hole` / `StripForge:CUT_Knife`
+  marker footprint on `User.1` (refs `CUT1`…, board-only, not in the BOM or position files). The
+  markers are embedded in the board, so it loads and DRCs without the StripForge library configured;
+- **links**: see below;
+- next to `<out>`: `<out>.kicad_dru` (a copy of `rules/stripforge.kicad_dru`, which `kicad-cli`
+  and pcbnew pick up automatically) and the link proposal as `<out>.links.json`, `.links.csv` and
+  `.links.txt`.
+
+The input must be the placement board: a track or via StripForge did not write is refused. Building
+again from a StripForge output removes its own strips and cut markers first and rewrites them; the
+output is deterministic (same input, same bytes). Parts outside the Edge.Cuts outline are reported,
+and copper is only written for holes inside the outline.
+
+**Pass 1.** For every net split over several strip pieces, StripForge proposes straight wire links
+along a column (across strips), 1–32 pitches long (`StripForge:Link_P2.54` … `Link_P81.28`), like a
+minimum spanning tree: fewest and shortest links, no two links in one hole, no overlapping links in
+one column where it can be avoided, avoiding part courtyards, and only on free holes (never a cut or
+a pad). A cut may slide within its gap to free a landing hole. The report lists each link:
+
+```
+W4    D12 -> J12  StripForge:Link_P15.24   GND
+```
+
+Add them to the schematic: one 2-pin jumper per line (`Jumper:Jumper_2_Bridged` or a 0 Ω
+resistor), Reference `W4`, Footprint `StripForge:Link_P15.24`, both pins wired to the net (`GND`).
+Then press F8 (Update PCB from Schematic). `<out>.links.txt` has the full list and these steps. A
+net that can't be joined with vertical links is an error in the report: move or rotate a part so its
+pieces share a column with free holes.
+
+**Pass 2.** Build again from the board that now has the `W` footprints (anywhere on the board): each
+`W` is matched by reference and net to the proposal and placed on its two holes (pad 1 on the upper
+hole; the link footprints are vertical at 0°). Missing, extra, wrong-footprint or wrong-net `W`
+parts are reported. The `W` parts are not treated as components, so the strips and cuts don't
+change.
+
+Exit codes: 0 complete (every net joined, every link placed), 1 incomplete (links still to add or
+place, unlinkable nets, rejected parts), 2 refused (bad input, conflicts, output = input).
+
+### DRC: `stripforge drc`
+
+`stripforge drc <board.kicad_pcb> [--no-parity] [--report drc.json] [--json]` runs
+`kicad-cli pcb drc --format json --severity-all --schematic-parity` (kicad-cli 10.0.4; found via
+`--kicad-cli`, `$KICAD_CLI`, `PATH` or the macOS app bundle) and classifies the result:
+
+- **real problems** (exit 1): shorts, clearance, unconnected items, schematic parity, violations of
+  a StripForge (`SF …`) rule, and any other error;
+- **filtered, counted** (expected on stripboard): `track_dangling` (dead strip ends) and the
+  "footprint library not configured" warning (the footprints are embedded);
+- **reported, not failing**: a `W` link over a part courtyard (a wire can run under a part), and
+  other warnings (silk), summarised by type.
+
+Schematic parity needs the `.kicad_sch` (and `.kicad_pro`) next to the board with the same name;
+without it kicad-cli skips parity and the report says so. After pass 1 the unconnected items are
+exactly the links still to add; after pass 2 they should be 0. Exit 3 means kicad-cli was not found
+(the tests needing it are skipped in CI).
+
+### Strip width and the DRC rules
+
+`strip_width_mm` is 1.8 mm (caliper-measured on Kevin's X56 board). The rules in
+`rules/stripforge.kicad_dru` are generated for that width: **whenever `strip_width_mm` changes,
+regenerate them** with `python rules/gen_dru.py --strip-width <w>`. `stripforge build` warns when
+the rules file and the config disagree.
 
 ### Hole labels
 
@@ -97,7 +172,7 @@ Reports use labels throughout; the `--json` output also keeps the 0-based `(col,
 
 ```
 src/stripforge/
-  cli.py          command-line entry (analyze | plan | generate | drc | sheet)
+  cli.py          command-line entry (analyze | snap | build | drc; plan | sheet are stubs)
   analyze.py      snap + split report (text or JSON), best-fit moves
   hints.py        placement hints (parts lying along a strip, 90° rotation estimate)
   config.py       stripboard.toml model
@@ -107,7 +182,9 @@ src/stripforge/
   grid.py         2.54 grid, hole labels, per-footprint snap with tolerance and slots
   strips.py       rows -> hole-to-hole segments
   splitter.py     cut placement + net per piece
-  links.py        open-net detection + link proposals
+  links.py        link proposals (pass 1), link reports
+  writer.py       stripforge build: strips, cut markers, link placement (pass 2)
+  resources.py    StripForge footprint library and rules lookup
   validate.py     pure-Python short/open/parity pre-check
   drc.py          kicad-cli pcb drc wrapper + classifier
   buildsheet.py   copper-side SVG/PDF + cut/link CSV

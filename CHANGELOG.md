@@ -9,6 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- M2 part B: board output and DRC.
+  - `stripforge build <board> [--netlist] [--config] -o <out>`: snaps the parts, then writes the
+    strip copper (B.Cu, hole to hole, `strip_width_mm`, on the piece's net; bare strip as no-net
+    copper), leaves real gaps at cuts, embeds a `StripForge:CUT_Hole` / `CUT_Knife` marker per cut
+    (refs `CUT<n>`, board-only), copies the rules to `<out>.kicad_dru` and writes the link proposal
+    (`<out>.links.json/.csv/.txt`). Refuses foreign tracks, rebuilds its own output, never
+    overwrites the input, deterministic output. Exit 0 complete, 1 incomplete, 2 refused.
+  - Link proposal (pass 1, `links.py`): vertical links of 1–32 pitches
+    (`StripForge:Link_P2.54`…`Link_P81.28`) joining each split net like a minimum spanning tree,
+    avoiding shared holes, same-column overlaps and part courtyards, sliding a cut within its gap
+    when that frees a landing hole; unlinkable nets are reported as errors. The report includes the
+    steps to add the `W` links to the schematic.
+  - Link placement (pass 2): `W` footprints brought in by F8 are matched by ref and net and placed
+    on their holes; missing, extra, wrong-footprint and wrong-net links are reported.
+  - `stripforge drc <board>`: runs `kicad-cli pcb drc --format json --severity-all
+    --schematic-parity` and classifies shorts, clearance, unconnected, parity and `SF` rule
+    violations (exit 1) against filtered noise (`track_dangling`, library-not-configured; counted)
+    and link-courtyard items (reported). Exit 3 when kicad-cli is missing; kicad-cli tests skip.
+  - `resources.py`: finds the StripForge library and rules (repo, `$STRIPFORGE_LIBRARY`,
+    `$STRIPFORGE_RULES` or `--library/--rules`); warns when the `.kicad_dru` strip width differs
+    from `strip_width_mm`.
+  - Footprint library `footprints/StripForge.pretty` (32 `Link_P*` wire links, `CUT_Hole`,
+    `CUT_Knife`) and DRC rules `rules/stripforge.kicad_dru` with `rules/gen_dru.py`, by Mildrew.
+    The link footprints now declare pads 1 and 2 as a jumper pad group.
+  - The StripForge icon (`assets/`) and a 64 × 64 plugin-manager icon (`resources/icon.png`).
+  - Tests for the real-parts fixture, the link planner, the writer, pass 2 and the DRC classifier.
+
 - M2 part A (the parts that don't need Mildrew's strip, cut and link footprints):
   - Hole labels: strips (rows) are letters `A..Z, AA..ZZ`, holes along a strip are numbered from 1,
     `A1` is top-left (the fixture runs `A1`–`Y30`). `grid.hole_label`, `parse_hole`, `row_label`,
@@ -53,6 +80,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unit tests and an integration test on them.
 
 ### Changed
+
+- `examples/tpi-fixture/` is now Mildrew's real-parts board (22 footprints, 41 nets, BT1
+  slotted); the M1 board is frozen in `tests/fixtures/tpi-m1/` for the M1/M2A tests.
+- Strip width confirmed at 1.8 mm (caliper-measured on the X56 board); the `.kicad_dru` must be
+  regenerated with `rules/gen_dru.py` whenever it changes.
+- Library nickname `StripForge` everywhere (`StripForge:Link_P10.16`, `StripForge:CUT_Hole`, …).
+- The `generate` CLI stub is replaced by `build`.
 
 - Reports, warnings and cut positions use hole labels (`hole B26`, `between D3 and D4`) instead of
   `(col,row)`; nets needing links list their pieces.

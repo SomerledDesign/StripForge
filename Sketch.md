@@ -2,7 +2,7 @@
 
 *StripForge is a KiCad stripboard (Veroboard) layout tool. This sketch was originally drafted as the "KiCad Stripboard Layout Tool" v0 plan.*
 
-*Status: v0 plan (2026-09-27). M1 (model and splitting) is done and M2 part A (labels, X56, slotted parts, best-fit moves, placement hints, byte-exact writer) is implemented; see the README and CHANGELOG. Target: KiCad 10.0.4.*
+*Status: v0 plan (2026-09-27). M1 (model and splitting) is done; M2 part A (labels, X56, slotted parts, best-fit moves, placement hints, byte-exact writer) and part B (`stripforge build`: strip copper, cuts, the two-pass link flow; `stripforge drc`) are implemented; see the README and CHANGELOG. Mutation tests (criterion 4) are still to do. Target: KiCad 10.0.4.*
 *Owners: Jarvis (scaffolding, generator, net splitting, build sheet, planning) and Mildrew (EE: strip, cut and link footprints, DRC rules, board validation).*
 
 Anything marked **[UNVERIFIED]** must be checked against a real KiCad 10.0.4 install during M0.
@@ -241,6 +241,28 @@ Notes:
   - The alternative is board-only links (the "Not in schematic" attribute). That breaks the
     board/schematic sync Kevin wants, so it is rejected for v0.
 
+- **As built (M2 part B, `links.py`, `writer.py`).**
+  - Link footprints are Mildrew's `StripForge:Link_P2.54` … `StripForge:Link_P81.28` (1–32
+    pitches), vertical at 0° with pad 1 on top. Pass 2 places them at rotation 0 with pad 1 on the
+    upper hole (not 90/270: the footprints are already drawn along a column). Their pads 1 and 2
+    form a jumper pad group (`jumper_pad_groups`), so KiCad treats a placed link as a connection;
+    without it a link joined nothing in `kicad-cli` DRC.
+  - Planner: a global greedy Kruskal over all split nets' piece groups. A candidate is a column
+    where both pieces have a free hole (no pad, no cut, not used by another link), 1–32 strips apart.
+    Ranking: no same-column overlap, fewest part courtyards crossed, fewest cut slides, fewest knife
+    cuts created, length, leads passed over, then position (deterministic).
+  - **Cut sliding (decision).** A cut can move within its gap (between the same two pads) to give a
+    piece a landing hole: a hole cut moves to another free hole if there is one, else becomes a
+    knife cut next to the landing hole (with a warning). Slot segments and holes already used by a
+    link are respected, and knife-only boards only get knife cuts.
+  - `W` footprints (ref `W<n>` or a `StripForge:Link_*` footprint) are excluded from the analysis,
+    so adding them in pass 2 changes neither strips nor cuts. The pass-1 proposal is recomputed
+    deterministically in pass 2 and compared with a saved `<out>.links.json` (a warning if they
+    differ).
+  - Outputs: `<out>.links.json` / `.csv` / `.txt` (ref, net, from/to labels, pitches, footprint;
+    the text file has the schematic steps). A net that can't be joined by vertical links is an
+    error naming its piece groups. Links along a strip (two pieces on one row) are not proposed.
+
 ### 4.5 Cut representation (decision)
 
 **A cut is a real gap in the B.Cu track pieces, plus a marker graphic on a user layer, grouped
@@ -260,6 +282,12 @@ together.**
     / `StripForge:CUT_Knife` footprint (Not in schematic, excluded from BOM and position files) as a
     *selectable marker* in M2 or later, if refdes numbering and selection in the GUI turn out to
     matter. The validator must then check that each marker's position matches a real gap.
+- **As built (M2 part B).** The markers are Mildrew's `StripForge:CUT_Hole` (on the hole) and
+  `StripForge:CUT_Knife` (between the two holes), graphics on `User.1`, board-only and excluded
+  from BOM and position files, so schematic parity ignores them. `stripforge build` embeds them in
+  the board as KiCad does (refs `CUT<n>` for cut `X<n>`), so the board loads and DRCs with the
+  library unconfigured; each marker is written at its gap from the same model, and a rebuild
+  replaces them.
 
 ### 4.6 How DRC flags a strip carrying two nets (decision)
 
@@ -279,7 +307,9 @@ We make KiCad's **built-in** electrical checks do the work rather than inventing
   - disallow tracks and vias on F.Cu (links are footprints, not tracks);
   - a pad-to-track clearance relaxation if large pads trip clearance against the *neighbouring*
     strip;
-  - set severity to ignore for dangling dead-copper tracks, if needed.
+  - set severity to ignore for dangling dead-copper tracks, if needed. *(As built: dead strip ends
+    and bare no-net strip give `track_dangling`; the DRC wrapper filters and counts them rather
+    than changing the rule severity.)*
   - All rule syntax needs Mildrew's validation on 10.0.4 **[UNVERIFIED]**.
 - **Belt and braces**: `validate.py` runs the same short/open/parity logic in pure Python before
   KiCad does, so problems fail fast and give better messages. It also re-reads the written board
@@ -303,6 +333,19 @@ We make KiCad's **built-in** electrical checks do the work rather than inventing
   - uses deterministic UUIDs (uuid5 from row/col/kind), so re-runs give clean diffs.
   - **[UNVERIFIED]**: the exact KiCad 10 syntax for segment nets (net code vs name) and the layer
     table. M0 must inspect a board saved by KiCad 10.0.4.
+- **As built (M2 part B, `stripforge build`).**
+  - Strip pieces with a net are written as B.Cu segments hole to hole at `strip_width_mm` (1.8 mm,
+    measured) with `(net "name")`; **bare strip is written as copper with no net** (decision: it is
+    physically there, and KiCad only reports `track_dangling` for it, which the DRC wrapper
+    filters). One-hole pieces have no track.
+  - **Existing copper (decision):** a track, arc or via StripForge did not write is refused (the
+    input must be the placement board); StripForge's own strips (known uuid5s) and `CUT` markers are
+    removed and rewritten, so the pass-2 build can start from the pass-1 output.
+  - The configured grid is clipped to the Edge.Cuts outline with a warning (the fixture's outline is
+    30 holes wide while X56 is 56).
+  - The rules are copied to `<out>.kicad_dru`; the output never overwrites the input.
+  - UUIDs are uuid5, so rebuilding unchanged input is byte-identical. Instead of a `stripforge:*`
+    group, StripForge recognises its output by uuid (tracks) and footprint (`StripForge:CUT_*`).
 - **IPC backend (M3).** Does the same on the live board through kipy: read footprints and pads,
   `update_items` for snapping, `create_items` for `Track` and `BoardSegment`, all in one commit (so
   one undo step), then `save()`. Only 10.0.1-and-earlier features are used.
@@ -310,12 +353,22 @@ We make KiCad's **built-in** electrical checks do the work rather than inventing
 
 ### 4.8 DRC
 
-- `kicad-cli pcb drc --format json --severity-all --schematic-parity --exit-code-violations -o drc.json board.kicad_pcb`.
-  Exit code 0 means clean and 5 means violations were found.
-- `drc.py` parses the JSON and buckets violations into **short**, **open**, **parity**,
-  **stripboard-rule** and **other**. The report is addressed in hole labels ("F23") as
-  well as mm.
-- An allowlist of expected warnings (for example, silk over holes) lives in the repo.
+- `kicad-cli pcb drc --format json --severity-all [--schematic-parity] --units mm -o drc.json board.kicad_pcb`
+  (kicad-cli 10.0.4; `--exit-code-violations` exists but `stripforge drc` decides the exit code
+  itself). Parity needs the project's `.kicad_sch`/`.kicad_pro` next to the board under the same
+  name; otherwise kicad-cli logs "Failed to fetch schematic netlist for parity tests." and skips
+  it, which the report states.
+- `drc.py` buckets the JSON into **shorts** (`shorting_items`, `tracks_crossing`), **clearance**,
+  **unconnected**, **parity**, **stripboard rules** (`SF …` rules), **link courtyards** (a `W` over a
+  part courtyard: reported, not failing) and **other**. Real problems (exit 1) are the first five
+  plus any other error. **Filtered and counted**: `track_dangling` (dead strip ends, Kevin's
+  decision) and the library-not-configured warning (footprints are embedded). Unconnected items
+  are also grouped by net, and positions are given as hole labels as well as mm. Exit 3 when
+  kicad-cli is not found; its tests are skipped in CI.
+- Measured on the real-parts fixture with `examples/x56.toml` (2026-09-27): pass 1 gives 0 shorts,
+  0 clearance, 39 unconnected (exactly the links needed, net by net), 104 filtered `track_dangling`,
+  and parity 0 against Mildrew's schematic; the simulated pass 2 (25 `W` links) gives 14
+  unconnected, exactly the 13 unlinkable nets' remaining joins.
 
 ### 4.9 Build sheet
 
@@ -350,8 +403,9 @@ Out of scope:
 
 ## 6. Success criteria on the ATtiny10 TPI fixture (25 THT parts)
 
-*The fixture has 25 footprints and 36 nets (82 THT pads), not the 26 and 37 first assumed; the
-committed netlist and board agree on this.*
+*The M1 fixture has 25 footprints and 36 nets (82 THT pads), not the 26 and 37 first assumed; it is
+frozen in `tests/fixtures/tpi-m1/`. Since M2 part B, `examples/tpi-fixture/` is Mildrew's
+real-parts board: 22 footprints, 41 nets, 86 pads, with BT1 slotted.*
 
 1. All 25 footprints snap. C1, C2 and C3 (0.04 mm) and F1 (0.01 mm) are accepted and logged. All
    other parts deviate by ≤ 0.005 mm. No part is rejected.
@@ -396,6 +450,8 @@ committed netlist and board agree on this.*
 
 **M2: Board output and DRC.**
 - File-backend writer; `drc.py` wrapping `kicad-cli`; the two-pass link flow; mutation tests.
+- *Status:* writer, DRC wrapper and two-pass link flow done (M2 part B); mutation tests and
+  Mildrew's sign-off still open.
 - Mildrew signs off the DRU and runs board validation.
 - *Exit:* criteria 3, 4, 6 and 7 pass.
 
