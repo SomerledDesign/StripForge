@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `output` toml key: `"in_place"` (default) builds into the project's own `<name>.kicad_pcb`;
+  `"separate"` writes `<name>-stripforge.kicad_pcb` as before. `build --separate` overrides it for
+  one run, and `-o` is now optional.
+- In-place builds first copy the board to `<name>-pre-stripbuild.kicad_pcb`, only when that file
+  doesn't exist yet, so a rebuild never replaces the pristine copy. A different existing
+  `.kicad_dru` is kept as `<name>-pre-stripbuild.kicad_dru`. The CLI and plugin reports give the
+  backup path, whether it was made or kept, and how to undo.
+
 - `symbols/StripForge.kicad_sym`: the generic `StripForge:Link` symbol for wire links (2 passive
   pins, reference `W`, value `Link`, empty footprint, footprint filter `Link_*`). It is bundled in the
   plugin/PCM zip as `plugins/symbols/`.
@@ -52,6 +60,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Build in place by default (Kevin's design). F8 only works in the project's own board opened from
+  the project manager, so the separate `-stripforge` board broke pass 2 ("PCB editor is opened in
+  stand-alone mode") and looked for a `-stripforge.kicad_sch`. Now pass 2 is: F8 in the same board,
+  then Build strips again. The plugin's Build strips must save the board first (OK/Cancel), then
+  reloads it in the PCB editor (kipy `Board.revert()`) after writing.
+- `link-symbols --schematic` is optional (defaults to `<name>.kicad_sch` next to the board, also for
+  a `-stripforge` board); `stripforge drc` finds `<name>.kicad_sch` for a `-stripforge` board by
+  itself. Link lists are always `<name>-stripforge.links.{json,csv,txt}`.
 - Straight links first: the planner ranks vertical < along the strip < bus strip with straight
   drops < whole-pitch diagonal < off-pitch diagonal, and slides a cut (extends a piece) so two
   pieces share a column or a piece reaches a bus. On the X56 test board: 34 links, no diagonals.

@@ -443,9 +443,9 @@ SVGs and `<out>.cuts.csv`.
      `get_kicad_binary_path`).
   5. It runs the CLI code in-process and shows the report in a dialog, with "Show in Finder" and
      "Copy report" buttons. The sheet opens in the browser.
-- **New file only, no live edits:** "Build strips" writes `<name>-stripforge.kicad_pcb` (plus
-  `.kicad_dru` and link lists) next to the board and never changes the open board. Live editing
-  through the API was rejected for 0.1.0:
+- **File writes, no live edits:** "Build strips" writes the board file with the tested writer, in
+  place by default (§4.15); 0.1.0 wrote only a new `<name>-stripforge.kicad_pcb`. Live editing
+  through the API was rejected:
   - KiCad 10.0.4's API can't place a library footprint (`place_footprint_from_library` is
     KiCad 11), so the embedded CUT markers and W links couldn't be written live.
   - There is no dirty flag.
@@ -518,6 +518,30 @@ rotation, then mirror. The symbol definition is embedded in `lib_symbols`. The o
 copy (library tables with `${KIPRJMOD}` made absolute) or in place with `.bak` backups. KiCad's
 Update Schematic from PCB (`BACK_ANNOTATE`) only changes existing symbols; for a footprint with no
 symbol it reports "Cannot find symbol for footprint".
+
+### 4.15 Build in place, with a backup (as built)
+
+F8 only runs in the project's own board opened through the project manager. In the separate
+`-stripforge` board pcbnew is standalone ("Cannot update the PCB because PCB editor is opened in
+stand-alone mode"), and that board would look for a `-stripforge.kicad_sch`. So `output =
+"in_place"` (the default) builds into `<name>.kicad_pcb` itself. `output = "separate"` keeps the old
+file, and a `-stripforge` board is still rebuilt in place.
+
+- **Backup:** just before the first write, `writer.build` copies the board (`shutil.copy2`) to
+  `<name>-pre-stripbuild.kicad_pcb`, only if that file is missing. A rebuild never replaces it, so
+  it stays the pristine placement board. A differing `.kicad_dru` with no StripForge rules is
+  copied to `<name>-pre-stripbuild.kicad_dru` the same way. To revert: delete the built board and
+  rename the backup. `BuildResult.backup` / `backup_created` feed the reports.
+- **Rebuilds** use the existing in-place logic: StripForge strips its own tracks, `CUT` markers and
+  `SF_HOLES_*`, reads the user's markers and W links as locked edits, and rewrites them. The output
+  stays deterministic.
+- **Plugin:** kipy's `Board.revert()` (API `RevertDocument`) reloads from disk and silently drops
+  unsaved edits, and the API has no dirty flag. So Build strips requires saving first (OK/Cancel),
+  writes the file, and calls `revert()` if the file's mtime changed. If that fails, the report
+  says to use File > Revert.
+- **Pass 2 in one board:** after F8 adds the W footprints, Build strips again matches and places
+  them. `link-symbols` defaults to `<name>.kicad_sch`, and DRC parity runs on `<name>.kicad_pcb` /
+  `<name>.kicad_sch` directly, with no shadow copy. Link lists stay `<name>-stripforge.links.*`.
 
 ## 5. v0 scope
 

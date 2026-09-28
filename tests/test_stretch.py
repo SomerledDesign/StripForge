@@ -76,9 +76,9 @@ def test_stretch_replaces_a_link(tmp_path):
     assert s.links == (lk.ref_hint,) and s.ref == "R1" and s.pin == "2"
     assert (s.old.label, s.new.label, s.fixed.label) == ("E4", "D4", "J4")
     assert (s.span_old, s.span_new) == (5.0, 6.0) and s.axial
-    txt = (tmp_path / "out.links.txt").read_text()
+    txt = (tmp_path / "out-stripforge.links.txt").read_text()
     assert "Lead stretches: 1 suggestion(s)" in txt and "move R1 pin 2 from E4 to D4" in txt
-    data = json.loads((tmp_path / "out.links.json").read_text())
+    data = json.loads((tmp_path / "out-stripforge.links.json").read_text())
     assert data["lead_stretches"][0]["to"] == "D4"
 
 

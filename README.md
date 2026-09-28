@@ -90,9 +90,11 @@ is private.
    (kicad-python, from `plugins/requirements.txt`) the first time, which takes a minute. Four
    StripForge toolbar buttons appear in the PCB editor:
    - **StripForge: Analyze**: a read-only report: snap, cuts, links needed, slot jobs, hints.
-   - **StripForge: Build strips**: writes `<name>-stripforge.kicad_pcb` (plus `.kicad_dru` and
-     the link lists) **next to the board**. The open board is never changed. Open that file to see
-     the strips.
+   - **StripForge: Build strips**: builds **in the open board itself** (`<name>.kicad_pcb`, the
+     project's own board, so F8 keeps working), after saving it and, the first time, copying it to
+     `<name>-pre-stripbuild.kicad_pcb`. It then reloads the board in the PCB editor. Writes
+     `<name>.kicad_dru` and the link lists (`<name>-stripforge.links.*`) next to it. See
+     **Where the build goes** below; `output = "separate"` gives the old `<name>-stripforge.kicad_pcb`.
    - **StripForge: Run DRC**: kicad-cli DRC with schematic parity on the built board, classified.
    - **StripForge: Build sheet**: writes `<name>-stripforge.sheet.html` (and `.pdf` if Chrome is
      installed) and opens it in the browser.
@@ -131,8 +133,9 @@ stripforge analyze examples/tpi-fixture/ATtiny10_TPI_Fixture.kicad_pcb \
     --netlist examples/tpi-fixture/ATtiny10_TPI_Fixture.net      # add --json for machine output
 stripforge analyze <board>.kicad_pcb --config examples/x56.toml  # Kevin's X56 board (A1-X56)
 stripforge snap <board>.kicad_pcb -o <out>.kicad_pcb   # move parts by their best-fit shift (dry run without -o)
-stripforge build <board>.kicad_pcb --netlist <board>.net --config examples/x56.toml -o <out>.kicad_pcb
-stripforge drc <out>.kicad_pcb [--schematic <board>.kicad_sch]   # kicad-cli DRC, classified
+stripforge build <board>.kicad_pcb --netlist <board>.net --config examples/x56.toml   # in place, backup first
+stripforge build <board>.kicad_pcb --separate        # or -o <out>.kicad_pcb: a new file, board untouched
+stripforge drc <board>.kicad_pcb                     # kicad-cli DRC + parity against <board>.kicad_sch
 stripforge sheet <out>.kicad_pcb --netlist <board>.net --config examples/x56.toml -o <out>.sheet.html
 python tools/make_pcm_zip.py   # the KiCad PCM package in dist/
 stripforge --help      # plan is still a stub
@@ -142,8 +145,9 @@ pytest
 
 ### Building a board: `stripforge build` and the two-pass link flow
 
-`stripforge build <board> [--netlist <net>] [--config <toml>] -o <out.kicad_pcb>` never touches its
-input. It snaps the parts (as `snap` does), splits the strips by net and writes into `<out>`:
+`stripforge build <board> [--netlist <net>] [--config <toml>] [--separate | -o <out.kicad_pcb>]`
+snaps the parts (as `snap` does), splits the strips by net and writes the result (see **Where the
+build goes** below for which file):
 
 - **strips**: one `B.Cu` track per pair of neighbouring holes, hole centre to hole centre,
   `strip_width_mm` wide, on the piece's net. Uncut bare strip is written as copper with no net (it
@@ -158,9 +162,28 @@ input. It snaps the parts (as `snap` does), splits the strips by net and writes 
   holes under part pins and link pads take the part's pad instead. `draw_holes = false` turns this
   off, `hole_drill_mm` (default 1.0) sets the drill;
 - **links**: see below;
-- next to `<out>`: `<out>.kicad_dru` (a copy of `rules/stripforge.kicad_dru`, which `kicad-cli`
-  and pcbnew pick up automatically) and the link proposal as `<out>.links.json`, `.links.csv` and
-  `.links.txt`.
+- next to the built board: `<name>.kicad_dru` (a copy of `rules/stripforge.kicad_dru`, which
+  `kicad-cli` and pcbnew pick up automatically; a different `.kicad_dru` that was already there is
+  first copied to `<name>-pre-stripbuild.kicad_dru`) and the link proposal as
+  `<name>-stripforge.links.json`, `.links.csv` and `.links.txt`.
+
+**Where the build goes: `output`.**
+
+| toml key | values | default |
+|---|---|---|
+| `output` | `"in_place"`: build into the board itself (`<name>.kicad_pcb`) · `"separate"`: write `<name>-stripforge.kicad_pcb` and leave the board alone | `"in_place"` |
+
+In place is the default because F8 (Update PCB from Schematic) only works in the project's own
+board, opened from the KiCad project manager: in a separate file pcbnew says "PCB editor is opened
+in stand-alone mode". Before the first write StripForge copies the board to
+**`<name>-pre-stripbuild.kicad_pcb`** (only if that file doesn't exist yet, so a rebuild never
+replaces the pristine copy). The report prints its path and whether it was made now or kept.
+**To undo the build:** close the board, delete `<name>.kicad_pcb`, rename
+`<name>-pre-stripbuild.kicad_pcb` back to `<name>.kicad_pcb` (and `<name>-pre-stripbuild.kicad_dru`
+to `<name>.kicad_dru` if there is one). Delete the backup when you want the next build's board to
+become the new pristine copy. On the command line `--separate` (or `-o <other file>`) overrides the
+toml for one run; `-o <board> --in-place` is the same as the default. A `-stripforge` board (from
+`output = "separate"`) is always rebuilt in place, with no backup.
 
 The input must be the placement board: a track or via StripForge did not write is refused. Building
 again from a StripForge output removes its own strips and cut markers first and rewrites them; the
@@ -245,11 +268,12 @@ Add them to the schematic: one 2-pin link per line, the generic `StripForge:Link
 `symbols/StripForge.kicad_sym` (or `Jumper:Jumper_2_Bridged`, or a 0 Ω resistor), Reference `W4`,
 Footprint `StripForge:Link_P15.24`, both pins wired to the net (`GND`). Or let StripForge do it:
 see **Links from the board to the schematic** below.
-Then press F8 (Update PCB from Schematic). `<out>.links.txt` has the full list and these steps. A
+Then press F8 (Update PCB from Schematic) in the same board. `<name>-stripforge.links.txt` has the
+full list and these steps. A
 net that still can't be joined is an error in the report, naming its pieces: move or rotate a part
 so they come closer, or free some holes.
 
-**Pass 2.** Build again from the board that now has the `W` footprints (anywhere on the board): each
+**Pass 2.** Build again in the board that now has the `W` footprints (anywhere on the board): each
 `W` is matched by reference and net to the proposal and placed on its two holes (pad 1 on the upper
 hole; a straight-down link at 0°, a diagonal or along-the-strip link rotated so pad 2 lands on
 its hole). Missing, extra, wrong-footprint or wrong-net `W`
@@ -263,9 +287,10 @@ place, unlinkable nets, rejected parts), 2 refused (bad input, conflicts, output
 of adding the `W` symbols by hand, let the board lead:
 
 ```sh
-stripforge build placement.kicad_pcb -o built.kicad_pcb --config X56.toml --place-links
-stripforge link-symbols built.kicad_pcb --schematic MyProject.kicad_sch --out-dir links-copy
+stripforge build MyProject.kicad_pcb --config X56.toml --place-links
+stripforge link-symbols MyProject.kicad_pcb --out-dir links-copy   # reads MyProject.kicad_sch
 #   or --in-place: edits the schematic, after copying each changed sheet to <sheet>.stripforge-<time>.bak
+#   --schematic <root .kicad_sch> picks another schematic
 ```
 
 `--place-links` (or `place_links = true` in the toml) places every proposed link's
@@ -288,10 +313,12 @@ with no symbol it reports "Cannot find symbol for footprint" (eeschema `backanno
 and says to run `link-symbols`. `place_links` is off by default. With it on, don't also add the
 `W` symbols by hand: F8 would bring in a second footprint for each link.
 
-**The same flow in KiCad:**
-1. Open the placement board and click **Build strips**. The report lists the `W` links.
-2. Add them to the schematic and press F8 in the *placement* board.
-3. Click **Build strips** again: `<name>-stripforge.kicad_pcb` is rewritten with the links placed.
+**The same flow in KiCad** (open the project in the KiCad project manager, then its board):
+1. Click **Build strips**. The board is saved, backed up once to `<name>-pre-stripbuild.kicad_pcb`,
+   built in place and reloaded. The report lists the `W` links.
+2. Add them to the schematic and press F8 in the *same* board.
+3. Click **Build strips** again: the links are placed on their holes (your moved cuts and links
+   are kept).
 4. Click **Run DRC** (after pass 2, unconnected should be 0), then **Build sheet**.
 
 ### Moving cuts and links yourself
@@ -299,8 +326,8 @@ and says to run `link-symbols`. `place_links` is off by default. With it on, don
 StripForge's plan is a starting point: you can move any cut or link, and building again keeps what
 you did ("locked") and only fills in what is still unjoined. Two ways:
 
-**In the built board (`<name>-stripforge.kicad_pcb`), in pcbnew:**
-1. Open the built board. Cut markers are the `CUT…` footprints on `User.1`; links are the `W…`
+**In the built board, in pcbnew:**
+1. Open the built board (`<name>.kicad_pcb` after an in-place build). Cut markers are the `CUT…` footprints on `User.1`; links are the `W…`
    footprints (after pass 2).
 2. Move a cut: drag its `CUT…` marker onto another hole (a `CUT_Hole`) or between two holes (a
    `CUT_Knife`). Add a cut: place a `StripForge:CUT_Hole` or `CUT_Knife` footprint (any ref, e.g.
@@ -311,8 +338,8 @@ you did ("locked") and only fills in what is still unjoined. Two ways:
    change its footprint to the right `StripForge:Link_P<mm>` (Link_P2.54 per pitch; `Link_D*` for
    off-pitch diagonals), or change it in the schematic and press F8. Delete a link you don't want
    (and remove it from the schematic).
-4. Save, then click **Build strips** with that board open: it is rebuilt **in place** (same
-   file), keeping your markers and links where they are. Then **File > Revert** to see the result.
+4. Click **Build strips** with that board open: it is saved, rebuilt **in place** (same file),
+   keeping your markers and links where they are, and reloaded (the backup is not touched).
    The report lists your links as "(yours, kept)", the new ones to add, and any problem.
 
 **In `stripboard.toml`, as text** (easiest; applied on every build, also on the placement board):
@@ -390,9 +417,10 @@ Unknown keys in `[drc]` are an input error (exit 2). The type names are the `typ
 kicad-cli's JSON report (KiCad 10's list is in `stripforge.config.KICAD_DRC_TYPES`).
 
 Schematic parity needs the `.kicad_sch` (and `.kicad_pro`) next to the board with the same name;
-without it kicad-cli skips parity and the report says so. For a built board with another name
-(`<name>-stripforge.kicad_pcb`), pass `--schematic <name>.kicad_sch`: DRC then runs on a shadow copy
-of the project in a temp folder. The KiCad plugin does this automatically. After pass 1 the unconnected items are
+without it kicad-cli skips parity and the report says so. An in-place build keeps that name, so
+parity runs against `<name>.kicad_sch` directly. For a `<name>-stripforge.kicad_pcb` board
+(`output = "separate"`) `stripforge drc` finds `<name>.kicad_sch` itself (or pass `--schematic`)
+and runs on a shadow copy of the project in a temp folder. After pass 1 the unconnected items are
 exactly the links still to add; after pass 2 they should be 0. Exit 3 means kicad-cli was not found
 (the tests needing it are skipped in CI).
 

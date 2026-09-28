@@ -202,6 +202,20 @@ def test_link_symbols_in_place_keeps_a_backup(tmp_path):
     assert (src / "demo.kicad_sch").read_text() == ROOT_SCH  # unchanged sheets are not rewritten
 
 
+def test_link_symbols_cli_defaults_to_the_project_schematic(tmp_path, capsys):
+    from stripforge.cli import main
+
+    src, board = _project(tmp_path)
+    assert main(["link-symbols", str(board), "--out-dir", str(tmp_path / "x")]) == 2
+    assert "no demo-built.kicad_sch next to the board" in capsys.readouterr().err
+    own = board.rename(src / "demo.kicad_pcb")  # the in-place build's board: <name>.kicad_pcb
+    assert main(["link-symbols", str(own), "--out-dir", str(tmp_path / "a")]) == 0
+    assert "W3" in _symbols(tmp_path / "a" / "sub.kicad_sch")
+    sep = own.rename(src / "demo-stripforge.kicad_pcb")  # output = "separate" still finds demo.kicad_sch
+    assert main(["link-symbols", str(sep), "--out-dir", str(tmp_path / "b")]) == 0
+    assert "W3" in _symbols(tmp_path / "b" / "sub.kicad_sch")
+
+
 def test_drc_hint_for_links_without_symbols():
     report = {
         "schematic_parity": [

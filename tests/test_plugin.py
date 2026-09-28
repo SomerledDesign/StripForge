@@ -80,9 +80,17 @@ def test_path_helpers(sfp, tmp_path):
     assert sfp.board_path("/p", "/q/b.kicad_pcb") == Path("/q/b.kicad_pcb")
     b = tmp_path / "fix.kicad_pcb"
     assert sfp.base_stem(b) == "fix" and sfp.base_stem(tmp_path / "fix-stripforge.kicad_pcb") == "fix"
-    assert sfp.built_path(b) == tmp_path / "fix-stripforge.kicad_pcb"
-    assert sfp.built_path(tmp_path / "fix-stripforge.kicad_pcb") == tmp_path / "fix-stripforge.kicad_pcb"
+    assert sfp.base_stem(tmp_path / "fix-pre-stripbuild.kicad_pcb") == "fix"
+    assert sfp.built_path(b) == b  # output = "in_place" (default)
+    assert sfp.built_path(b, "separate") == tmp_path / "fix-stripforge.kicad_pcb"
+    assert (
+        sfp.built_path(tmp_path / "fix-stripforge.kicad_pcb", "separate")
+        == tmp_path / "fix-stripforge.kicad_pcb"
+    )
+    assert sfp.backup_path(b) == tmp_path / "fix-pre-stripbuild.kicad_pcb"
     assert sfp.sheet_path(tmp_path / "fix-stripforge.kicad_pcb") == tmp_path / "fix-stripforge.sheet.html"
+    assert sfp.sheet_path(b) == tmp_path / "fix-stripforge.sheet.html"
+    assert sfp.output_mode(None) == "in_place"
     assert sfp.find_config(b) is None
     (tmp_path / "stripboard.toml").write_text("")
     assert sfp.find_config(b) == tmp_path / "stripboard.toml"
@@ -115,6 +123,9 @@ def test_cli_args(sfp, tmp_path):
     assert sfp.cli_args("analyze", b, None) == ["analyze", str(b)]
     built = str(tmp_path / "fix-stripforge.kicad_pcb")
     assert sfp.cli_args("build", b, cfg, net) == [
+        "build", str(b), "-o", str(b), "--in-place", "--netlist", str(net), "--config", str(cfg),
+    ]  # fmt: skip
+    assert sfp.cli_args("build", b, cfg, net, mode="separate") == [
         "build", str(b), "-o", built, "--netlist", str(net), "--config", str(cfg),
     ]  # fmt: skip
     out = tmp_path / "fix-stripforge.kicad_pcb"
@@ -152,6 +163,9 @@ class FakeBoard:
     def save(self):
         self.saved += 1
 
+    def revert(self):
+        self.reverted = getattr(self, "reverted", 0) + 1
+
 
 class FakeKiCad:
     def get_kicad_binary_path(self, name):
@@ -186,6 +200,35 @@ def test_run_analyze_build_sheet_without_kicad(sfp, project):
     assert sfp.run("sheet") == 0
     assert "No built board yet" in shown[-1][1]
 
+    original = (tmp / "fix.kicad_pcb").read_bytes()
+    assert sfp.run("build") == 0
+    title, text, path = shown[-1]
+    backup = tmp / "fix-pre-stripbuild.kicad_pcb"
+    assert path == tmp / "fix.kicad_pcb" and "Built fix.kicad_pcb in place" in text
+    assert board.saved == 3 and board.reverted == 1 and "Reloaded the built board" in text
+    assert f"Backup: {backup} (made before this build)" in text and "StripForge build:" in text
+    assert text.count("Backup: ") == 1
+    assert backup.read_bytes() == original and b"StripForge:CUT_" in (tmp / "fix.kicad_pcb").read_bytes()
+    assert (tmp / "fix-stripforge.links.json").is_file()
+
+    assert sfp.run("build") == 0  # rebuild: the backup stays the pristine copy
+    assert "kept as it was" in shown[-1][1] and backup.read_bytes() == original
+
+    assert sfp.run("sheet") == 0
+    browser, (title, text, path) = shown[-2], shown[-1]
+    assert path == tmp / "fix-stripforge.sheet.html" and path.is_file()
+    assert browser == ("browser", path.as_uri(), None)
+    assert "StripForge sheet:" in text
+
+    assert sfp.run("drc") == 0
+    assert "Result:" in shown[-1][1]
+
+
+def test_run_build_separate_output(sfp, project):
+    tmp, board, shown = project
+    cfg = tmp / "stripboard.toml"
+    assert 'output = "in_place"' in cfg.read_text()
+    cfg.write_text(cfg.read_text().replace('output = "in_place"', 'output = "separate"'))
     assert sfp.run("build") == 0
     title, text, path = shown[-1]
     assert path == tmp / "fix-stripforge.kicad_pcb" and path.is_file()
@@ -193,15 +236,10 @@ def test_run_analyze_build_sheet_without_kicad(sfp, project):
     assert (tmp / "fix.kicad_pcb").read_bytes() == (
         REAL_FIXTURE / "ATtiny10_TPI_Fixture.kicad_pcb"
     ).read_bytes()
+    assert not (tmp / "fix-pre-stripbuild.kicad_pcb").exists() and getattr(board, "reverted", 0) == 0
 
     assert sfp.run("sheet") == 0
-    browser, (title, text, path) = shown[-2], shown[-1]
-    assert path == tmp / "fix-stripforge.sheet.html" and path.is_file()
-    assert browser == ("browser", path.as_uri(), None)
-    assert "Built board:" in text and "StripForge sheet:" in text
-
-    assert sfp.run("drc") == 0
-    assert "Built board:" in shown[-1][1] and "Result:" in shown[-1][1]
+    assert shown[-1][2] == tmp / "fix-stripforge.sheet.html" and "Built board:" in shown[-1][1]
 
 
 def test_build_on_an_output_rebuilds_it_in_place_and_reports_errors(sfp, project, monkeypatch):
@@ -211,10 +249,11 @@ def test_build_on_an_output_rebuilds_it_in_place_and_reports_errors(sfp, project
     board._path = out
     assert sfp.cli_args("build", out, None)[:4] == ["build", str(out), "-o", str(out)]
     assert "--in-place" in sfp.cli_args("build", out, None)
-    assert "--in-place" not in sfp.cli_args("build", tmp / "fix.kicad_pcb", None)
+    assert "--in-place" in sfp.cli_args("build", tmp / "fix.kicad_pcb", None)
+    assert "--in-place" not in sfp.cli_args("build", tmp / "fix.kicad_pcb", None, mode="separate")
     assert sfp.run("build") == 0
     text = shown[-1][1]
-    assert "rebuilding it in place" in text and "File > Revert" in text
+    assert "rebuilding it in place" in text and "Reloaded the built board" in text
     assert '"StripForge:CUT_' in out.read_text()  # rebuilt: strips and cut markers written
 
     def boom():

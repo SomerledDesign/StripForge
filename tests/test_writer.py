@@ -69,7 +69,7 @@ def test_rules_and_link_files_are_written_next_to_the_board(tmp_path):
     res, out = build(tmp_path)
     assert (tmp_path / "out.kicad_dru").read_text() == writer.resources.rules_file().read_text()
     for suffix in (".links.json", ".links.csv", ".links.txt"):
-        assert (tmp_path / f"out{suffix}").exists()
+        assert (tmp_path / f"out-stripforge{suffix}").exists()
 
 
 def test_rules_width_mismatch_warns(tmp_path):
@@ -126,7 +126,7 @@ def _pass2_board(tmp_path, links):
 
 def test_pass2_places_links_on_their_holes(tmp_path):
     res, out = build(tmp_path)
-    links = json.loads((tmp_path / "out.links.json").read_text())["links"]
+    links = json.loads((tmp_path / "out-stripforge.links.json").read_text())["links"]
     p2 = _pass2_board(tmp_path, links)
     res2 = writer.build(p2, BoardConfig(trim_pieces=False), tmp_path / "p2.kicad_pcb")
     assert res2.pass2 and [p.status for p in res2.placements] == ["placed"]
@@ -142,7 +142,7 @@ def test_pass2_places_links_on_their_holes(tmp_path):
 def test_pass2_reports_missing_extra_and_wrong_net(tmp_path):
     parts = SPLIT + [("P4", 0, 4, "A"), ("P5", 6, 4, "C")]
     res, _ = build(tmp_path, parts)
-    links = json.loads((tmp_path / "out.links.json").read_text())["links"]
+    links = json.loads((tmp_path / "out-stripforge.links.json").read_text())["links"]
     assert [lk["ref"] for lk in links] == ["W1", "W2"]
     extra = dict(links[0], ref="W9")
     wrong = dict(links[1], net="B")
@@ -166,7 +166,7 @@ def test_real_fixture_build(tmp_path, real_board_path, real_netlist_path):
     assert res.segments == 1152 and res.segments_no_net == 712
     assert res.holes_drawn == 1256  # every free grid hole (pass 1: link holes still empty)
     # pass 2 on a copy: every proposed link is placed
-    links = json.loads((tmp_path / "b.links.json").read_text())["links"]
+    links = json.loads((tmp_path / "b-stripforge.links.json").read_text())["links"]
     shutil.copy(real_board_path, tmp_path / "in.kicad_pcb")
     p2 = _pass2_board(tmp_path, links)
     res2 = writer.build(p2, cfg, tmp_path / "p2.kicad_pcb", netlist=str(real_netlist_path))

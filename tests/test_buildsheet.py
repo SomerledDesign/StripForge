@@ -27,7 +27,7 @@ def real(tmp_path_factory):
     cfg = config.load(REAL_FIXTURE.parent / "x56.toml")
     p1 = tmp / "p1" / "fixture.kicad_pcb"
     writer.build(board, cfg, p1, netlist=str(net))
-    links = json.loads(p1.with_name("fixture.links.json").read_text())["links"]
+    links = json.loads(p1.with_name("fixture-stripforge.links.json").read_text())["links"]
     f8 = tmp / "f8"
     f8.mkdir()
     pass2_sim.add_links_to_board(board, links, f8 / "fixture.kicad_pcb")

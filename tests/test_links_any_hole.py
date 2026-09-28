@@ -50,7 +50,7 @@ def test_diagonal_link_when_no_column_fits(tmp_path):
     assert lk.footprint == "StripForge:Link_P12.70" and lk.rotation == pytest.approx(53.1301)
     d = lk.to_dict()
     assert (d["kind"], d["col_b"], d["rotation"]) == ("diagonal", 4, lk.rotation)
-    assert "(diagonal, rotated 53.1301 deg)" in (tmp_path / "out.links.txt").read_text()
+    assert "(diagonal, rotated 53.1301 deg)" in (tmp_path / "out-stripforge.links.txt").read_text()
 
 
 def test_diagonal_links_can_be_turned_off(tmp_path):
@@ -63,7 +63,7 @@ def test_diagonal_links_can_be_turned_off(tmp_path):
 def test_pass2_places_a_diagonal_link_rotated_onto_its_holes(tmp_path):
     board = one_pad_board(tmp_path, DIAGONAL)
     res = writer.build(board, BoardConfig(trim_pieces=False, bus_strips=False), tmp_path / "p1.kicad_pcb")
-    links = json.loads((tmp_path / "p1.links.json").read_text())["links"]
+    links = json.loads((tmp_path / "p1-stripforge.links.json").read_text())["links"]
     pass2_sim.add_links_to_board(board, links, tmp_path / "f8.kicad_pcb")
     res2 = writer.build(
         tmp_path / "f8.kicad_pcb", BoardConfig(trim_pieces=False, bus_strips=False), tmp_path / "p2.kicad_pcb"
@@ -91,7 +91,7 @@ def test_bus_strip_joins_two_pieces_with_two_links(tmp_path):
     assert [p.net for p in bus] == ["A"]  # the bare strip now carries A
     assert res.analysis.validation == []
     assert any("meet on bare strip B" in w for w in res.analysis.split.warnings)
-    assert "(to bus strip B)" in (tmp_path / "out.links.txt").read_text()
+    assert "(to bus strip B)" in (tmp_path / "out-stripforge.links.txt").read_text()
 
 
 def test_bus_strip_is_cut_down_to_what_it_uses(tmp_path):
@@ -249,7 +249,7 @@ def test_off_pitch_diagonal_uses_a_rotated_link_d(tmp_path):
     lib = resources.footprint_file("Link_D11.36")
     assert "(at 0 11.359225)" in lib.read_text()
     # pass 2: KiCad brings the Link_D in; the build rotates it onto both holes
-    links = json.loads((tmp_path / "out.links.json").read_text())["links"]
+    links = json.loads((tmp_path / "out-stripforge.links.json").read_text())["links"]
     board = one_pad_board(tmp_path, OFF_PITCH)
     pass2_sim.add_links_to_board(board, links, tmp_path / "f8.kicad_pcb")
     res2 = writer.build(

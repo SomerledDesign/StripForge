@@ -8,17 +8,19 @@ created with ``--system-site-packages``, so KiCad's wxPython is there for dialog
 
 1. connects to KiCad with kicad-python (``kipy``) and asks for the open board's file name;
 2. offers to save the board first (StripForge works on the saved ``.kicad_pcb``; KiCad 10's API has
-   no "modified" flag, so it always asks);
+   no "modified" flag, so it always asks; "Build strips" in place requires it);
 3. uses ``stripboard.toml`` next to the board if there is one, else derives the grid from
    Edge.Cuts; exports a fresh netlist from ``<name>.kicad_sch`` with kicad-cli when it exists;
 4. runs the same code as the ``stripforge`` command line and shows its report.
 
-"Build strips" on the placement board writes ``<name>-stripforge.kicad_pcb`` (and its
-``.kicad_dru`` and link lists) next to it and leaves the open board alone. "Build strips" on the
-built board itself (after you moved cut markers or links in it) rebuilds that file in place, keeping
-your cuts and links where you put them; reload it with File > Revert. "Run DRC" and "Build sheet"
-work on the built board (or on the open board when it is already a StripForge output). Why not
-live edits through the API: see Sketch.md §4.10.
+"Build strips" (``output = "in_place"``, the default) saves the open board, builds into that same
+file (the project's own ``<name>.kicad_pcb``, so F8 and schematic parity keep working), and reloads
+it in the editor (the API's RevertDocument). Before the first build the board is copied to
+``<name>-pre-stripbuild.kicad_pcb``; a rebuild never replaces that copy, and keeps your cuts and
+links where you put them. To undo: delete the built board and rename the backup back.
+``output = "separate"`` keeps the old behaviour: ``<name>-stripforge.kicad_pcb`` next to the board,
+the open board left alone. "Run DRC" and "Build sheet" work on the built board. Why not live edits
+through the API: see Sketch.md §4.10.
 
 The helpers at the top are pure (no kipy, no wx) so they can be tested without KiCad.
 """
@@ -37,6 +39,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 IDENTIFIER = "com.github.somerleddesign.stripforge"
 BUILT_SUFFIX = "-stripforge"
+BACKUP_SUFFIX = "-pre-stripbuild"
 CONFIG_NAME = "stripboard.toml"
 TITLES = {
     "analyze": "StripForge: Analyze",
@@ -68,14 +71,37 @@ def board_path(project_dir: str, board_filename: str) -> Path | None:
 
 
 def base_stem(board: Path) -> str:
-    """``fixture`` for both ``fixture.kicad_pcb`` and ``fixture-stripforge.kicad_pcb``."""
+    """``fixture`` for ``fixture.kicad_pcb``, ``fixture-stripforge.kicad_pcb`` and the backup."""
     s = board.stem
-    return s[: -len(BUILT_SUFFIX)] if s.endswith(BUILT_SUFFIX) and len(s) > len(BUILT_SUFFIX) else s
+    for suffix in (BUILT_SUFFIX, BACKUP_SUFFIX):
+        if s.endswith(suffix) and len(s) > len(suffix):
+            return s[: -len(suffix)]
+    return s
 
 
-def built_path(board: Path) -> Path:
-    """Where "Build strips" writes: ``<name>-stripforge.kicad_pcb`` next to the placement board."""
+def built_path(board: Path, mode: str = "in_place") -> Path:
+    """Where "Build strips" writes: the board itself (``output = "in_place"``) or
+    ``<name>-stripforge.kicad_pcb`` next to it (``"separate"``)."""
+    if mode == "in_place" or is_output_name(board):
+        return board
     return board.with_name(base_stem(board) + BUILT_SUFFIX + ".kicad_pcb")
+
+
+def backup_path(board: Path) -> Path:
+    """``<name>-pre-stripbuild.kicad_pcb``, made before the first in-place build."""
+    return board.with_name(board.stem + BACKUP_SUFFIX + board.suffix)
+
+
+def output_mode(config: Path | None) -> str:
+    """The config's ``output`` ("in_place" by default, or "separate")."""
+    if config is None:
+        return "in_place"
+    try:
+        from stripforge.config import load
+
+        return load(config).output
+    except Exception:  # a broken config is reported by the build itself
+        return "in_place"
 
 
 def is_output_name(board: Path) -> bool:
@@ -132,11 +158,9 @@ def check_target(board: Path) -> tuple[Path | None, str]:
     """The built board that DRC and the sheet should use, and a note (or why there is none)."""
     if has_strips(board):
         return board, ""
-    out = built_path(board)
-    if not out.is_file():
-        return None, (
-            f'No built board yet: run "{TITLES["build"]}" first; it writes {out.name} next to {board.name}.'
-        )
+    out = built_path(board, "separate")
+    if out == board or not out.is_file():
+        return None, (f'No built board yet: run "{TITLES["build"]}" first (it builds into {board.name}).')
     note = ""
     if out.stat().st_mtime < board.stat().st_mtime:
         note = f"NOTE: {out.name} is older than {board.name}; if you changed the board, build again."
@@ -144,14 +168,15 @@ def check_target(board: Path) -> tuple[Path | None, str]:
 
 
 def cli_args(action: str, board: Path, config: Path | None, netlist: Path | None = None,
-             schematic: Path | None = None, kicad_cli: str | None = None) -> list[str]:  # fmt: skip
+             schematic: Path | None = None, kicad_cli: str | None = None,
+             mode: str = "in_place") -> list[str]:  # fmt: skip
     """The ``stripforge`` command line an action runs (``board``: the file that command reads)."""
     cfg = ["--config", str(config)] if config else []
     net = ["--netlist", str(netlist)] if netlist else []
     if action == "analyze":
         return ["analyze", str(board), *net, *cfg]
     if action == "build":
-        out = built_path(board)
+        out = built_path(board, mode)
         in_place = ["--in-place"] if out == board else []
         return ["build", str(board), "-o", str(out), *in_place, *net, *cfg]
     if action == "drc":
@@ -164,7 +189,8 @@ def cli_args(action: str, board: Path, config: Path | None, netlist: Path | None
 
 
 def sheet_path(board: Path) -> Path:
-    return board.with_suffix(".sheet.html")
+    """``<name>-stripforge.sheet.html`` (for an in-place built board too)."""
+    return board.with_name(base_stem(board) + BUILT_SUFFIX + ".sheet.html")
 
 
 def run_cli(argv: list[str]) -> tuple[int, str]:
@@ -219,11 +245,25 @@ class Ui:
             self.wx = wx
             self.app = wx.App.Get() or wx.App(False)
 
-    def ask_save(self, board: Path) -> bool | None:
-        """True: save first; False: use the file on disk; None: cancel."""
+    def ask_save(self, board: Path, required: bool = False) -> bool | None:
+        """True: save first; False: use the file on disk; None: cancel. ``required``: building in
+        place, so the only choices are save (then build and reload) or cancel."""
         if self.wx is None:
             return True
         wx = self.wx
+        if required:
+            dlg = wx.MessageDialog(
+                None,
+                f"Build strips writes into this board file and then reloads it:\n{board}\n\n"
+                f"The board is saved first. Before the first build a copy is kept as\n"
+                f"{backup_path(board).name} (to undo: delete the built board, rename that copy back).",
+                "StripForge",
+                wx.OK | wx.CANCEL | wx.ICON_QUESTION,
+            )
+            dlg.SetOKCancelLabels("Save and build", "Cancel")
+            r = dlg.ShowModal()
+            dlg.Destroy()
+            return True if r == wx.ID_OK else None
         dlg = wx.MessageDialog(
             None,
             f"StripForge reads the saved board file:\n{board}\n\nSave the board in KiCad first?",
@@ -309,7 +349,11 @@ def run(action: str) -> int:
         if board is None:
             ui.report(title, "Save the board to a .kicad_pcb file first, then run the action again.")
             return 0
-        choice = ui.ask_save(board)
+        in_place = False
+        if action == "build" and bootstrap():
+            config = find_config(board) or fallback_config(board)[0]
+            in_place = built_path(board, output_mode(config)) == board
+        choice = ui.ask_save(board, required=in_place)
         if choice is None:
             return 0
         if choice:
@@ -317,7 +361,14 @@ def run(action: str) -> int:
         if not board.is_file():
             ui.report(title, f"Board file not found: {board}\nSave the board first.")
             return 0
+        before = board.stat().st_mtime_ns
         text, shown = _run_action(action, board, project.name, _kicad_cli(kicad))
+        if in_place and board.stat().st_mtime_ns != before:
+            try:
+                board_doc.revert()  # reload the rewritten file into the editor (RevertDocument)
+                text = text.replace(RELOAD_HINT, "Reloaded the built board in the PCB editor.")
+            except Exception as exc:
+                text = text.replace(RELOAD_HINT, f"Could not reload it ({exc}): use File > Revert.")
         ui.report(title, text, shown)
         return 0
     except Exception as exc:  # show every failure to the user instead of a silent status-bar line
@@ -325,6 +376,9 @@ def run(action: str) -> int:
         print(detail, file=sys.stderr)
         ui.report(title, f"StripForge failed: {exc}\n\n{detail}")
         return 1
+
+
+RELOAD_HINT = "[reload]"
 
 
 def _run_action(
@@ -337,11 +391,16 @@ def _run_action(
     notes = [f"Board: {board}", f"Config: {config or 'none; grid derived from Edge.Cuts'}"]
     if fallback_note:
         notes.append(fallback_note)
-    rebuild = action == "build" and is_output_name(board)
+    mode = output_mode(config)
+    out_board = built_path(board, mode)
+    in_place = action == "build" and out_board == board
+    backup = backup_path(board)
+    had_backup = backup.is_file()
+    rebuild = action == "build" and has_strips(board)
     if rebuild:
         notes.append(
-            f"{board.name} is a StripForge output: rebuilding it in place, keeping the cut markers and "
-            f"W links where you put them (to start over, build from {base_stem(board)}.kicad_pcb)"
+            f"{board.name} is already built: rebuilding it in place, keeping the cut markers and "
+            "W links where you put them"
         )
     target = board
     if action in ("drc", "sheet"):
@@ -365,17 +424,26 @@ def _run_action(
                 notes.append(f"Netlist: exported from {schematic.name}")
         elif action != "drc":
             notes.append("Netlist: no schematic next to the board, so pad nets are not cross-checked")
-        argv = cli_args(action, target, config, netlist, schematic if action == "drc" else None, kicad_cli)
+        argv = cli_args(
+            action, target, config, netlist, schematic if action == "drc" else None, kicad_cli, mode
+        )
         code, out = run_cli(argv)
     shown: Path | None = None
-    if action == "build" and code in (0, 1) and built_path(board).is_file():  # not a stale file on refusal
-        shown = built_path(board)
-        if rebuild:
-            notes.append(f"Rewrote {shown.name}: in KiCad use File > Revert to load the new strips "
-                         "(do not save the open copy over it first).")  # fmt: skip
+    if action == "build" and code in (0, 1) and out_board.is_file():  # not a stale file on refusal
+        shown = out_board
+        if in_place:
+            notes.append(f"Built {shown.name} in place. {RELOAD_HINT}")
+            if backup.is_file() and not is_output_name(board):
+                how = (
+                    "kept as it was (a rebuild never replaces it)" if had_backup else "made before this build"
+                )
+                notes.append(f"Backup: {backup} ({how}). To undo the build: delete {board.name} and "
+                             f"rename {backup.name} to {board.name}.")  # fmt: skip
+                # the CLI report says the same; show it once
+                out = "\n".join(line for line in out.splitlines() if not line.startswith("Backup: "))
         else:
-            notes.append(f"Wrote {shown.name} next to the board; open it in KiCad to see the strips. "
-                         "The open board was not changed.")  # fmt: skip
+            notes.append(f"Wrote {shown.name} next to the board (output = \"separate\"); open it in KiCad to "
+                         "see the strips. The open board was not changed.")  # fmt: skip
     if action == "sheet" and sheet_path(target).is_file():
         shown = sheet_path(target)
         webbrowser.open(shown.as_uri())

@@ -134,3 +134,20 @@ def test_cli_drc_rejects_a_bad_drc_table(tmp_path, capsys):
     cfg.write_text('[drc]\nallow = ["J2"]\n')
     assert main(["drc", str(tmp_path / "b.kicad_pcb"), "--config", str(cfg)]) == 2
     assert "unknown [drc] key(s): allow" in capsys.readouterr().err
+
+
+def test_cli_drc_parity_uses_the_project_schematic(monkeypatch, tmp_path):
+    from stripforge.cli import main
+
+    seen = []
+
+    def fake_run_drc(board, kicad_cli=None, parity=True, report_path=None, schematic=None, drc_config=None):
+        seen.append(schematic)
+        return drc.classify(REAL, drc_config=drc_config)
+
+    monkeypatch.setattr(drc, "run_drc", fake_run_drc)
+    (tmp_path / "fix.kicad_sch").write_text("(kicad_sch)")
+    for name in ("fix.kicad_pcb", "fix-stripforge.kicad_pcb"):
+        main(["drc", str(tmp_path / name)])
+    # in place: kicad-cli finds fix.kicad_sch itself; a separate board is pointed at it
+    assert seen == [None, str(tmp_path / "fix.kicad_sch")]

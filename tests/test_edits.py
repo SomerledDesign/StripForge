@@ -89,7 +89,7 @@ def test_manual_link_is_locked(tmp_path):
     (lk,) = res.plan.links
     assert (lk.start, lk.end, lk.origin) == ("A3", "C3", "config") and res.plan.ok
     assert lk.to_dict()["locked"] == "config"
-    assert "[manual] links" in (tmp_path / "out.links.txt").read_text()
+    assert "[manual] links" in (tmp_path / "out-stripforge.links.txt").read_text()
 
 
 def test_manual_link_on_a_pin_or_shorting_two_nets_is_rejected(tmp_path):
@@ -110,7 +110,7 @@ def pass2(tmp_path, cfg=None, parts=SPLIT):
     """Pass 1 then pass 2 (links placed): returns the built pass-2 board path."""
     cfg = cfg or BoardConfig(trim_pieces=False)
     build(tmp_path, cfg, parts, name="p1.kicad_pcb")
-    lks = json.loads((tmp_path / "p1.links.json").read_text())["links"]
+    lks = json.loads((tmp_path / "p1-stripforge.links.json").read_text())["links"]
     pass2_sim.add_links_to_board(tmp_path / "in.kicad_pcb", lks, tmp_path / "f8.kicad_pcb")
     out = tmp_path / "p2.kicad_pcb"
     res = writer.build(tmp_path / "f8.kicad_pcb", cfg, out)

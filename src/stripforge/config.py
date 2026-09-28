@@ -185,6 +185,13 @@ class BoardConfig:
     # to the schematic (KiCad's Update Schematic from PCB can't add symbols). Off by default: with
     # it on, don't also add the W symbols by hand (F8 would bring in a second copy of each link).
     place_links: bool = False
+    # Build: where the built board goes. "in_place" (default): into the board itself, i.e. the
+    # project's own <name>.kicad_pcb, so F8 (Update PCB from Schematic) works in it and DRC parity
+    # checks <name>.kicad_sch directly; before the first write the board is copied to
+    # <name>-pre-stripbuild.kicad_pcb (only if that file doesn't exist yet: a rebuild never replaces
+    # the pristine copy). To undo: delete the built board and rename the backup back.
+    # "separate": the old way, a new <name>-stripforge.kicad_pcb next to the board.
+    output: str = "in_place"
     hole_drill_mm: float = 1.0
     # Your own cuts and links. Building from a board with StripForge cut markers and placed W links
     # (e.g. the built board after moving them in pcbnew) keeps them where they are and only fills
@@ -208,6 +215,7 @@ class BoardConfig:
         return self.slot_max_mm_by_ref.get(ref, self.slot_max_mm)
 
 
+OUTPUT_MODES = ("in_place", "separate")
 STRETCH_KEYS = {"enabled", "max_pitches", "radial_max_pitches", "skip", "allow_under_parts"}
 
 
@@ -293,6 +301,8 @@ def from_dict(data: dict) -> BoardConfig:
     if isinstance(v, bool) or not isinstance(v, (int, float)) or not 0 <= v <= 1:
         raise ValueError(f"link_lead_allowance_in must be inches a leg, 0 to 1, got {v!r}")
     cfg.link_lead_allowance_in = float(v)
+    if cfg.output not in OUTPUT_MODES:
+        raise ValueError(f'output must be "in_place" or "separate", got {cfg.output!r}')
     if cfg.hole_drill_mm >= cfg.strip_width_mm:
         raise ValueError(f"hole_drill_mm ({cfg.hole_drill_mm:g}) must be smaller than strip_width_mm")
     for name in (

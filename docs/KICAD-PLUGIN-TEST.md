@@ -18,14 +18,19 @@ KiCad"). Use a **copy** of a project, because Build strips writes files next to 
    - Expect a "Save the board first?" dialog, then a report dialog that starts with `Board:`,
      `Config:` and `Netlist: exported from <project>.kicad_sch`.
    - The report lists the cuts and the links needed, using hole labels (A1…).
-7. Click **StripForge: Build strips**.
-   - Expect the report, plus "Wrote <name>-stripforge.kicad_pcb next to the board … The open board
-     was not changed".
-   - "Show in Finder" selects the new file.
-   - Open that file (File > Open, or from the project manager). Expect B.Cu strips, the cut
-     markers on User.1, and the W links after pass 2.
-8. Click **StripForge: Run DRC** (in the placement board).
-   - Expect "Built board: …-stripforge.kicad_pcb" and "parity: checked against the schematic".
+7. Click **StripForge: Build strips** (open the board from the KiCad project manager, so F8 works).
+   - Expect a "Save and build" dialog (OK/Cancel), then the report with "Built <name>.kicad_pcb in
+     place. Reloaded the built board in the PCB editor." and "Backup: …/<name>-pre-stripbuild.kicad_pcb
+     (made before this build)".
+   - The open board now shows B.Cu strips, the cut markers on User.1 and the hole pads.
+   - Press F8 after adding the W links to the schematic (or with `place_links`, after
+     `stripforge link-symbols <board> --in-place`), then click **Build strips** again: the links
+     are placed and the report says the backup was "kept as it was". The backup's bytes don't change.
+   - To undo: close the board, delete `<name>.kicad_pcb`, rename `<name>-pre-stripbuild.kicad_pcb`
+     back.
+8. Click **StripForge: Run DRC**.
+   - Expect "parity: checked against the schematic" (the board is `<name>.kicad_pcb`, so kicad-cli
+     uses `<name>.kicad_sch` directly).
    - After pass 1, unconnected equals the links still to add. After pass 2 it should be 0.
 9. Click **StripForge: Build sheet**. Expect the browser to open `<name>-stripforge.sheet.html`,
    with a `.pdf` beside it if Google Chrome is installed. Print one page to check the scale ruler.

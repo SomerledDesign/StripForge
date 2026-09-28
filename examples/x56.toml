@@ -5,6 +5,10 @@
 # rows, cols and origin_mm are all given, so the grid does not come from Edge.Cuts. The origin
 # is the TPI fixture's first hole; move it to wherever hole A1 sits in your board file. Parts
 # outside A1-X56 are reported as off board.
+# Where Build strips goes: "in_place" (default) builds into <name>.kicad_pcb after copying it once to
+# <name>-pre-stripbuild.kicad_pcb (undo: delete the board, rename the backup); "separate" writes
+# <name>-stripforge.kicad_pcb and leaves the board alone.
+output = "in_place"
 rows = 24                    # strips A..X
 cols = 56                    # holes 1..56 along each strip
 origin_mm = [51.27, 51.27]   # centre of hole A1 (col 0, row 0)

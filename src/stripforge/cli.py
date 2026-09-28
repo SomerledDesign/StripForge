@@ -29,6 +29,17 @@ def _config(args: argparse.Namespace):
 def _link_symbols(args: argparse.Namespace) -> int:
     from .linksym import LinkSymbolError, add_link_symbols, format_text
 
+    if args.schematic is None:
+        from .writer import base_stem
+
+        sch = Path(args.board).with_name(base_stem(args.board) + ".kicad_sch")
+        if not sch.is_file():
+            print(
+                f"stripforge link-symbols: error: no {sch.name} next to the board; pass --schematic",
+                file=sys.stderr,
+            )
+            return 2
+        args.schematic = str(sch)
     try:
         res = add_link_symbols(
             args.schematic, args.board, out_dir=args.out_dir, in_place=args.in_place, symbol_lib=args.symbols
@@ -103,24 +114,34 @@ def _analyze(args: argparse.Namespace) -> int:
 
 def _build(args: argparse.Namespace) -> int:
     from . import links as links_mod
-    from .writer import BuildError, build
+    from .writer import BuildError, build, resolve_output
 
     try:
+        cfg = _config(args)
+        if args.separate:
+            cfg.output = "separate"
+        out, in_place = resolve_output(args.board, cfg, args.output)
         res = build(
             args.board,
-            _config(args),
-            args.output,
+            cfg,
+            out,
             netlist=args.netlist,
             library=args.library,
             rules=args.rules,
-            in_place=args.in_place,
+            in_place=in_place and (args.output is None or args.in_place),
         )
     except (BuildError, OSError, ValueError) as exc:
         print(f"stripforge build: error: {exc}", file=sys.stderr)
         return 2
     a, plan = res.analysis, res.plan
     hole = sum(1 for c in a.split.cuts if c.style == "hole")
-    print(f"StripForge build: {args.board} -> {args.output}")
+    print(f"StripForge build: {args.board} -> {out}" + (" (in place)" if in_place else ""))
+    if res.backup:
+        how = "made now, before the first write" if res.backup_created else "kept as it was (not replaced)"
+        print(
+            f"Backup: {res.backup} ({how}). To undo the build: delete {Path(out).name} and rename the "
+            f"backup to {Path(out).name}"
+        )
     print(
         f"Parts: {len(a.snapped)} snapped, {len(res.moves)} moved by their best-fit shift, "
         f"{len(a.rejected)} rejected"
@@ -151,8 +172,8 @@ def _build(args: argparse.Namespace) -> int:
         for p in res.link_problems:
             print(f"  {p.status.upper()}: {p.ref} {p.detail}")
         print(
-            "Next: 'stripforge link-symbols <board> --schematic <root .kicad_sch> --out-dir DIR' (or "
-            "--in-place) writes the W symbols into the schematic; then F8 matches them up"
+            "Next: 'stripforge link-symbols <board> --in-place' (or --out-dir DIR) writes the W symbols "
+            "into <name>.kicad_sch; then F8 matches them up"
         )
     elif res.pass2:
         print(f"Pass 2: {len(res.placed)} of {len(plan.links)} link(s) placed")
@@ -187,6 +208,12 @@ def _drc(args: argparse.Namespace) -> int:
         label = lambda x, y: grid.nearest(round(x * 1e6), round(y * 1e6)).label  # noqa: E731
     except (OSError, ValueError):
         pass
+    if args.schematic is None and not args.no_parity:
+        from .writer import base_stem
+
+        sch = Path(args.board).with_name(base_stem(args.board) + ".kicad_sch")
+        if sch.is_file() and sch.stem != Path(args.board).stem:
+            args.schematic = str(sch)  # a -stripforge board: check parity against <name>.kicad_sch
     try:
         res = drc.run_drc(
             args.board,
@@ -211,7 +238,9 @@ def _drc(args: argparse.Namespace) -> int:
         sys.stdout.write("\n")
     else:
         expected = None
-        links_json = Path(args.board).with_suffix(".links.json")
+        from .writer import link_file
+
+        links_json = link_file(args.board, ".json")
         if links_json.exists():
             try:
                 expected = json.loads(links_json.read_text(encoding="utf-8")).get("links_needed")
@@ -291,16 +320,30 @@ def main(argv: list[str] | None = None) -> int:
 
     bu = sub.add_parser(
         "build",
-        help="write strip copper, cut markers and placed links into a copy of the board",
-        description="Snap the parts, split the strips by net, propose wire links and write a new board: "
+        help="write strip copper, cut markers and placed links into the board (in place, with a backup)",
+        description="Snap the parts, split the strips by net, propose wire links and write the built board: "
         "B.Cu strip tracks on their nets, real gaps at the cuts with embedded StripForge:CUT_* markers, "
-        "and any W link footprints (after F8) placed on their holes. Also writes <out>.kicad_dru (the "
-        "StripForge rules) and <out>.links.json/.csv/.txt (the link proposal and schematic instructions). "
+        'and any W link footprints (after F8) placed on their holes. By default (output = "in_place") '
+        "the board itself is rewritten, after copying it once to <name>-pre-stripbuild.kicad_pcb (a "
+        "rebuild never replaces that copy; undo = delete the built board, rename the backup back); "
+        '--separate / output = "separate" writes <name>-stripforge.kicad_pcb instead. Also writes '
+        "<out>.kicad_dru (the StripForge rules) and <name>-stripforge.links.json/.csv/.txt (the link "
+        "proposal and schematic instructions). "
         "Exit code 0 = written and complete, 1 = written but nets still need links or W parts are "
         "missing/wrong, 2 = refused or input error (nothing written).",
     )
-    bu.add_argument("board", help="the placement .kicad_pcb (never overwritten unless --in-place)")
-    bu.add_argument("-o", "--output", required=True, help="the .kicad_pcb to write")
+    bu.add_argument("board", help="the placement .kicad_pcb (the project's own <name>.kicad_pcb)")
+    bu.add_argument(
+        "-o",
+        "--output",
+        help='the .kicad_pcb to write (default, output = "in_place": the board itself, after a one-time '
+        'backup to <name>-pre-stripbuild.kicad_pcb; output = "separate": <name>-stripforge.kicad_pcb)',
+    )
+    bu.add_argument(
+        "--separate",
+        action="store_true",
+        help='write <name>-stripforge.kicad_pcb and leave the board alone (output = "separate")',
+    )
     bu.add_argument("--netlist", help="kicadsexpr .net file to cross-check pad nets against")
     bu.add_argument("--config", help="stripboard.toml (default: derive the grid from Edge.Cuts)")
     bu.add_argument("--cut-style", choices=["hole", "knife", "auto"], help="override the config")
@@ -310,7 +353,8 @@ def main(argv: list[str] | None = None) -> int:
     bu.add_argument(
         "--in-place",
         action="store_true",
-        help="allow -o to be the input: rebuild a built board after moving its cuts and links in pcbnew "
+        help='allow -o to be the input (what the default output = "in_place" does without -o): '
+        "rebuild a built board after moving its cuts and links in pcbnew "
         "(they are kept where you put them; StripForge fills in the rest)",
     )
     bu.add_argument(
@@ -331,7 +375,9 @@ def main(argv: list[str] | None = None) -> int:
         "or in place (--in-place; every changed sheet is first copied to a timestamped .bak).",
     )
     ls.add_argument("board", help="the built .kicad_pcb with the W link footprints placed")
-    ls.add_argument("--schematic", required=True, help="the root .kicad_sch of the project")
+    ls.add_argument(
+        "--schematic", help="the root .kicad_sch of the project (default: <name>.kicad_sch next to the board)"
+    )
     where = ls.add_mutually_exclusive_group(required=True)
     where.add_argument("--out-dir", help="write a copy of the schematic (and project) here")
     where.add_argument("--in-place", action="store_true", help="edit the schematic (backups first)")
