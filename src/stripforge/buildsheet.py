@@ -37,6 +37,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -1117,7 +1118,59 @@ def find_chrome(explicit: str | None = None) -> str | None:
     return next((p for p in CHROME_MAC if Path(p).exists()), None)
 
 
-def _chrome(chrome: str, args: list[str], timeout: int = 120) -> None:
+def _run_chrome(cmd: list[str], out: Path, timeout: float) -> None:
+    """Run Chrome until ``out`` is written. Headless Chrome on macOS often writes the file and then
+    never exits, so poll for the file and a stable size, then stop the whole process group."""
+    if out.exists():
+        out.unlink()
+    kw = {"start_new_session": True} if os.name == "posix" else {}
+    proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, **kw)
+    deadline, last, stable = time.monotonic() + timeout, -1, 0
+    try:
+        while time.monotonic() < deadline:
+            code = proc.poll()
+            size = out.stat().st_size if out.exists() else -1
+            if size > 0 and size == last:
+                stable += 1
+                if stable >= 4 or code is not None:  # ~1 s at 0.25 s polls
+                    return
+            else:
+                stable = 0
+            last = size
+            if code is not None:
+                if size > 0:
+                    return
+                err = proc.stderr.read().decode(errors="replace")[-400:] if proc.stderr else ""
+                raise subprocess.CalledProcessError(code, cmd, stderr=err)
+            time.sleep(0.25)
+        raise subprocess.TimeoutExpired(cmd, timeout)
+    finally:
+        if proc.poll() is None:
+            _stop(proc)
+        if proc.stderr:
+            proc.stderr.close()
+
+
+def _stop(proc: subprocess.Popen) -> None:
+    """Terminate Chrome and its helper processes (its own process group on POSIX)."""
+    import signal
+
+    for sig in (signal.SIGTERM, getattr(signal, "SIGKILL", signal.SIGTERM)):
+        try:
+            if os.name == "posix":
+                os.killpg(proc.pid, sig)
+            else:
+                proc.kill()
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
+        try:
+            proc.wait(timeout=5)
+            return
+        except subprocess.TimeoutExpired:
+            continue
+
+
+def _chrome(chrome: str, args: list[str], out: Path, timeout: int = 120) -> None:
     with tempfile.TemporaryDirectory(prefix="stripforge-chrome-") as prof:
         cmd = [
             chrome,
@@ -1132,18 +1185,20 @@ def _chrome(chrome: str, args: list[str], timeout: int = 120) -> None:
         if hasattr(os, "geteuid") and os.geteuid() == 0:
             cmd.insert(1, "--no-sandbox")
         try:
-            subprocess.run(cmd, check=True, capture_output=True, timeout=timeout)
+            _run_chrome(cmd, out, timeout)
         except subprocess.CalledProcessError:
             if "--no-sandbox" in cmd:
                 raise
             # some Linux hosts (containers, CI) have no usable Chrome sandbox; the page is our own file
-            subprocess.run(
-                [cmd[0], "--no-sandbox", *cmd[1:]], check=True, capture_output=True, timeout=timeout
-            )
+            _run_chrome([cmd[0], "--no-sandbox", *cmd[1:]], out, timeout)
 
 
 def html_to_pdf(html_path: Path, pdf_path: Path, chrome: str) -> None:
-    _chrome(chrome, ["--no-pdf-header-footer", f"--print-to-pdf={pdf_path}", html_path.resolve().as_uri()])
+    _chrome(
+        chrome,
+        ["--no-pdf-header-footer", f"--print-to-pdf={pdf_path}", html_path.resolve().as_uri()],
+        pdf_path,
+    )
     if not pdf_path.exists() or pdf_path.stat().st_size == 0:
         raise RuntimeError("Chrome did not write the PDF")
 
@@ -1160,7 +1215,11 @@ def svg_to_png(svg: str, png_path: Path, chrome: str, width_px: int = 2000) -> N
     with tempfile.TemporaryDirectory(prefix="stripforge-png-") as tmp:
         src = Path(tmp) / "view.html"
         src.write_text(page, encoding="utf-8")
-        _chrome(chrome, [f"--window-size={width_px},{height_px}", f"--screenshot={png_path}", src.as_uri()])
+        _chrome(
+            chrome,
+            [f"--window-size={width_px},{height_px}", f"--screenshot={png_path}", src.as_uri()],
+            png_path,
+        )
     if not png_path.exists():
         raise RuntimeError("Chrome did not write the PNG")
 

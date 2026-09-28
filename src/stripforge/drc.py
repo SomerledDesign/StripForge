@@ -155,7 +155,8 @@ def shadow_project(board_path: str | Path, schematic: str | Path, dest: str | Pa
     kicad-cli's schematic parity only looks for ``<board stem>.kicad_sch``, but a built board is a
     sibling such as ``fixture-stripforge.kicad_pcb``. This makes ``dest/<sch stem>.kicad_pcb`` (and its
     ``.kicad_dru``) next to copies of every ``.kicad_sch`` in the schematic's folder (sub-sheets),
-    ``<sch stem>.kicad_pro`` and the project library tables, and returns the board copy's path.
+    ``<sch stem>.kicad_pro``, the project library tables and links to its sub-folders, and returns
+    the board copy's path.
     Nothing next to the real board or schematic is touched.
     """
     board, sch, dest = Path(board_path), Path(schematic), Path(dest)
@@ -167,6 +168,12 @@ def shadow_project(board_path: str | Path, schematic: str | Path, dest: str | Pa
     for name in (sch.stem + ".kicad_pro", *PROJECT_FILES):
         if (sch.parent / name).is_file():
             shutil.copy2(sch.parent / name, dest / name)
+    for d in sorted(sch.parent.iterdir()):  # project-local libraries (${KIPRJMOD}/lib, ...)
+        if d.is_dir() and not d.name.endswith("-backups") and not (dest / d.name).exists():
+            try:
+                (dest / d.name).symlink_to(d, target_is_directory=True)
+            except OSError:
+                pass
     out = dest / (sch.stem + ".kicad_pcb")
     shutil.copy2(board, out)
     dru = board.with_suffix(".kicad_dru")

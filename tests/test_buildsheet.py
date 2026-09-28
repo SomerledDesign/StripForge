@@ -226,3 +226,55 @@ def test_pdf_via_chrome(real, tmp_path):
     if not pdf.exists():
         pytest.skip(f"Chrome could not print here: {res.notes}")
     assert pdf.read_bytes()[:5] == b"%PDF-"
+
+
+@pytest.mark.skipif(not hasattr(__import__("os"), "killpg"), reason="POSIX process groups")
+def test_chrome_that_writes_then_hangs_is_stopped(tmp_path):
+    """Headless Chrome on macOS writes the PDF and then never exits: poll for the file, then kill it."""
+    import os
+    import sys
+    import time
+
+    fake = tmp_path / "fake-chrome"
+    pidfile = tmp_path / "child.pid"
+    fake.write_text(
+        f"#!{sys.executable}\n"
+        "import os, subprocess, sys, time\n"
+        f"child = subprocess.Popen([{sys.executable!r}, '-c', 'import time; time.sleep(600)'])\n"
+        f"open({str(pidfile)!r}, 'w').write(str(child.pid))\n"
+        "out = next(a.split('=', 1)[1] for a in sys.argv if a.startswith('--print-to-pdf='))\n"
+        "open(out, 'wb').write(b'%PDF-1.4 fake')\n"
+        "time.sleep(600)\n"
+    )
+    fake.chmod(0o755)
+    html_path = tmp_path / "s.html"
+    html_path.write_text("<p>x</p>")
+    t0 = time.monotonic()
+    buildsheet.html_to_pdf(html_path, tmp_path / "s.pdf", str(fake))
+    assert time.monotonic() - t0 < 30
+    assert (tmp_path / "s.pdf").read_bytes().startswith(b"%PDF")
+    child = int(pidfile.read_text())
+    for _ in range(40):
+        try:
+            os.kill(child, 0)
+        except ProcessLookupError:
+            break
+        # a zombie still answers kill(0); reap check via /proc where available
+        if os.path.exists(f"/proc/{child}/stat") and open(f"/proc/{child}/stat").read().split()[2] == "Z":
+            break
+        time.sleep(0.1)
+    else:
+        raise AssertionError("helper process left running")
+
+
+def test_chrome_that_fails_raises(tmp_path):
+    import subprocess
+    import sys
+
+    fake = tmp_path / "bad-chrome"
+    fake.write_text(f"#!{sys.executable}\nimport sys\nsys.exit(3)\n")
+    fake.chmod(0o755)
+    html_path = tmp_path / "s.html"
+    html_path.write_text("<p>x</p>")
+    with pytest.raises(subprocess.CalledProcessError):
+        buildsheet.html_to_pdf(html_path, tmp_path / "s.pdf", str(fake))
