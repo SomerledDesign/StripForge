@@ -20,6 +20,9 @@ Buckets:
 * **link courtyards** (reported, not failing): ``courtyards_overlap`` / ``pth_inside_courtyard``
   involving a ``W`` link. A wire link lies flat on the component side and may run under a part;
   the link planner already avoids crossing courtyards where it can, so what is left is for review;
+* **filtered (config)**: what the board's ``[drc]`` table allows (see
+  :class:`stripforge.config.DrcConfig`): ``ignore`` types board-wide and ``allow_overlap``
+  reference pairs for courtyard items. Counted per type/pair in the report, never dropped silently;
 * **other**: everything else, e.g. silk warnings.
 
 Real problems are shorts, clearance, unconnected, parity, stripboard-rule violations and any
@@ -46,6 +49,7 @@ MISSING_LIB_RE = re.compile(r"does not include the footprint library '([^']+)'")
 SF_RULE_RE = re.compile(r"rule '(SF [^']+)'")
 COURTYARD_TYPES = {"courtyards_overlap", "pth_inside_courtyard", "npth_inside_courtyard"}
 LINK_ITEM_RE = re.compile(r"(?:Footprint|of) W\d+\b")
+ITEM_REF_RE = re.compile(r"(?:^Footprint | of )([^\s\]]+)$")
 PARITY_FAILED_RE = re.compile(r"Failed to fetch schematic netlist|require a fully annotated schematic")
 
 REAL = ("shorts", "clearance", "unconnected", "parity", "stripboard_rules")
@@ -78,6 +82,9 @@ class DrcResult:
     other: list[dict] = field(default_factory=list)
     filtered_dangling: int = 0
     filtered_missing_library: dict[str, int] = field(default_factory=dict)
+    # [drc] table filters: {"silk_overlap": n, "courtyards_overlap J2/C2": n, ...}
+    filtered_config: dict[str, int] = field(default_factory=dict)
+    config_warnings: list[str] = field(default_factory=list)
     parity_checked: bool | None = None  # None: not requested
     log: str = ""
 
@@ -105,6 +112,8 @@ class DrcResult:
             "other_warnings": len(self.other) - len(self.other_errors),
             "filtered_track_dangling": self.filtered_dangling,
             "filtered_missing_library": sum(self.filtered_missing_library.values()),
+            "filtered_config": sum(self.filtered_config.values()),
+            "filtered_config_by_kind": dict(self.filtered_config),
             "parity_checked": self.parity_checked,
         }
 
@@ -119,11 +128,43 @@ class DrcResult:
         return dict(sorted(out.items()))
 
 
-def classify(report: dict, parity_requested: bool = False, log: str = "") -> DrcResult:
+def item_refs(v: dict) -> list[str]:
+    """Footprint references of a violation's items (``Footprint J2``, ``PTH pad 1 [GND] of C3``)."""
+    out = []
+    for it in v.get("items", []):
+        m = ITEM_REF_RE.search(it.get("description", "").strip())
+        if m:
+            out.append(m.group(1))
+    return out
+
+
+def config_filter(v: dict, cfg) -> str | None:
+    """The ``filtered (config)`` bucket for violation ``v`` under ``cfg`` (a DrcConfig), or None."""
+    if cfg is None:
+        return None
+    t = v.get("type", "")
+    if t in cfg.ignore:
+        return t
+    if t in COURTYARD_TYPES and cfg.allow_overlap:
+        refs = item_refs(v)
+        if len(refs) == 2 and refs[0] != refs[1] and cfg.allows(*refs):
+            a, b = next(p for p in cfg.allow_overlap if frozenset(p) == frozenset(refs))
+            return f"{t} {a}/{b}"
+    return None
+
+
+def classify(report: dict, parity_requested: bool = False, log: str = "", drc_config=None) -> DrcResult:
+    """Sort a kicad-cli JSON report into buckets; ``drc_config``: the board's ``[drc]`` table."""
     res = DrcResult(report=report, log=log)
+    if drc_config is not None:
+        for t in drc_config.unknown_types():
+            res.config_warnings.append(f"[drc] ignore: {t!r} is not a KiCad 10 DRC type name (typo?)")
     for v in report.get("violations", []):
         t, desc = v.get("type", ""), v.get("description", "")
-        if t in DANGLING_TYPES:
+        bucket = config_filter(v, drc_config)
+        if bucket is not None:
+            res.filtered_config[bucket] = res.filtered_config.get(bucket, 0) + 1
+        elif t in DANGLING_TYPES:
             res.filtered_dangling += 1
         elif t == "lib_footprint_issues" and (m := MISSING_LIB_RE.search(desc)):
             res.filtered_missing_library[m.group(1)] = res.filtered_missing_library.get(m.group(1), 0) + 1
@@ -188,11 +229,12 @@ def run_drc(
     parity: bool = True,
     report_path: str | Path | None = None,
     schematic: str | Path | None = None,
+    drc_config=None,
 ) -> DrcResult:
     """Run kicad-cli DRC on ``board_path`` and classify it. Raises KiCadCliMissing or RuntimeError.
 
     ``schematic``: check parity against this ``.kicad_sch`` even though the board has another name
-    (the DRC then runs on a copy, see :func:`shadow_project`).
+    (the DRC then runs on a copy, see :func:`shadow_project`). ``drc_config``: the ``[drc]`` table.
     """
     cli = find_kicad_cli(kicad_cli)
     if cli is None:
@@ -213,7 +255,7 @@ def run_drc(
         if proc.returncode != 0 or not out.exists():
             raise RuntimeError(f"kicad-cli pcb drc failed (exit {proc.returncode}):\n{log}")
         report = json.loads(out.read_text(encoding="utf-8"))
-    return classify(report, parity_requested=parity, log=log)
+    return classify(report, parity_requested=parity, log=log, drc_config=drc_config)
 
 
 def _where(v: dict, label=None) -> str:
@@ -240,6 +282,11 @@ def format_text(res: DrcResult, board: str, label=None, expected_links: int | No
         f"  filtered (expected): {res.filtered_dangling} track_dangling (dead strip ends)"
         + (f", {c['filtered_missing_library']} library-not-configured ({libs})" if libs else "")
     )
+    if res.filtered_config:
+        kinds = ", ".join(f"{n} {k}" for k, n in sorted(res.filtered_config.items()))
+        out.append(f"  filtered (config): {kinds}")
+    for w in res.config_warnings:
+        out.append(f"  warning: {w}")
     if res.link_courtyard:
         out.append(
             f"  link courtyards (review, not failing): {len(res.link_courtyard)} item(s) with a W link "

@@ -25,6 +25,70 @@ class CutStyle(str, Enum):  # a StrEnum, written so it also runs on Python 3.9 (
         return format(self.value, spec)
 
 
+# KiCad 10 DRC violation type names (the "type" of each item in kicad-cli's JSON report; the list
+# of pcbnew/drc/drc_item.cpp on the 10.0 branch). Used to warn about a mistyped [drc] ignore entry.
+KICAD_DRC_TYPES = frozenset(
+    """annular_width assertion_failure clearance connection_width copper_edge_clearance copper_sliver
+    courtyards_overlap creepage diff_pair_gap_out_of_range diff_pair_uncoupled_length_too_long
+    drill_out_of_range duplicate_footprints extra_footprint footprint footprint_filters_mismatch
+    footprint_symbol_field_mismatch footprint_symbol_mismatch footprint_type_mismatch generic_error
+    generic_warning hole_clearance hole_to_hole holes_co_located invalid_outline isolated_copper
+    item_on_disabled_layer items_not_allowed length_out_of_range lib_footprint_issues
+    lib_footprint_mismatch malformed_courtyard microvia_drill_out_of_range mirrored_text_on_front_layer
+    missing_courtyard missing_footprint missing_tuning_profile net_conflict
+    nonmirrored_text_on_back_layer npth_inside_courtyard padstack padstack_invalid pth_inside_courtyard
+    shorting_items silk_edge_clearance silk_over_copper silk_overlap skew_out_of_range
+    solder_mask_bridge starved_thermal text_height text_on_edge_cuts text_thickness
+    through_hole_pad_without_hole too_many_vias track_angle track_dangling track_not_centered_on_via
+    track_on_post_machined_layer track_segment_length track_width tracks_crossing
+    tuning_profile_track_geometries unresolved_variable via_dangling via_diameter
+    zones_intersect""".split()
+)
+
+
+@dataclass
+class DrcConfig:
+    """The ``[drc]`` table: what ``stripforge drc`` (and the plugin's Run DRC) may filter.
+
+    ``ignore``: KiCad DRC violation types suppressed board-wide (e.g. ``silk_overlap``).
+    ``allow_overlap``: reference pairs (order does not matter) whose courtyard overlaps are
+    accepted: ``courtyards_overlap`` and ``pth_inside_courtyard`` / ``npth_inside_courtyard``
+    items between exactly those two footprints. Everything suppressed is still counted in the
+    report ("filtered (config): ...").
+    """
+
+    ignore: list[str] = field(default_factory=list)
+    allow_overlap: list[tuple[str, str]] = field(default_factory=list)
+
+    def unknown_types(self) -> list[str]:
+        return [t for t in self.ignore if t not in KICAD_DRC_TYPES]
+
+    def allows(self, a: str, b: str) -> bool:
+        return frozenset((a, b)) in {frozenset(p) for p in self.allow_overlap}
+
+
+def drc_from_dict(data: object) -> DrcConfig:
+    if not isinstance(data, dict):
+        raise ValueError("[drc] must be a table")
+    known = {f.name for f in fields(DrcConfig)}
+    unknown = sorted(set(data) - known)
+    if unknown:
+        raise ValueError(f"unknown [drc] key(s): {', '.join(unknown)} (expected: {', '.join(sorted(known))})")
+    ignore = data.get("ignore", [])
+    if not isinstance(ignore, list) or not all(isinstance(t, str) and t for t in ignore):
+        raise ValueError('[drc] ignore must be a list of KiCad DRC type names, e.g. ["silk_overlap"]')
+    pairs = []
+    for p in data.get("allow_overlap", []):
+        if not (isinstance(p, list) and len(p) == 2 and all(isinstance(r, str) and r for r in p)):
+            raise ValueError(
+                f'[drc] allow_overlap entries must be reference pairs like ["J2", "C2"], got {p!r}'
+            )
+        if p[0] == p[1]:
+            raise ValueError(f"[drc] allow_overlap pair {p!r} names the same part twice")
+        pairs.append((p[0], p[1]))
+    return DrcConfig(ignore=list(ignore), allow_overlap=pairs)
+
+
 @dataclass
 class BoardConfig:
     # Grid. Anything left as None is derived from the board's Edge.Cuts outline: the first hole
@@ -49,6 +113,7 @@ class BoardConfig:
     slotted: list[str] = field(default_factory=list)
     slot_max_mm: float = 1.0
     slot_max_mm_by_ref: dict[str, float] = field(default_factory=dict)  # per-ref override
+    drc: DrcConfig = field(default_factory=DrcConfig)  # the [drc] table
 
     def slot_max_for(self, ref: str) -> float | None:
         """Slot allowance in mm for ``ref``, or None if the part is not slotted."""
@@ -62,7 +127,10 @@ def from_dict(data: dict) -> BoardConfig:
     unknown = sorted(set(data) - known)
     if unknown:
         raise ValueError(f"unknown stripboard config key(s): {', '.join(unknown)}")
+    data = dict(data)
+    drc = drc_from_dict(data.pop("drc", {}))
     cfg = BoardConfig(**data)
+    cfg.drc = drc
     if cfg.origin_mm is not None:
         if len(cfg.origin_mm) != 2:
             raise ValueError("origin_mm must be [x, y]")

@@ -133,6 +133,13 @@ def _drc(args: argparse.Namespace) -> int:
     from . import drc
 
     label = None
+    drc_config = None
+    if args.config:
+        try:
+            drc_config = _config(args).drc
+        except (OSError, ValueError) as exc:  # a broken [drc] table is an input error, not noise
+            print(f"stripforge drc: error: {args.config}: {exc}", file=sys.stderr)
+            return 2
     try:
         from .analyze import make_grid
         from .board import load_board
@@ -148,6 +155,7 @@ def _drc(args: argparse.Namespace) -> int:
             parity=not args.no_parity,
             report_path=args.report,
             schematic=args.schematic,
+            drc_config=drc_config,
         )
     except drc.KiCadCliMissing as exc:
         print(f"stripforge drc: skipped: {exc}", file=sys.stderr)
@@ -268,11 +276,14 @@ def main(argv: list[str] | None = None) -> int:
         description="Run 'kicad-cli pcb drc --format json --severity-all --schematic-parity' and sort the "
         "result into real problems (shorts, clearance, unconnected, parity, StripForge rules, other errors) "
         "and expected noise (track_dangling from dead strip ends, library-not-configured warnings), which "
-        "is counted but filtered. Exit code 0 = clean, 1 = real problems, 2 = kicad-cli failed, "
+        "is counted but filtered; with --config, the [drc] table's ignore types and allow_overlap pairs are "
+        "filtered and counted too. Exit code 0 = clean, 1 = real problems, 2 = kicad-cli failed, "
         "3 = kicad-cli not found (skipped).",
     )
     dr.add_argument("board", help="path to .kicad_pcb")
-    dr.add_argument("--config", help="stripboard.toml, to label positions with holes (A1...)")
+    dr.add_argument(
+        "--config", help="stripboard.toml: label positions with holes (A1...) and apply its [drc] table"
+    )
     dr.add_argument("--kicad-cli", help="path to kicad-cli (default: $KICAD_CLI, PATH, the macOS app)")
     dr.add_argument("--no-parity", action="store_true", help="skip the schematic parity check")
     dr.add_argument(

@@ -1,0 +1,306 @@
+{
+ "$schema": "https://schemas.kicad.org/drc.v1.json",
+ "coordinate_units": "mm",
+ "date": "2026-09-27T23:11:28",
+ "ignored_checks": [
+  {
+   "description": "Footprint has no courtyard defined",
+   "key": "missing_courtyard"
+  },
+  {
+   "description": "Track endpoint not centered on via",
+   "key": "track_not_centered_on_via"
+  },
+  {
+   "description": "Tuning profile track geometries",
+   "key": "tuning_profile_track_geometries"
+  },
+  {
+   "description": "Footprint doesn't match symbol's footprint filters",
+   "key": "footprint_filters_mismatch"
+  },
+  {
+   "description": "Footprint component type doesn't match footprint pads",
+   "key": "footprint_type_mismatch"
+  }
+ ],
+ "included_severities": [
+  "error",
+  "warning",
+  "exclusion"
+ ],
+ "kicad_version": "10.0.4",
+ "source": "ATtiny10_TPI_Fixture.kicad_pcb",
+ "violations": [
+  {
+   "description": "Courtyards overlap",
+   "items": [
+    {
+     "description": "Footprint C3",
+     "pos": {
+      "x": 139.72,
+      "y": 91.44
+     },
+     "uuid": "b0650f38-041f-4227-a056-188c71a26246"
+    },
+    {
+     "description": "Footprint J2",
+     "pos": {
+      "x": 119.38,
+      "y": 73.66
+     },
+     "uuid": "ca039c09-1496-4298-9c68-17f0c5a7ebdc"
+    }
+   ],
+   "severity": "error",
+   "type": "courtyards_overlap"
+  },
+  {
+   "description": "PTH inside courtyard",
+   "items": [
+    {
+     "description": "PTH pad 1 [/SCHEMATIC DIAGRAM/VCC1] of C3",
+     "pos": {
+      "x": 139.72,
+      "y": 91.44
+     },
+     "uuid": "b3cf2fee-ac0a-4fa3-98b0-af48e641159e"
+    },
+    {
+     "description": "Footprint J2",
+     "pos": {
+      "x": 119.38,
+      "y": 73.66
+     },
+     "uuid": "ca039c09-1496-4298-9c68-17f0c5a7ebdc"
+    }
+   ],
+   "severity": "error",
+   "type": "pth_inside_courtyard"
+  },
+  {
+   "description": "PTH inside courtyard",
+   "items": [
+    {
+     "description": "PTH pad 2 [GND] of C3",
+     "pos": {
+      "x": 142.22,
+      "y": 91.44
+     },
+     "uuid": "05dcb6bc-d629-4dea-a295-7f485b6209ce"
+    },
+    {
+     "description": "Footprint J2",
+     "pos": {
+      "x": 119.38,
+      "y": 73.66
+     },
+     "uuid": "ca039c09-1496-4298-9c68-17f0c5a7ebdc"
+    }
+   ],
+   "severity": "error",
+   "type": "pth_inside_courtyard"
+  },
+  {
+   "description": "Courtyards overlap",
+   "items": [
+    {
+     "description": "Footprint J2",
+     "pos": {
+      "x": 119.38,
+      "y": 73.66
+     },
+     "uuid": "ca039c09-1496-4298-9c68-17f0c5a7ebdc"
+    },
+    {
+     "description": "Footprint C2",
+     "pos": {
+      "x": 142.22,
+      "y": 76.2
+     },
+     "uuid": "e0f283cd-65b3-4c90-98c4-64a6c4aef2bc"
+    }
+   ],
+   "severity": "error",
+   "type": "courtyards_overlap"
+  },
+  {
+   "description": "PTH inside courtyard",
+   "items": [
+    {
+     "description": "PTH pad 1 [/SCHEMATIC DIAGRAM/VCC0] of C2",
+     "pos": {
+      "x": 142.22,
+      "y": 76.2
+     },
+     "uuid": "1e112043-d2ad-4ea2-bc19-bdafe13f6eee"
+    },
+    {
+     "description": "Footprint J2",
+     "pos": {
+      "x": 119.38,
+      "y": 73.66
+     },
+     "uuid": "ca039c09-1496-4298-9c68-17f0c5a7ebdc"
+    }
+   ],
+   "severity": "error",
+   "type": "pth_inside_courtyard"
+  },
+  {
+   "description": "PTH inside courtyard",
+   "items": [
+    {
+     "description": "PTH pad 2 [GND] of C2",
+     "pos": {
+      "x": 139.72,
+      "y": 76.2
+     },
+     "uuid": "10204bf2-c036-4e18-a2d3-b88356388010"
+    },
+    {
+     "description": "Footprint J2",
+     "pos": {
+      "x": 119.38,
+      "y": 73.66
+     },
+     "uuid": "ca039c09-1496-4298-9c68-17f0c5a7ebdc"
+    }
+   ],
+   "severity": "error",
+   "type": "pth_inside_courtyard"
+  },
+  {
+   "description": "Track has unconnected end",
+   "items": [
+    {
+     "description": "Track [<no net>] on B.Cu, length 2.5400 mm",
+     "pos": {
+      "x": 50.8,
+      "y": 50.8
+     },
+     "uuid": "41af3985-3dbc-5267-b87e-c4e23ec69225"
+    }
+   ],
+   "severity": "warning",
+   "type": "track_dangling"
+  },
+  {
+   "description": "Track has unconnected end",
+   "items": [
+    {
+     "description": "Track [<no net>] on B.Cu, length 2.5400 mm",
+     "pos": {
+      "x": 187.96,
+      "y": 50.8
+     },
+     "uuid": "75b1dcd7-5ca1-51a2-9dd0-0951b313084c"
+    }
+   ],
+   "severity": "warning",
+   "type": "track_dangling"
+  },
+  {
+   "description": "The current configuration does not include the footprint library 'StripForge'",
+   "items": [
+    {
+     "description": "Footprint CUT1",
+     "pos": {
+      "x": 176.53,
+      "y": 55.88
+     },
+     "uuid": "439deafb-2c2d-50a2-a919-fa323a3c1705"
+    }
+   ],
+   "severity": "warning",
+   "type": "lib_footprint_issues"
+  },
+  {
+   "description": "The current configuration does not include the footprint library 'StripForge'",
+   "items": [
+    {
+     "description": "Footprint CUT2",
+     "pos": {
+      "x": 181.61,
+      "y": 55.88
+     },
+     "uuid": "23c37d04-51d8-542b-bffe-e03a86ac971c"
+    }
+   ],
+   "severity": "warning",
+   "type": "lib_footprint_issues"
+  },
+  {
+   "description": "Silkscreen clearance",
+   "items": [
+    {
+     "description": "Reference field of R3",
+     "pos": {
+      "x": 155.11,
+      "y": 76.2
+     },
+     "uuid": "609bdeed-0b95-46bf-90d8-9996e1cb44c9"
+    },
+    {
+     "description": "Reference field of D3",
+     "pos": {
+      "x": 154.87,
+      "y": 76.2
+     },
+     "uuid": "64621fba-0195-487d-9341-f8ab696f6a2f"
+    }
+   ],
+   "severity": "warning",
+   "type": "silk_overlap"
+  }
+ ],
+ "unconnected_items": [
+  {
+   "description": "Missing connection between items",
+   "items": [
+    {
+     "description": "Track [/SCHEMATIC DIAGRAM/HV_SW] on B.Cu, length 2.5400 mm",
+     "pos": {
+      "x": 172.72,
+      "y": 81.28
+     },
+     "uuid": "7fb328dc-eaeb-5460-acb6-f53c8f471a69"
+    },
+    {
+     "description": "PTH pad 1 [/SCHEMATIC DIAGRAM/HV_SW] of R3",
+     "pos": {
+      "x": 157.48,
+      "y": 81.28
+     },
+     "uuid": "1d799314-3285-449c-9d13-40762719d2fc"
+    }
+   ],
+   "severity": "error",
+   "type": "unconnected_items"
+  },
+  {
+   "description": "Missing connection between items",
+   "items": [
+    {
+     "description": "Track [/SCHEMATIC DIAGRAM/HV_SW] on B.Cu, length 2.5400 mm",
+     "pos": {
+      "x": 180.34,
+      "y": 81.28
+     },
+     "uuid": "255a50aa-60c8-5174-9bf0-92e7ab0258d8"
+    },
+    {
+     "description": "Track [/SCHEMATIC DIAGRAM/HV_SW] on B.Cu, length 2.5400 mm",
+     "pos": {
+      "x": 180.34,
+      "y": 88.9
+     },
+     "uuid": "8f730feb-5879-5b2b-a015-9cacba7b9b71"
+    }
+   ],
+   "severity": "error",
+   "type": "unconnected_items"
+  }
+ ],
+ "schematic_parity": []
+}
