@@ -193,6 +193,18 @@ Notes:
   - When adjacent pins sit on adjacent holes (such as the IDC and J2 columns lying on the same
     row), only a knife cut is possible. Otherwise the placement should put the part *across*
     strips, as DIPs normally are. We report these cases so Kevin can rotate or move the part.
+  - **Placement hints (M2 part A, `hints.py`).** A part *forces* a cut when two of its own pads
+    with different nets share a strip. `analyze` lists each such part with its strips and spans,
+    e.g. "R6 lies along strip O (O2–O6), forcing 1 cut; rotating it 90° would put its pins on
+    separate strips (est. 1 cut saved; pins to R6.1 Q4, R6.2 M4)". The rotation is tried both
+    ways about the centre of the part's pad bounding box, with a whole-hole shift of up to one
+    pitch each way so odd pin spans land on the grid. It is only offered if every rotated pad is
+    within `snap_tol` of a hole, inside the board and on a hole no other part uses, if the part
+    then forces fewer cuts, and if the whole board needs fewer cuts. Savings are estimated per
+    part (they don't add up across parts), and part bodies/courtyards are *not* checked. A summary
+    line ends the report; the JSON has `hints` and `hints_summary`. On the fixture: J1, J2, C1–C3,
+    D1, D2, D4, R6, R7 and F1 force 23 cuts; rotating C1–C3, D1, D2, D4, R6 or R7 saves about
+    12 in total.
 - **Net per piece.** After the cuts, each maximal run of present segments is a *piece*. Its net is
   the set of pad nets on its nodes:
   - exactly 1 net: assign it;

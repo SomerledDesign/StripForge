@@ -14,6 +14,8 @@ from . import netlist as netlist_mod
 from .board import Board, load_board
 from .config import BoardConfig
 from .grid import ON_GRID_NM, Grid, Node, SlotJob, SnapResult, snap_board
+from .hints import Hint, placement_hints
+from .hints import summary as hints_summary
 from .sexpr import mm_to_nm
 from .splitter import SplitResult, split
 from .strips import HoleMap, Strip, assign_holes, build_strips
@@ -34,6 +36,7 @@ class Analysis:
     netlist_summary: dict | None = None
     netlist_warnings: list[str] = field(default_factory=list)
     grid_warnings: list[str] = field(default_factory=list)
+    hints: list[Hint] = field(default_factory=list)
 
     @property
     def tol_nm(self) -> int:
@@ -187,6 +190,7 @@ def analyze_board(board: Board, cfg: BoardConfig | None = None, netlist: str | N
         split=result,
         validation=validate(result, holes, strips),
         grid_warnings=_grid_warnings(board, grid, source),
+        hints=placement_hints(board, snaps, grid, mm_to_nm(cfg.snap_tol_mm), cfg.cut_style, result.cuts),
     )
     if netlist:
         a.netlist_summary, a.netlist_warnings = _check_netlist(board, str(netlist))
@@ -320,6 +324,41 @@ def to_dict(a: Analysis) -> dict:
         ],
         "pieces_per_net": a.split.pieces_per_net,
         "nets_needing_links": a.split.split_nets,
+        "hints": [
+            {
+                "ref": h.ref,
+                "forced_cuts": h.forced_cuts,
+                "rows": [
+                    {"row": r, "cols": [c0, c1], "label": f"{Node(r, c0).label}-{Node(r, c1).label}"}
+                    for r, (c0, c1) in sorted(h.rows.items())
+                ],
+                "cuts": h.cut_ids,
+                "text": h.text,
+                "rotation": None
+                if h.rotation is None
+                else {
+                    "angle": h.rotation.angle,
+                    "shift_mm": _xy(h.rotation.shift_nm),
+                    "pads": {
+                        n: {"hole": [node.col, node.row], "hole_label": node.label}
+                        for n, node in h.rotation.pads.items()
+                    },
+                    "cuts_after": h.rotation.cuts_after,
+                    "cuts_saved": h.rotation.cuts_saved,
+                    "separate_strips": h.rotation.separate_strips,
+                    "links_delta": h.rotation.links_delta,
+                },
+                "rotation_note": h.rotation_note,
+            }
+            for h in a.hints
+        ],
+        "hints_summary": {
+            "parts": len(a.hints),
+            "forced_cuts": sum(h.forced_cuts for h in a.hints),
+            "rotatable": [h.ref for h in a.hints if h.rotation],
+            "est_cuts_saved": sum(h.rotation.cuts_saved for h in a.hints if h.rotation),
+            "text": hints_summary(a.hints),
+        },
         "netlist": a.netlist_summary,
         "warnings": a.warnings,
         "conflicts": a.conflicts,
@@ -400,10 +439,20 @@ def format_text(a: Analysis) -> str:
         where = ", ".join(p.label for p in a.split.pieces if net in p.nets)
         add(f"  {net}: {n} pieces -> at least {n - 1} link(s) [{where}]")
     add("")
+    add(f"Placement hints: {len(a.hints)}" + ("" if a.hints else " (none)"))
+    for h in a.hints:
+        add(f"  - {h.text}")
+    add("")
     add(f"Warnings: {len(a.warnings)}" + ("" if a.warnings else " (none)"))
     for w in a.warnings:
         add(f"  - {w}")
     add(f"Conflicts: {len(a.conflicts)}" + ("" if a.conflicts else " (none)"))
     for c in a.conflicts:
         add(f"  - {c}")
+    if a.hints:
+        add("")
+        add(
+            f"Summary: {len(a.split.cuts)} cuts, {len(a.split.split_nets)} nets needing links; "
+            + hints_summary(a.hints)
+        )
     return "\n".join(lines) + "\n"
