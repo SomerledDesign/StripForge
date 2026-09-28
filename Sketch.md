@@ -2,7 +2,7 @@
 
 *StripForge is a KiCad stripboard (Veroboard) layout tool. This sketch was originally drafted as the "KiCad Stripboard Layout Tool" v0 plan.*
 
-*Status: draft v0 plan (2026-09-27). Nothing here is implemented yet. Target: KiCad 10.0.4.*
+*Status: v0 plan (2026-09-27). M1 (model and splitting) is done and M2 part A (labels, X56, slotted parts, best-fit moves, placement hints, byte-exact writer) is implemented; see the README and CHANGELOG. Target: KiCad 10.0.4.*
 *Owners: Jarvis (scaffolding, generator, net splitting, build sheet, planning) and Mildrew (EE: strip, cut and link footprints, DRC rules, board validation).*
 
 Anything marked **[UNVERIFIED]** must be checked against a real KiCad 10.0.4 install during M0.
@@ -190,6 +190,14 @@ Notes:
   - `knife` style: remove one segment between them, choosing the middle one.
   - `auto`: use `hole` when a free hole exists, otherwise fall back to `knife` and emit a warning
     that it is a knife cut at 2.54 mm.
+  - **Decision (M1):** `hole` style behaves the same way when there is no free hole between the
+    two pads (adjacent holes, or every hole between them taken): it falls back to a knife cut and
+    warns, rather than failing. Only `knife` style never warns.
+  - **Decision (M1): unused pins keep their own strip pieces.** KiCad gives each unconnected pin
+    its own `unconnected-(…)` net. The splitter treats these as real nets and cuts them off from
+    their neighbours; merging them into a neighbouring net's strip would make KiCad's DRC flag
+    the pad as shorting two nets (`shorting_items`). So an unused pin sitting between two used
+    pins on one strip costs cuts; the placement hints show where.
   - When adjacent pins sit on adjacent holes (such as the IDC and J2 columns lying on the same
     row), only a knife cut is possible. Otherwise the placement should put the part *across*
     strips, as DIPs normally are. We report these cases so Kevin can rotate or move the part.
@@ -340,9 +348,12 @@ Out of scope:
   schematic writing.
 - The IPC plugin UI (M3 is stretch).
 
-## 6. Success criteria on the ATtiny10 TPI fixture (26 THT parts)
+## 6. Success criteria on the ATtiny10 TPI fixture (25 THT parts)
 
-1. All 26 footprints snap. C1, C2 and C3 (0.04 mm) and F1 (0.01 mm) are accepted and logged. All
+*The fixture has 25 footprints and 36 nets (82 THT pads), not the 26 and 37 first assumed; the
+committed netlist and board agree on this.*
+
+1. All 25 footprints snap. C1, C2 and C3 (0.04 mm) and F1 (0.01 mm) are accepted and logged. All
    other parts deviate by ≤ 0.005 mm. No part is rejected.
 2. Every B.Cu piece carries exactly the net of the pads on it. The pure-Python validator reports
    0 multi-net pieces.

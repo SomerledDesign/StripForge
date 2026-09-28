@@ -44,10 +44,13 @@ The full design is in [Sketch.md](Sketch.md).
 
 ## Status
 
-**Pre-alpha: M1 (model and splitting) in progress.** `stripforge analyze` reads a `.kicad_pcb`
-(and optionally its netlist), snaps footprints to the hole grid, splits the strips by net and
-reports cuts, nets needing links, warnings and conflicts. It is read-only: nothing writes a board
-yet (that is M2).
+**Pre-alpha: M1 done; M2 part A done.** `stripforge analyze` reads a `.kicad_pcb` (and optionally
+its netlist), snaps footprints to the hole grid, splits the strips by net and reports cuts, nets
+needing links, slot jobs, off-board parts, placement hints, warnings and conflicts, using hole
+labels (`A1`…). `stripforge snap -o` writes a copy of the board with each snapped footprint moved by
+its best-fit shift; the writer is byte-exact for everything it doesn't change. Still to come in M2
+part B (needs Mildrew's strip, cut and link footprints): writing strips, cuts and links into the
+board, the `kicad-cli` DRC wrapper and the two-pass link flow.
 
 ## Roadmap
 
@@ -65,7 +68,7 @@ yet (that is M2).
 
 ## First test case
 
-An **ATtiny10 TPI programming fixture** (26 THT parts). See [examples/tpi-fixture](examples/tpi-fixture/).
+An **ATtiny10 TPI programming fixture** (25 THT parts, 36 nets). See [examples/tpi-fixture](examples/tpi-fixture/).
 It is done when every part snaps, DRC with schematic parity is clean, and the fixture can be built
 from the build sheet with no rework on the copper side.
 
@@ -93,12 +96,13 @@ Reports use labels throughout; the `--json` output also keeps the 0-based `(col,
 ```
 src/stripforge/
   cli.py          command-line entry (analyze | plan | generate | drc | sheet)
-  analyze.py      read-only snap + split report (text or JSON)
+  analyze.py      snap + split report (text or JSON), best-fit moves
+  hints.py        placement hints (parts lying along a strip, 90° rotation estimate)
   config.py       stripboard.toml model
   netlist.py      kicad-cli netlist (kicadsexpr) parser
-  sexpr.py        S-expression reader/writer
+  sexpr.py        S-expression reader/writer (byte-exact for untouched nodes)
   board.py        footprints, pads (absolute positions, rotation) and outline from a .kicad_pcb
-  grid.py         2.54 grid + per-footprint snap with tolerance
+  grid.py         2.54 grid, hole labels, per-footprint snap with tolerance and slots
   strips.py       rows -> hole-to-hole segments
   splitter.py     cut placement + net per piece
   links.py        open-net detection + link proposals
