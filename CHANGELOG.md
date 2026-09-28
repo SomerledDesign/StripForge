@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Plugin action **StripForge: Add links to schematic** (L badge icon). It writes a
+  `StripForge:Link` symbol for every placed W footprint into the project's schematic, in place.
+  Each symbol gets its Footprint field, the schematic path of its footprint, and net labels. Each
+  changed sheet is backed up first as `<sheet>-pre-links.kicad_sch`, rotated like the board
+  backups. The report says to close and reopen the Schematic Editor. The symbol is embedded, so no
+  sym-lib-table entry is needed. `link-symbols --in-place` uses the same backups (no more
+  timestamped `.bak`).
+- `link-symbols` / Add links to schematic complete W symbols that are already in the schematic
+  (for example placed by hand) and never duplicate them:
+  - bare pins get net labels;
+  - the uuid is set to the placed footprint's path, so F8 matches by path;
+  - an empty or different Footprint is set to the board's;
+  - a pin wired to another net is reported as a CONFLICT, and that symbol is left unchanged.
+
+
 - `output` toml key: `"in_place"` (default) builds into the project's own `<name>.kicad_pcb`;
   `"separate"` writes `<name>-stripforge.kicad_pcb` as before. `build --separate` overrides it for
   one run, and `-o` is now optional.
@@ -63,6 +78,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `place_links = true` is now the default: the first build places the W link footprints, and
+  **Add links to schematic** carries them into the schematic. KiCad's Update Schematic from PCB
+  can't create symbols. `build --no-place-links` / `place_links = false` gives the old two-pass
+  flow.
 - Build in place by default (Kevin's design). F8 only works in the project's own board opened from
   the project manager, so the separate `-stripforge` board broke pass 2 ("PCB editor is opened in
   stand-alone mode") and looked for a `-stripforge.kicad_sch`. Now pass 2 is: F8 in the same board,
@@ -118,6 +137,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `stripboard.toml` and it is a valid config.
 
 ### Fixed
+
+- Rotated (diagonal) link footprints are written with 4-decimal angles, so rebuilding a board
+  with placed links gives the same bytes. Before, a 6-significant-digit angle was re-rotated by
+  0.0005° on each rebuild.
 
 - The plugin no longer says "Wrote <name>-stripforge.kicad_pcb" for a refused build when an old
   output file exists.

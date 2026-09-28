@@ -87,14 +87,21 @@ is private.
      `~/Documents/KiCad/10.0/plugins/com.github.somerleddesign.stripforge/` (macOS; on Linux
      `~/.local/share/kicad/10.0/plugins/`, on Windows `Documents\KiCad\10.0\plugins\`).
 3. Restart KiCad and open a board in the PCB editor. KiCad creates the plugin's Python environment
-   (kicad-python, from `plugins/requirements.txt`) the first time, which takes a minute. Four
+   (kicad-python, from `plugins/requirements.txt`) the first time, which takes a minute. Five
    StripForge toolbar buttons appear in the PCB editor:
    - **StripForge: Analyze**: a read-only report: snap, cuts, links needed, slot jobs, hints.
    - **StripForge: Build strips**: builds **in the open board itself** (`<name>.kicad_pcb`, the
      project's own board, so F8 keeps working), after saving it and backing it up to
-     `<name>-pre-stripbuild.kicad_pcb` (older backups rotate to `-1`, `-2`, …). It then reloads the board in the PCB editor. Writes
+     `<name>-pre-stripbuild.kicad_pcb` (older backups rotate to `-1`, `-2`, …). With
+     `place_links = true` (the default) the `W` link footprints are placed on their holes too. It
+     then reloads the board in the PCB editor. Writes
      `<name>.kicad_dru` and the link lists (`<name>-stripforge.links.*`) next to it. See
      **Where the build goes** below; `output = "separate"` gives the old `<name>-stripforge.kicad_pcb`.
+   - **StripForge: Add links to schematic**: writes a `StripForge:Link` symbol for every placed
+     `W` footprint into the project's schematic, in place (see **Links from the board to the
+     schematic** below). Each changed sheet is backed up first as `<sheet>-pre-links.kicad_sch`,
+     and older backups rotate like the board's. **Then close the Schematic Editor without saving
+     and reopen it**: it does not reload a file changed on disk.
    - **StripForge: Run DRC**: kicad-cli DRC with schematic parity on the built board, classified.
    - **StripForge: Build sheet**: writes `<name>-stripforge.sheet.html` (and `.pdf` if Chrome is
      installed) and opens it in the browser.
@@ -299,13 +306,13 @@ place, unlinkable nets, rejected parts), 2 refused (bad input, conflicts, output
 of adding the `W` symbols by hand, let the board lead:
 
 ```sh
-stripforge build MyProject.kicad_pcb --config X56.toml --place-links
-stripforge link-symbols MyProject.kicad_pcb --out-dir links-copy   # reads MyProject.kicad_sch
-#   or --in-place: edits the schematic, after copying each changed sheet to <sheet>.stripforge-<time>.bak
-#   --schematic <root .kicad_sch> picks another schematic
+stripforge build MyProject.kicad_pcb --config X56.toml            # place_links = true by default
+stripforge link-symbols MyProject.kicad_pcb --in-place             # reads/edits MyProject.kicad_sch
+#   each changed sheet is first backed up as <sheet>-pre-links.kicad_sch (older ones rotate to -1, -2, ...)
+#   or --out-dir DIR: a copy of the project; --schematic <root .kicad_sch> picks another schematic
 ```
 
-`--place-links` (or `place_links = true` in the toml) places every proposed link's
+`place_links = true` (the default; `--no-place-links` or `place_links = false` turns it off) places every proposed link's
 `Link_P*`/`Link_D*` footprint on its holes in the first build, both pads on the link's net, so there
 are no ratsnest lines left to wire. Each is locked (F8's "Delete footprints with no symbols" won't
 remove it), has Value `Link`, and carries the schematic path of the symbol that `link-symbols`
@@ -322,16 +329,36 @@ match by path, so nothing moves and no second copy appears. KiCad's own Tools > 
 from PCB can't do this step, because it only updates symbols that already exist. For a footprint
 with no symbol it reports "Cannot find symbol for footprint" (eeschema `backannotate.cpp`, KiCad
 10.0). Until the symbols are in, `stripforge drc` counts each `W` as a parity `extra_footprint`
-and says to run `link-symbols`. `place_links` is off by default. With it on, don't also add the
-`W` symbols by hand: F8 would bring in a second footprint for each link.
+and says to run `link-symbols`. With `place_links` on, don't also add the `W` symbols by hand: F8
+would bring in a second footprint for each link. The `StripForge:Link` symbol definition is
+embedded in the schematic (`lib_symbols`), so no sym-lib-table entry is needed (ERC stays clean);
+add the `StripForge` library by hand only if you want to place links yourself.
+
+**W symbols that are already in the schematic** (for example placed by hand, with footprints from
+Update Schematic from PCB but no nets) are kept where they are and never duplicated:
+- **Bare pins:** each pin with nothing on it gets a net label (local or global, as above).
+- **Path:** the symbol's uuid is set to the one its placed footprint's path names, so F8 matches
+  the two by path instead of adding a second footprint. If the symbol sits on another sheet than
+  that path, the report warns instead.
+- **Footprint:** an empty or different Footprint field is set to the board's.
+- **Conflicts:** a pin already wired to a label of another net is left unchanged, together with
+  the rest of that symbol, and reported as a `CONFLICT` to fix in the schematic or on the board. The W footprints
+are embedded in the board, and F8 leaves a matched footprint alone when its library ID is the
+same, so the footprint library isn't needed for F8 either.
 
 **The same flow in KiCad** (open the project in the KiCad project manager, then its board):
 1. Click **Build strips**. The board is saved, backed up to `<name>-pre-stripbuild.kicad_pcb`,
-   built in place and reloaded. The report lists the `W` links.
-2. Add them to the schematic and press F8 in the *same* board.
-3. Click **Build strips** again: the links are placed on their holes (your moved cuts and links
-   are kept).
-4. Click **Run DRC** (after pass 2, unconnected should be 0), then **Build sheet**.
+   built in place with the `W` links placed on their holes, and reloaded.
+2. Click **Add links to schematic**. It adds the `W` symbols to the schematic, and the report
+   lists them with the sheet backups. If the Schematic Editor is open, close it without saving
+   and reopen it.
+3. Optionally press F8 in the same board. The symbols and the placed footprints match by path, so
+   nothing moves and nothing is duplicated.
+4. Click **Run DRC** (unconnected should be 0, apart from any net the report calls unlinkable),
+   then **Build sheet**.
+
+With `place_links = false`: click Build strips, add the listed links to the schematic yourself,
+press F8 in the same board, then click Build strips again to place them.
 
 ### Moving cuts and links yourself
 

@@ -182,9 +182,11 @@ class BoardConfig:
     # Build: place the W link footprints on their holes (with the net on both pads) on the first
     # pass, instead of only proposing them. Each is locked and carries the schematic path of the
     # StripForge:Link symbol that 'stripforge link-symbols' writes, so the links flow from the board
-    # to the schematic (KiCad's Update Schematic from PCB can't add symbols). Off by default: with
-    # it on, don't also add the W symbols by hand (F8 would bring in a second copy of each link).
-    place_links: bool = False
+    # to the schematic (KiCad's Update Schematic from PCB can't add symbols): run the plugin's
+    # "Add links to schematic" (or 'stripforge link-symbols <board> --in-place') after building. On
+    # by default; don't also add the W symbols by hand (F8 would bring in a second copy of each
+    # link). false = only propose the links (add them to the schematic yourself, F8, build again).
+    place_links: bool = True
     # Build: where the built board goes. "in_place" (default): into the board itself, i.e. the
     # project's own <name>.kicad_pcb, so F8 (Update PCB from Schematic) works in it and DRC parity
     # checks <name>.kicad_sch directly. Every in-place build first saves the board as it is to

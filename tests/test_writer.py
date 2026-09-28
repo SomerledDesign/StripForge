@@ -14,7 +14,8 @@ SPLIT = [("P1", 0, 0, "A"), ("P2", 6, 0, "B"), ("P3", 0, 2, "A")]
 
 def build(tmp_path, parts=SPLIT, cfg=None, **kw):
     out = tmp_path / "out.kicad_pcb"
-    return writer.build(one_pad_board(tmp_path, parts), cfg or BoardConfig(trim_pieces=False), out, **kw), out
+    cfg = cfg or BoardConfig(trim_pieces=False, place_links=False)  # the two-pass flow unless asked
+    return writer.build(one_pad_board(tmp_path, parts), cfg, out, **kw), out
 
 
 def touches(seg, point):
@@ -83,9 +84,9 @@ def test_input_is_never_overwritten(tmp_path):
     board = one_pad_board(tmp_path, SPLIT)
     before = board.read_bytes()
     with pytest.raises(writer.BuildError):
-        writer.build(board, BoardConfig(trim_pieces=False), board)
+        writer.build(board, BoardConfig(trim_pieces=False, place_links=False), board)
     assert board.read_bytes() == before
-    writer.build(board, BoardConfig(trim_pieces=False), tmp_path / "out.kicad_pcb")
+    writer.build(board, BoardConfig(trim_pieces=False, place_links=False), tmp_path / "out.kicad_pcb")
     assert board.read_bytes() == before
 
 
@@ -93,18 +94,18 @@ def test_foreign_tracks_are_refused(tmp_path):
     seg = '(segment (start 1 1) (end 3 1) (width 0.25) (layer "B.Cu") (net "A") (uuid "u1"))'
     board = one_pad_board(tmp_path, SPLIT, extra=seg)
     with pytest.raises(writer.BuildError, match="did not write"):
-        writer.build(board, BoardConfig(trim_pieces=False), tmp_path / "out.kicad_pcb")
+        writer.build(board, BoardConfig(trim_pieces=False, place_links=False), tmp_path / "out.kicad_pcb")
 
 
 def test_rebuild_replaces_own_output_and_is_deterministic(tmp_path):
     res, out = build(tmp_path)
     again = tmp_path / "again.kicad_pcb"
-    res2 = writer.build(out, BoardConfig(trim_pieces=False), again)
+    res2 = writer.build(out, BoardConfig(trim_pieces=False, place_links=False), again)
     assert res2.removed_previous == (43, 1)
     assert res2.segments == 43 and len(footprints(again, "CUT")) == 1
     # same board, same bytes (uuid5)
     third = tmp_path / "third.kicad_pcb"
-    writer.build(tmp_path / "in.kicad_pcb", BoardConfig(trim_pieces=False), third)
+    writer.build(tmp_path / "in.kicad_pcb", BoardConfig(trim_pieces=False, place_links=False), third)
     assert third.read_bytes() == out.read_bytes()
 
 
@@ -128,7 +129,7 @@ def test_pass2_places_links_on_their_holes(tmp_path):
     res, out = build(tmp_path)
     links = json.loads((tmp_path / "out-stripforge.links.json").read_text())["links"]
     p2 = _pass2_board(tmp_path, links)
-    res2 = writer.build(p2, BoardConfig(trim_pieces=False), tmp_path / "p2.kicad_pcb")
+    res2 = writer.build(p2, BoardConfig(trim_pieces=False, place_links=False), tmp_path / "p2.kicad_pcb")
     assert res2.pass2 and [p.status for p in res2.placements] == ["placed"]
     assert res2.ok
     (w1,) = footprints(tmp_path / "p2.kicad_pcb", "W")
@@ -147,7 +148,7 @@ def test_pass2_reports_missing_extra_and_wrong_net(tmp_path):
     extra = dict(links[0], ref="W9")
     wrong = dict(links[1], net="B")
     p2 = _pass2_board(tmp_path, [wrong, extra])  # W1 missing
-    res2 = writer.build(p2, BoardConfig(trim_pieces=False), tmp_path / "p2.kicad_pcb")
+    res2 = writer.build(p2, BoardConfig(trim_pieces=False, place_links=False), tmp_path / "p2.kicad_pcb")
     status = {p.ref: p.status for p in res2.placements}
     assert status == {"W1": "missing", "W2": "wrong-net", "W9": "extra"}
     assert not res2.ok
@@ -155,6 +156,7 @@ def test_pass2_reports_missing_extra_and_wrong_net(tmp_path):
 
 def test_real_fixture_build(tmp_path, real_board_path, real_netlist_path):
     cfg = config.load(real_board_path.parents[1] / "x56.toml")
+    cfg.place_links = False  # pass 1 of the two-pass flow
     out = tmp_path / "b.kicad_pcb"
     res = writer.build(real_board_path, cfg, out, netlist=str(real_netlist_path))
     assert len(res.analysis.snapped) == 22 and not res.analysis.rejected
@@ -177,7 +179,7 @@ def test_real_fixture_build(tmp_path, real_board_path, real_netlist_path):
     assert len(ws) == 35
     angles = {fp.ref: float(atom(find(fp.node, "at"), 3) or 0) for fp in ws}
     # diagonals only where nothing straight fits (last resort)
-    assert {r: a for r, a in angles.items() if a} == {"W5": 331.389, "W20": 8.1301, "W29": 21.8014}
+    assert {r: a for r, a in angles.items() if a} == {"W5": 331.3895, "W20": 8.1301, "W29": 21.8014}
     assert next(lk for lk in res.plan.links if lk.ref_hint == "W20").footprint == "StripForge:Link_D17.96"
 
 
@@ -272,7 +274,7 @@ def test_rotate_backups_stops_before_writing_when_a_rename_fails(tmp_path, monke
 
 def test_rotate_backups_never_overwrites(tmp_path, monkeypatch):
     board = _chain(tmp_path, 1)
-    monkeypatch.setattr(writer, "numbered_backups", lambda b: {})  # e.g. -1 appeared meanwhile
+    monkeypatch.setattr(writer, "numbered_backups", lambda b, s=None: {})  # e.g. -1 appeared meanwhile
     with pytest.raises(writer.BuildError, match="b-pre-stripbuild-1.kicad_pcb already exists"):
         writer.rotate_backups(board)
     assert _contents(tmp_path)["b-pre-stripbuild-1.kicad_pcb"] == "b1"

@@ -24,16 +24,16 @@ For each W footprint on the board:
 The schematic is written to a copy (``--out-dir``: every sheet of the hierarchy, the project file
 and the library tables with ``${KIPRJMOD}`` pointing back at the original project, plus the board
 under the project's name, so ``kicad-cli`` netlist/ERC/DRC parity run on the copy), or in place
-(``--in-place``), in which case every sheet that changes is first copied to a timestamped
-``.bak`` next to it. The ``StripForge:Link`` symbol definition is embedded in each sheet
-(``lib_symbols``) as KiCad does, so the schematic opens without the library configured.
-"""
+(``--in-place``), in which case every sheet that changes is first backed up next to it as
+``<sheet>-pre-links.kicad_sch``, rotating older backups to ``-1``, ``-2``, ... like the board's
+``-pre-stripbuild`` backups (all renames happen before any sheet is written). The
+``StripForge:Link`` symbol definition is embedded in each sheet (``lib_symbols``) as KiCad does, so
+the schematic opens without the library configured and needs no sym-lib-table entry."""
 
 from __future__ import annotations
 
 import re
 import shutil
-import time
 import uuid
 from collections import Counter
 from dataclasses import dataclass, field
@@ -47,6 +47,7 @@ NS = uuid.UUID("7b1e6c1a-51f0-4e43-9b3a-5354524950f1")  # the writer's namespace
 LINK_LIB_ID = f"{resources.LIB_NICKNAME}:Link"
 LINK_RE = re.compile(r"^W\d+$")
 GRID = 1.27  # schematic connection grid (mm)
+LINKS_BACKUP_SUFFIX = "-pre-links"  # in place: <sheet>-pre-links.kicad_sch, rotated like the board backups
 # landscape paper sizes (mm) KiCad knows, smallest first
 PAPER = {
     "A4": (297, 210), "USLetter": (279.4, 215.9), "A": (279.4, 215.9), "USLegal": (355.6, 215.9),
@@ -111,6 +112,10 @@ class AddedLink:
 class LinkSymbolResult:
     added: list[AddedLink] = field(default_factory=list)
     already: list[str] = field(default_factory=list)  # W refs already in the schematic
+    # W symbols that were already there (e.g. placed by hand) and were completed: ref -> what was done
+    completed: dict[str, list[str]] = field(default_factory=dict)
+    # W symbols whose pins are already wired to another net: left unchanged
+    conflicts: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     outputs: list[str] = field(default_factory=list)
     backups: list[str] = field(default_factory=list)
@@ -390,12 +395,97 @@ def _project_name(sheets: list[Sheet]) -> str:
     return sheets[0].file.stem
 
 
+def _near(a: tuple[float, float], b: tuple[float, float]) -> bool:
+    return abs(a[0] - b[0]) < 0.02 and abs(a[1] - b[1]) < 0.02
+
+
+def _connection_points(sheet: Sheet, skip: list) -> list[tuple[float, float]]:
+    """Points on a sheet where something connects: label anchors, wire ends, junctions, no-connect
+    flags and the pins of every symbol but ``skip``."""
+    pts = []
+    root = sheet.doc.root
+    for kind in ("label", "global_label", "hierarchical_label", "junction", "no_connect"):
+        for n in find_all(root, kind):
+            at = find(n, "at")
+            if at is not None:
+                pts.append((float(at[1]), float(at[2])))
+    for w in find_all(root, "wire"):
+        for xy in find_all(find(w, "pts") or [], "xy"):
+            pts.append((float(xy[1]), float(xy[2])))
+    for node, _ref in _placed_symbols(sheet):
+        if node is not skip:
+            pts += list(pin_points(sheet, node).values())
+    return pts
+
+
+def _pin_nets(sheet: Sheet, xy: tuple[float, float]) -> set[str]:
+    """Names of the labels a pin at ``xy`` reaches: at the point itself or along wires from it."""
+    root = sheet.doc.root
+    wires = []
+    for w in find_all(root, "wire"):
+        ends = [(float(p[1]), float(p[2])) for p in find_all(find(w, "pts") or [], "xy")]
+        if len(ends) == 2:
+            wires.append(ends)
+    seen, todo = [xy], [xy]
+    while todo:
+        pt = todo.pop()
+        for a, b in wires:
+            for p, q in ((a, b), (b, a)):
+                if _near(p, pt) and not any(_near(q, s) for s in seen):
+                    seen.append(q)
+                    todo.append(q)
+    names = set()
+    for kind in ("label", "global_label", "hierarchical_label"):
+        for n in find_all(root, kind):
+            at = find(n, "at")
+            if at is not None and any(_near((float(at[1]), float(at[2])), s) for s in seen):
+                names.add(atom(n, 1))
+    return names
+
+
+def _label_on(net: str, sheet: Sheet) -> tuple[str | None, str]:
+    """The label that puts a pin on ``sheet`` onto ``net``: a local label for a net of that sheet,
+    a global label for a global net, or (None, "") for another sheet's local net."""
+    if net.startswith("/"):
+        if net.startswith(sheet.name_path) and "/" not in net[len(sheet.name_path) :]:
+            return "label", net[len(sheet.name_path) :]
+        return None, ""
+    return "global_label", net
+
+
+def _relink(lk: BoardLink, sheet: Sheet, node: list, res: LinkSymbolResult) -> None:
+    """An existing W symbol (e.g. placed by hand): give it the uuid its placed footprint's path
+    names, so F8 matches the two by path instead of adding a second footprint, and the board's
+    Footprint when its own is empty or different."""
+    prefix, _, fp_uuid = (lk.path or "").rpartition("/")
+    uid = find(node, "uuid")
+    done = res.completed.setdefault(lk.ref, [])
+    if fp_uuid and uid is not None and atom(uid, 1) != fp_uuid:
+        if prefix == sheet.uuid_path:
+            uid[1] = fp_uuid
+            done.append("re-linked to its placed footprint (uuid = the footprint's schematic path)")
+        else:
+            res.warnings.append(
+                f"{lk.ref}: its symbol is on {sheet.file.name} but its board footprint's path names another "
+                "sheet; F8 would add a second footprint: tick 'Re-link footprints to schematic symbols based "
+                "on their reference designators' in F8, or move the symbol"
+            )
+    fp = next((p for p in find_all(node, "property") if atom(p, 1) == "Footprint"), None)
+    if fp is not None and atom(fp, 2, "") != lk.footprint:
+        old = atom(fp, 2, "")
+        fp[2] = lk.footprint
+        done.append(f"Footprint {old or '(empty)'} -> {lk.footprint}")
+    if not done:
+        del res.completed[lk.ref]
+
+
 def add_link_symbols(
     schematic: str | Path,
     board_path: str | Path,
     out_dir: str | Path | None = None,
     in_place: bool = False,
     symbol_lib: str | Path | None = None,
+    backup_keep: int = 0,
 ) -> LinkSymbolResult:
     """Add a StripForge:Link symbol for every W footprint on ``board_path`` that the schematic
     (root sheet ``schematic``) lacks. See the module docstring. Raises LinkSymbolError."""
@@ -412,10 +502,12 @@ def add_link_symbols(
     project = _project_name(sheets)
 
     existing: dict[str, Sheet] = {}
+    existing_node: dict[str, list] = {}
     for sh in sheets:
-        for _, ref in _placed_symbols(sh):
+        for node, ref in _placed_symbols(sh):
             if ref:
                 existing[ref] = sh
+                existing_node[ref] = node
     by_uuid_path = {sh.uuid_path: sh for sh in sheets}
     by_name = sorted(sheets, key=lambda s: -len(s.name_path))
     fp_sheet: Counter = Counter()
@@ -430,9 +522,34 @@ def add_link_symbols(
 
     # which sheet, which label, which uuid
     plans: dict[str, list] = {}
+    to_complete: list = []  # (link, sheet, symbol node, {pin: (x, y)} still unconnected)
     for lk in links:
         if lk.ref in existing:
             res.already.append(lk.ref)
+            sh, node = existing[lk.ref], existing_node[lk.ref]
+            _relink(lk, sh, node, res)
+            pts = pin_points(sh, node)
+            if not pts:
+                res.warnings.append(f"{lk.ref}: its symbol has no pins StripForge can find; label it by hand")
+                continue
+            kind, name = _label_on(lk.net, sh)
+            clash = {}
+            for n, xy in sorted(pts.items()):
+                other = sorted(x for x in _pin_nets(sh, xy) if x != name)
+                if other and kind is not None:
+                    clash[n] = other
+            if clash:
+                res.conflicts.append(
+                    f"{lk.ref}: "
+                    + "; ".join(f"pin {n} is wired to {', '.join(o)}" for n, o in clash.items())
+                    + f", but its board footprint is on {lk.net}: left unchanged; fix the schematic or the "
+                    "board"
+                )
+                continue
+            busy = _connection_points(sh, node)
+            free = {n: xy for n, xy in pts.items() if not any(_near(xy, b) for b in busy)}
+            if free:
+                to_complete.append((lk, sh, node, free))
             continue
         target = label_name = None
         kind = "global_label"
@@ -464,6 +581,7 @@ def add_link_symbols(
     # unnamed nets: a global label of the same name on one of the net's existing pins
     anchors: dict[str, tuple[Sheet, float, float, str]] = {}
     unnamed = {lk.net for group in plans.values() for (lk, *_rest) in group if lk.net.startswith("Net-(")}
+    unnamed |= {lk.net for (lk, *_rest) in to_complete if lk.net.startswith("Net-(")}
     for net in sorted(unnamed):
         parts = [fp for fp in footprints if not LINK_RE.match(fp.ref)]
         pads = [(fp.ref, p.number) for fp in parts for p in fp.pads if p.net == net]
@@ -545,21 +663,47 @@ def add_link_symbols(
             )
         _insert(root, nodes)
         sh.changed = True
+    for lk, sh, node, free in to_complete:  # W symbols already there: label their bare pins
+        kind, name = _label_on(lk.net, sh)
+        if kind is None:
+            res.warnings.append(
+                f"{lk.ref}: its net {lk.net} belongs to another sheet than {sh.file.name}; "
+                "label its pins by hand"
+            )
+            continue
+        cx, cy = float(find(node, "at")[1]), float(find(node, "at")[2])
+        uid = atom(find(node, "uuid"), 1) or _u(f"link-symbol/{lk.ref}")
+        new = [
+            _label(kind, name, x, y, x < cx or (x == cx and y < cy), f"{uid}/label{n}")
+            for n, (x, y) in free.items()
+        ]
+        _insert(sh.doc.root, new)
+        sh.changed = True
+        res.completed.setdefault(lk.ref, []).append(
+            f"{'local' if kind == 'label' else 'global'} label {name} on pin(s) {', '.join(sorted(free))}"
+        )
     for net, (sh, x, y, _pin) in anchors.items():
         _insert(sh.doc.root, [_label("global_label", net, x, y, False, f"link-symbols/anchor/{net}")])
         sh.changed = True
+    for ref in res.completed:
+        existing[ref].changed = True
 
     if not any(sh.changed for sh in sheets):
         return res
     if in_place:
-        stamp = time.strftime("%Y%m%d-%H%M%S")
-        for sh in sheets:
-            if sh.changed:
-                bak = sh.file.with_name(f"{sh.file.name}.stripforge-{stamp}.bak")
-                shutil.copy2(sh.file, bak)
-                res.backups.append(str(bak))
-                sh.doc.save(sh.file)
-                res.outputs.append(str(sh.file))
+        from .writer import BuildError, rotate_backups
+
+        changed = [sh for sh in sheets if sh.changed]
+        for sh in changed:  # every backup first, then the writes
+            try:
+                rot = rotate_backups(sh.file, backup_keep, LINKS_BACKUP_SUFFIX)
+            except BuildError as exc:
+                raise LinkSymbolError(str(exc).replace("nothing built", "no sheet written")) from exc
+            res.backups.append(str(rot.backup))
+            res.warnings += rot.warnings
+        for sh in changed:
+            sh.doc.save(sh.file)
+            res.outputs.append(str(sh.file))
         return res
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -614,6 +758,9 @@ def format_text(res: LinkSymbolResult) -> str:
         out.append("no symbols added")
     if res.already:
         out.append(f"already in the schematic: {', '.join(res.already)}")
+    for ref, what in res.completed.items():
+        out.append(f"  {ref}: " + "; ".join(what))
+    out += [f"CONFLICT: {c}" for c in res.conflicts]
     out += [f"warning: {w}" for w in res.warnings]
     out += [f"backup: {b}" for b in res.backups]
     return "\n".join(out)

@@ -93,17 +93,17 @@ def separate_output(board: str | Path) -> Path:
     return p.with_name(base_stem(p) + BUILT_SUFFIX + ".kicad_pcb")
 
 
-def backup_path(board: str | Path, n: int = 0) -> Path:
+def backup_path(board: str | Path, n: int = 0, suffix: str = BACKUP_SUFFIX) -> Path:
     """``<name>-pre-stripbuild.kicad_pcb`` (the board just before the latest in-place build), or
     ``<name>-pre-stripbuild-<n>.kicad_pcb`` (n builds further back)."""
     p = Path(board)
-    return p.with_name(p.stem + BACKUP_SUFFIX + (f"-{n}" if n else "") + p.suffix)
+    return p.with_name(p.stem + suffix + (f"-{n}" if n else "") + p.suffix)
 
 
-def numbered_backups(board: str | Path) -> dict[int, Path]:
+def numbered_backups(board: str | Path, suffix: str = BACKUP_SUFFIX) -> dict[int, Path]:
     """The existing ``<name>-pre-stripbuild-<n>`` files next to ``board``, by n."""
     p = Path(board)
-    pat = re.compile(re.escape(p.stem + BACKUP_SUFFIX) + r"-([1-9]\d*)" + re.escape(p.suffix) + "$")
+    pat = re.compile(re.escape(p.stem + suffix) + r"-([1-9]\d*)" + re.escape(p.suffix) + "$")
     found = {}
     if p.parent.is_dir():
         for f in p.parent.iterdir():
@@ -137,19 +137,19 @@ class Rotation:
     warnings: list[str] = field(default_factory=list)
 
 
-def rotate_backups(board: str | Path, keep: int = 0) -> Rotation:
+def rotate_backups(board: str | Path, keep: int = 0, suffix: str = BACKUP_SUFFIX) -> Rotation:
     """Back ``board`` up like logrotate before an in-place build: shift ``-pre-stripbuild-<n>`` to
     ``-<n+1>`` (highest first), the unnumbered backup to ``-1``, then copy the board as it is now
     to the unnumbered name. ``keep`` > 0 then deletes the oldest numbered backups beyond ``keep``
     files in all. Nothing is ever overwritten: a rename whose target exists, or that fails, raises
     :class:`BuildError` before the board is copied (or written)."""
     board = Path(board)
-    head_backup = backup_path(board)
+    head_backup = backup_path(board, 0, suffix)
     rot = Rotation(backup=head_backup)
     if head_backup.exists():
-        chain = numbered_backups(board)
-        moves = [(chain[n], backup_path(board, n + 1)) for n in sorted(chain, reverse=True)]
-        moves.append((head_backup, backup_path(board, 1)))
+        chain = numbered_backups(board, suffix)
+        moves = [(chain[n], backup_path(board, n + 1, suffix)) for n in sorted(chain, reverse=True)]
+        moves.append((head_backup, backup_path(board, 1, suffix)))
         for src, dst in moves:
             if dst.exists():
                 raise BuildError(
@@ -168,7 +168,7 @@ def rotate_backups(board: str | Path, keep: int = 0) -> Rotation:
     except OSError as exc:
         raise BuildError(f"could not back the board up to {head_backup.name} ({exc}); nothing built") from exc
     if keep > 0:
-        for n, f in sorted(numbered_backups(board).items(), reverse=True):
+        for n, f in sorted(numbered_backups(board, suffix).items(), reverse=True):
             if n < keep:
                 break
             try:
@@ -346,15 +346,21 @@ def _segment(x0: int, y0: int, x1: int, y1: int, width_nm: int, net: str | None,
     return seg
 
 
+def _angle_text(deg: float) -> str:
+    """An angle as written to the board: 4 decimals, trailing zeros dropped (``331.3895``, ``90``)."""
+    s = f"{deg:.4f}".rstrip("0").rstrip(".")
+    return "0" if s in ("-0", "360") else s
+
+
 def set_rotation(fp: Footprint, angle: float) -> None:
     """Rotate a footprint in place to ``angle`` about its anchor (90° steps; pads follow)."""
     delta = _norm_angle(angle - fp.angle)
-    if delta == 0 or fp.node is None:
+    if min(delta, 360.0 - delta) < 1e-3 or fp.node is None:  # same angle (as written, 4 decimals)
         return
     at = find(fp.node, "at")
     while len(at) < 4:
         at.append(Sym("0"))
-    at[3] = Sym(f"{_norm_angle(angle):g}")
+    at[3] = Sym(_angle_text(_norm_angle(angle)))
     for child in fp.node:
         if head(child) in ("property", "fp_text", "pad"):
             cat = find(child, "at")
@@ -362,9 +368,9 @@ def set_rotation(fp: Footprint, angle: float) -> None:
                 old = float(cat[3]) if len(cat) > 3 else 0.0
                 new = _norm_angle(old + delta)
                 if len(cat) > 3:
-                    cat[3] = Sym(f"{new:g}")
+                    cat[3] = Sym(_angle_text(new))
                 elif new:
-                    cat.append(Sym(f"{new:g}"))
+                    cat.append(Sym(_angle_text(new)))
     fp.angle = _norm_angle(angle)
     fp.pads = [
         replace(p, x_nm=fp.x_nm + rotate_nm(p.local_x_nm, p.local_y_nm, fp.angle)[0],

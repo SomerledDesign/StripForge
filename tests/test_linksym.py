@@ -14,8 +14,15 @@ from sfbuild import hole
 from stripforge import drc, writer
 from stripforge.board import load_board
 from stripforge.config import BoardConfig, from_dict
-from stripforge.linksym import LinkSymbolError, add_link_symbols, format_text, load_hierarchy, pin_points
-from stripforge.sexpr import atom, find, find_all, loads
+from stripforge.linksym import (
+    LinkSymbolError,
+    _placed_symbols,
+    add_link_symbols,
+    format_text,
+    load_hierarchy,
+    pin_points,
+)
+from stripforge.sexpr import atom, find, find_all, head, loads
 
 AXIAL = "Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P12.70mm_Horizontal"
 SHEET = "11111111-2222-3333-4444-555555555555"
@@ -40,17 +47,17 @@ def _board(tmp_path):
     return path
 
 
-def test_place_links_off_by_default_and_config():
-    assert from_dict({}).place_links is False
-    assert from_dict({"place_links": True}).place_links is True
+def test_place_links_on_by_default_and_config():
+    assert from_dict({}).place_links is True
+    assert from_dict({"place_links": False}).place_links is False
     with pytest.raises(ValueError, match="place_links"):
         from_dict({"place_links": "yes"})
 
 
 def test_place_links_first_pass(tmp_path):
     out = tmp_path / "out.kicad_pcb"
-    res = writer.build(_board(tmp_path), BoardConfig(trim_pieces=False), out)
-    assert res.plan.links and not res.placements  # default: proposal only
+    res = writer.build(_board(tmp_path), BoardConfig(trim_pieces=False, place_links=False), out)
+    assert res.plan.links and not res.placements  # place_links = false: proposal only
     assert not [f for f in load_board(out).footprints if f.ref.startswith("W")]
 
     cfg = BoardConfig(trim_pieces=False, place_links=True)
@@ -197,7 +204,7 @@ def test_link_symbols_in_place_keeps_a_backup(tmp_path):
         add_link_symbols(src / "demo.kicad_sch", board, out_dir=src)
     res = add_link_symbols(src / "demo.kicad_sch", board, in_place=True)
     (bak,) = res.backups
-    assert Path(bak).read_text() == SUB_SCH and Path(bak).name.startswith("sub.kicad_sch.stripforge-")
+    assert Path(bak).read_text() == SUB_SCH and Path(bak).name == "sub-pre-links.kicad_sch"
     assert "W3" in _symbols(src / "sub.kicad_sch")
     assert (src / "demo.kicad_sch").read_text() == ROOT_SCH  # unchanged sheets are not rewritten
 
@@ -249,3 +256,59 @@ def test_link_symbols_netlist_with_kicad_cli(tmp_path):
     assert nets[("W2", "1")] == nets[("R1", "2")] == "Net-(R1-Pad2)"
     assert nets[("W3", "1")] == "GND"
     shutil.rmtree(out)
+
+
+def test_link_symbols_completes_existing_w_symbols_without_nets(tmp_path):
+    """W symbols already in the schematic (placed by hand; Update Schematic from PCB gave them
+    footprints but no nets) stay where they are and are not duplicated: each bare pin gets a net
+    label, the symbol's uuid is set to its placed footprint's path and its Footprint to the board's.
+    A pin already wired to another net is a conflict: that symbol is left unchanged."""
+    from stripforge.linksym import _label, _n
+
+    src, board = _project(tmp_path)
+    add_link_symbols(src / "demo.kicad_sch", board, in_place=True)
+    sub = load_hierarchy(src / "demo.kicad_sch")[1]
+    syms = {ref: node for node, ref in _placed_symbols(sub)}
+    root = sub.doc.root
+    # keep the lib_symbols and R1, drop our labels: the three W symbols now have no nets, "by hand"
+    root[:] = [n for n in root if not (isinstance(n, list) and n and head(n) in ("label", "global_label"))]
+    for ref, y in (("W1", 149.86), ("W2", 175.26), ("W3", 162.56)):
+        at = find(syms[ref], "at")
+        at[1], at[2] = _n(200.66), _n(y)
+    find(syms["W1"], "uuid")[1] = "hand-w1"
+    next(p for p in find_all(syms["W1"], "property") if atom(p, 1) == "Footprint")[2] = ""
+    w2_pin1 = pin_points(sub, syms["W2"])["1"]
+    root.append(_label("global_label", "OTHER", *w2_pin1, True, "other"))  # W2 pin 1: another net
+    sub.doc.save(sub.file)
+
+    res = add_link_symbols(src / "demo.kicad_sch", board, in_place=True)
+    assert not res.added and res.already == ["W1", "W2", "W3"]
+    assert res.completed["W1"] == [
+        "re-linked to its placed footprint (uuid = the footprint's schematic path)",
+        "Footprint (empty) -> StripForge:Link_P2.54",
+        "local label N on pin(s) 1, 2",
+    ]
+    assert res.completed["W3"] == ["global label GND on pin(s) 1, 2"] and "W2" not in res.completed
+    (conflict,) = res.conflicts
+    assert conflict.startswith("W2: pin 1 is wired to OTHER") and "left unchanged" in conflict
+    assert "CONFLICT: W2" in format_text(res)
+
+    syms = _symbols(src / "sub.kicad_sch")
+    assert sorted(r for r in syms if r.startswith("W")) == ["W1", "W2", "W3"]  # nothing duplicated
+    _, props, node = syms["W1"]
+    assert atom(find(node, "uuid"), 1) == "w1uuid" and props["Footprint"] == "StripForge:Link_P2.54"
+    assert (float(find(node, "at")[1]), float(find(node, "at")[2])) == (200.66, 149.86)  # not moved
+    sub = load_hierarchy(src / "demo.kicad_sch")[1]
+    placed = {ref: node for node, ref in _placed_symbols(sub)}
+    local = {(x, y): n for n, x, y in _labels(src / "sub.kicad_sch", "label")}
+    glob = {(x, y): n for n, x, y in _labels(src / "sub.kicad_sch", "global_label")}
+    for x, y in pin_points(sub, placed["W1"]).values():
+        assert local[(round(x, 2), y)] == "N"
+    for x, y in pin_points(sub, placed["W3"]).values():
+        assert glob[(round(x, 2), y)] == "GND"
+    w2 = pin_points(sub, placed["W2"])
+    assert glob[(round(w2["1"][0], 2), w2["1"][1])] == "OTHER"
+    assert (round(w2["2"][0], 2), w2["2"][1]) not in glob  # the conflicting symbol is untouched
+    # again: nothing more to do, the conflict is still reported
+    again = add_link_symbols(src / "demo.kicad_sch", board, in_place=True)
+    assert not again.added and not again.completed and not again.backups and len(again.conflicts) == 1

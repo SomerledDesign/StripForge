@@ -10,7 +10,7 @@ KiCad"). Use a **copy** of a project, because Build strips writes files next to 
    creates the plugin's environment in
    `~/Library/Caches/KiCad/10.0/python-environments/com.github.somerleddesign.stripforge`
    (macOS) and installs kicad-python.
-4. **Expect four StripForge buttons** on the PCB editor toolbar ("S" icon with A / B / D / S badges).
+4. **Expect five StripForge buttons** on the PCB editor toolbar ("S" icon with A / B / L / D / S badges).
    If they are missing: check the status-bar warnings, and Preferences > Plugins > "Recreate Plugin
    Environment", then reopen the PCB editor.
 5. If the project has an X56-style config, copy it next to the board as `stripboard.toml` (a single other `*.toml`, e.g. `X56.toml`, is also picked up; the report says which config was used).
@@ -23,9 +23,12 @@ KiCad"). Use a **copy** of a project, because Build strips writes files next to 
      place. Reloaded the built board in the PCB editor." and "Backup: …/<name>-pre-stripbuild.kicad_pcb
      (the board just before this build)".
    - The open board now shows B.Cu strips, the cut markers on User.1 and the hole pads.
-   - Press F8 after adding the W links to the schematic (or with `place_links`, after
-     `stripforge link-symbols <board> --in-place`), then click **Build strips** again: the links
-     are placed. The report says "Older backups moved up one: <name>-pre-stripbuild-1.kicad_pcb"
+   - With `place_links = true` (the default) the W links are already on their holes. Click
+     **StripForge: Add links to schematic**: expect "Added N StripForge:Link symbol(s)", a
+     "Backup: …-pre-links.kicad_sch" line and the "close the Schematic Editor WITHOUT saving and
+     open it again" note. Reopen the schematic and check the W symbols (right of the drawing),
+     then press F8: expect no new or moved footprints.
+   - Click **Build strips** again (a rebuild). The report says "Older backups moved up one: <name>-pre-stripbuild-1.kicad_pcb"
      (that is the first build's placement board; the unnumbered one is the board just before this
      build).
    - To undo the latest build: close the board, delete `<name>.kicad_pcb`, rename

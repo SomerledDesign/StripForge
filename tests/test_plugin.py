@@ -44,6 +44,7 @@ def test_plugin_json_follows_the_kicad_10_api_plugin_schema():
     assert names == [
         "StripForge: Analyze",
         "StripForge: Build strips",
+        "StripForge: Add links to schematic",
         "StripForge: Run DRC",
         "StripForge: Build sheet",
     ]
@@ -310,3 +311,30 @@ def test_refused_build_does_not_claim_a_stale_file(sfp, project, monkeypatch):
     sfp.run("build")
     text = shown[-1][1]
     assert "Result: refused" in text and "Wrote " not in text
+
+
+def test_add_links_to_schematic(sfp, project, monkeypatch):
+    from test_linksym import _project, _symbols
+
+    tmp, board, shown = project
+    assert sfp.run("links") == 0  # the placement board has no W footprints yet
+    assert "No fix.kicad_sch next to the board" in shown[-1][1]
+
+    (tmp / "demo-proj").mkdir()
+    src, built = _project(tmp / "demo-proj")
+    table = (src / "sym-lib-table").read_text()
+    own = built.rename(src / "demo.kicad_pcb")
+    demo = FakeBoard(own)
+    monkeypatch.setattr(sfp, "connect", lambda: (FakeKiCad(), demo))
+    original = (src / "sub.kicad_sch").read_text()
+    assert sfp.run("links") == 0
+    title, text, path = shown[-1]
+    assert title == "StripForge: Add links to schematic" and path == src / "demo.kicad_sch"
+    assert "Added 3 StripForge:Link symbol(s) to sub.kicad_sch" in text and sfp.REOPEN_NOTE in text
+    backup = src / "sub-pre-links.kicad_sch"
+    assert f"Backup: {backup}" in text and backup.read_text() == original
+    assert {"W1", "W2", "W3"} <= set(_symbols(src / "sub.kicad_sch"))
+    assert (src / "sym-lib-table").read_text() == table  # the symbol is embedded: table untouched
+
+    assert sfp.run("links") == 0  # again: nothing to add, nothing rotated
+    assert "Nothing to add" in shown[-1][1] and not (src / "sub-pre-links-1.kicad_sch").exists()

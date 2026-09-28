@@ -48,7 +48,12 @@ TITLES = {
     "build": "StripForge: Build strips",
     "drc": "StripForge: Run DRC",
     "sheet": "StripForge: Build sheet",
+    "links": "StripForge: Add links to schematic",
 }
+REOPEN_NOTE = (
+    "IMPORTANT: if the Schematic Editor is open, close it WITHOUT saving and open it again. It does "
+    "not reload a schematic changed on disk, and saving the old copy would remove the links again."
+)
 
 
 def bootstrap() -> Path | None:
@@ -403,6 +408,8 @@ def _run_action(
             f"{board.name} is already built: rebuilding it in place, keeping the cut markers and "
             "W links where you put them"
         )
+    if action == "links":
+        return _add_links(board, project_name, config, notes)
     target = board
     if action in ("drc", "sheet"):
         target, note = check_target(board)
@@ -447,6 +454,68 @@ def _run_action(
     status = {0: "OK", 1: "finished with problems (see the report)", 2: "refused (see the report)",
               3: "skipped: kicad-cli not found"}.get(code, f"exit {code}")  # fmt: skip
     return "\n".join([*notes, f"Result: {status}", "", out.rstrip()]), shown
+
+
+def _add_links(board: Path, project_name: str, config: Path | None, notes: list) -> tuple[str, Path | None]:
+    """ "Add links to schematic": write a StripForge:Link symbol for every placed W footprint into the
+    project's schematic, in place (each changed sheet backed up first as <sheet>-pre-links.kicad_sch,
+    rotated like the board backups)."""
+    from stripforge.linksym import LinkSymbolError, add_link_symbols, board_links, format_text
+
+    schematic = find_schematic(board, project_name)
+    if schematic is None:
+        missing = f"No {project_name or base_stem(board)}.kicad_sch next to the board."
+        return "\n".join([*notes, "", missing]), None
+    notes.append(f"Schematic: {schematic}")
+    links, _fps, _warns = board_links(board)
+    if not links:
+        hint = (
+            f'No W link footprints on the board yet: run "{TITLES["build"]}" first '
+            "(place_links = true, the default, places them on their holes)."
+        )
+        return "\n".join([*notes, "", hint]), None
+    keep = 0
+    if config is not None:
+        try:
+            from stripforge.config import load
+
+            keep = load(config).backup_keep
+        except Exception:
+            pass
+    try:
+        res = add_link_symbols(schematic, board, in_place=True, backup_keep=keep)
+    except (LinkSymbolError, OSError, ValueError) as exc:
+        return "\n".join([*notes, "Result: refused (nothing written)", "", str(exc)]), None
+    if res.added or res.completed:
+        if res.added:
+            sheets = ", ".join(sorted({a.sheet for a in res.added}))
+            notes.append(
+                f"Added {len(res.added)} StripForge:Link symbol(s) to {sheets}, each with its Footprint "
+                "field, the schematic path of its placed W footprint, and net labels."
+            )
+        if res.completed:
+            notes.append(
+                f"Completed {len(res.completed)} W symbol(s) that were already in the schematic (kept where "
+                f"they are, not duplicated): {', '.join(res.completed)}. Bare pins got net labels, and each "
+                "symbol was re-linked to its placed footprint where needed (details below)."
+            )
+        notes += [
+            f"Backup: {b} (the sheet just before this; older ones move up to -1, -2, ...)"
+            for b in res.backups
+        ]
+        notes.append(REOPEN_NOTE)
+        notes.append(
+            "Then F8 (Update PCB from Schematic) finds every W footprint already placed and matched "
+            "by path: nothing is moved or duplicated."
+        )
+        status = "OK"
+    else:
+        notes.append("Nothing to add: every W link is already in the schematic, labelled and linked.")
+        status = "OK (no change)"
+    if res.conflicts:
+        notes += [f"CONFLICT: {c}" for c in res.conflicts]
+        status = "finished with conflicts (see the report)"
+    return "\n".join([*notes, f"Result: {status}", "", format_text(res)]), schematic
 
 
 if __name__ == "__main__":  # python stripforge_plugin.py <action>, for debugging from a terminal

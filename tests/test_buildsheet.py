@@ -25,6 +25,7 @@ def real(tmp_path_factory):
     tmp = tmp_path_factory.mktemp("sheet")
     board, net = REAL_FIXTURE / "ATtiny10_TPI_Fixture.kicad_pcb", REAL_FIXTURE / "ATtiny10_TPI_Fixture.net"
     cfg = config.load(REAL_FIXTURE.parent / "x56.toml")
+    cfg.place_links = False  # the two-pass flow: links proposed, then added by (simulated) F8
     p1 = tmp / "p1" / "fixture.kicad_pcb"
     writer.build(board, cfg, p1, netlist=str(net))
     links = json.loads(p1.with_name("fixture-stripforge.links.json").read_text())["links"]

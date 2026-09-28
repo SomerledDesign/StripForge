@@ -21,8 +21,8 @@ def _config(args: argparse.Namespace):
         cfg.cut_style = config_mod.CutStyle(args.cut_style)
     if args.tol is not None:
         cfg.snap_tol_mm = args.tol
-    if getattr(args, "place_links", False):
-        cfg.place_links = True
+    if getattr(args, "place_links", None) is not None:
+        cfg.place_links = args.place_links
     return cfg
 
 
@@ -168,8 +168,8 @@ def _build(args: argparse.Namespace) -> int:
         for p in res.link_problems:
             print(f"  {p.status.upper()}: {p.ref} {p.detail}")
         print(
-            "Next: 'stripforge link-symbols <board> --in-place' (or --out-dir DIR) writes the W symbols "
-            "into <name>.kicad_sch; then F8 matches them up"
+            "Next: click 'StripForge: Add links to schematic' in KiCad (or run 'stripforge link-symbols "
+            "<board> --in-place') to write the W symbols into <name>.kicad_sch; F8 then matches them by path"
         )
     elif res.pass2:
         print(f"Pass 2: {len(res.placed)} of {len(plan.links)} link(s) placed")
@@ -354,11 +354,21 @@ def main(argv: list[str] | None = None) -> int:
         "rebuild a built board after moving its cuts and links in pcbnew "
         "(they are kept where you put them; StripForge fills in the rest)",
     )
-    bu.add_argument(
+    pl = bu.add_mutually_exclusive_group()
+    pl.add_argument(
         "--place-links",
-        action="store_true",
-        help="place the W link footprints on their holes now (place_links = true), for 'stripforge "
-        "link-symbols' to carry into the schematic",
+        action="store_const",
+        const=True,
+        dest="place_links",
+        help="place the W link footprints on their holes now (place_links = true, the default), for "
+        "'Add links to schematic' / 'stripforge link-symbols' to carry into the schematic",
+    )
+    pl.add_argument(
+        "--no-place-links",
+        action="store_const",
+        const=False,
+        dest="place_links",
+        help="only propose the links (place_links = false): add the W symbols yourself, F8, build again",
     )
     bu.set_defaults(func=_build)
 

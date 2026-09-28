@@ -11,6 +11,9 @@
 # and leaves the board alone. backup_keep = N keeps N backups in all (0 = keep every one).
 output = "in_place"
 backup_keep = 0
+# place_links = true (default): the build places the W link footprints on their holes; then
+# "Add links to schematic" (or stripforge link-symbols <board> --in-place) adds their symbols.
+place_links = true
 rows = 24                    # strips A..X
 cols = 56                    # holes 1..56 along each strip
 origin_mm = [51.27, 51.27]   # centre of hole A1 (col 0, row 0)

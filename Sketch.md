@@ -423,7 +423,7 @@ SVGs and `<out>.cuts.csv`.
 
 - **Format:** KiCad 10 IPC plugin. `plugins/plugin.json` (schema
   <https://go.kicad.org/api/schemas/v1>), runtime `python`, identifier
-  `com.github.somerleddesign.stripforge`, four actions (scope `pcb`, toolbar buttons with 24/48 px
+  `com.github.somerleddesign.stripforge`, five actions (scope `pcb`, toolbar buttons with 24/48 px
   icons):
   - StripForge: Analyze
   - Build strips
@@ -515,7 +515,21 @@ on that sheet; other nets give a global label (verified with kicad-cli 10.0.4: a
 label joins the power net). An unnamed `Net-(...)` also gets a global label of that name at one of
 its pins; the pin position comes from the placed symbol's library pin, with library y up, then
 rotation, then mirror. The symbol definition is embedded in `lib_symbols`. The output is a project
-copy (library tables with `${KIPRJMOD}` made absolute) or in place with `.bak` backups. KiCad's
+copy (library tables with `${KIPRJMOD}` made absolute) or in place with `<sheet>-pre-links.kicad_sch`
+backups, rotated like the board's (`writer.rotate_backups`, all before any write). `place_links`
+is on by default, and the plugin's **Add links to schematic** action runs this in place on the
+project's root schematic, then says to close and reopen eeschema (it doesn't reload a file changed
+on disk). No sym-lib-table entry is needed because the symbol is embedded. On Kevin's board all 33
+netlist W paths and footprint IDs equal the board's `(path)` and lib IDs, so F8 matches them by
+path and changes nothing. Existing W symbols (for example placed by hand) are completed, not
+duplicated:
+- a pin with nothing at its end (no label, wire end, junction, no-connect or other pin) gets a net
+  label;
+- the symbol's uuid is set to its footprint's path uuid when the sheet matches;
+- the Footprint field is set to the board's.
+
+A pin that already reaches a label of another net, directly or along wires, is a CONFLICT, and that
+symbol is left alone. KiCad's
 Update Schematic from PCB (`BACK_ANNOTATE`) only changes existing symbols; for a footprint with no
 symbol it reports "Cannot find symbol for footprint".
 
