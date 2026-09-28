@@ -16,10 +16,7 @@ from .strips import HoleMap, Strip
 def validate(split: SplitResult, holes: HoleMap, strips: list[Strip]) -> list[str]:
     errors: list[str] = []
     for p in split.multi_net_pieces:
-        errors.append(
-            f"short: row {p.row} cols {p.col_start}-{p.col_end} carries {len(p.nets)} nets: "
-            + ", ".join(p.nets)
-        )
+        errors.append(f"short: strip piece {p.label} carries {len(p.nets)} nets: " + ", ".join(p.nets))
     for strip in strips:
         for c in sorted(strip.dead_holes):
             node = Node(strip.row, c)

@@ -13,7 +13,7 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass, field
 
-from .grid import Grid, Node, SnapResult
+from .grid import Grid, Node, SnapResult, hole_label, row_label
 
 
 @dataclass
@@ -71,6 +71,16 @@ class Piece:
     @property
     def holes(self) -> int:
         return self.col_end - self.col_start + 1
+
+    @property
+    def label(self) -> str:
+        """``K3-K7`` (or ``K3`` for a one-hole piece)."""
+        a, b = hole_label(self.row, self.col_start), hole_label(self.row, self.col_end)
+        return a if a == b else f"{a}-{b}"
+
+    @property
+    def strip(self) -> str:
+        return row_label(self.row)
 
 
 @dataclass(frozen=True)

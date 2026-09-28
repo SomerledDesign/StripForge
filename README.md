@@ -81,6 +81,13 @@ ruff check . && ruff format --check .
 pytest
 ```
 
+### Hole labels
+
+Copper strips run horizontally. Strips (rows) are letters `A..Z`, then `AA, AB, …, ZZ`
+(spreadsheet style); holes along a strip are numbered from 1. The top-left hole (component side) is
+`A1`, so `K12` is the 12th hole on the 11th strip. The TPI fixture's 30 × 25 grid runs `A1`–`Y30`.
+Reports use labels throughout; the `--json` output also keeps the 0-based `(col, row)`.
+
 ```
 src/stripforge/
   cli.py          command-line entry (analyze | plan | generate | drc | sheet)

@@ -5,6 +5,11 @@
 Holes are indexed ``(col, row)`` from 0, with col 0/row 0 the top-left hole as seen from the
 component side, in KiCad's board frame (x right, y down).
 
+Human-readable hole labels (Kevin's decision): copper strips run horizontally, strips (rows) are
+letters ``A..Z, AA, AB, ..., ZZ`` (spreadsheet style) and holes along a strip (columns) are numbered
+from 1. The top-left hole is ``A1``; the 30 x 25 TPI fixture ends at ``Y30``. See
+:func:`hole_label` and :func:`parse_hole`.
+
 Snapping in M1 never moves anything. Each THT pad is mapped to its nearest hole, and the
 footprint *snaps* when every pad is within ``tol`` of its hole. The offsets are reported so
 slightly off-pitch parts (2.50 mm capacitors, the Littelfuse 395) are visible. For a footprint
@@ -15,6 +20,7 @@ offset; applying it is M2's job.
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass, field
 
 from . import PITCH_NM
@@ -22,14 +28,65 @@ from .board import Board, Footprint, Outline
 
 ON_GRID_NM = 5_000  # offsets at or below this are treated as exactly on grid in reports
 
+MAX_ROWS = 26 + 26 * 26  # A..Z then AA..ZZ
+
+
+def row_label(row: int) -> str:
+    """Strip letter for a 0-based row: 0 -> ``A``, 25 -> ``Z``, 26 -> ``AA``, 701 -> ``ZZ``.
+
+    Rows outside ``0..701`` have no letter; they are written ``row<n>`` (``row-1``) so that
+    off-board positions can still be reported.
+    """
+    if 0 <= row < 26:
+        return chr(ord("A") + row)
+    if 26 <= row < MAX_ROWS:
+        hi, lo = divmod(row - 26, 26)
+        return chr(ord("A") + hi) + chr(ord("A") + lo)
+    return f"row{row}"
+
+
+def parse_row_label(text: str) -> int:
+    """Inverse of :func:`row_label` for ``A..ZZ`` (case-insensitive)."""
+    t = text.strip().upper()
+    if re.fullmatch(r"[A-Z]", t):
+        return ord(t) - ord("A")
+    if re.fullmatch(r"[A-Z]{2}", t):
+        return 26 + (ord(t[0]) - ord("A")) * 26 + (ord(t[1]) - ord("A"))
+    raise ValueError(f"not a strip letter: {text!r} (expected A..Z or AA..ZZ)")
+
+
+def hole_label(row: int, col: int) -> str:
+    """``A1``-style label for a 0-based (row, col): strip letter, then hole number from 1.
+
+    A row with no letter (above ``A`` or past ``ZZ``) gives ``row-1.4`` (row -1, hole 4).
+    """
+    if 0 <= row < MAX_ROWS:
+        return f"{row_label(row)}{col + 1}"
+    return f"{row_label(row)}.{col + 1}"
+
+
+_HOLE_RE = re.compile(r"\s*([A-Za-z]{1,2})\s*(\d+)\s*")
+
+
+def parse_hole(text: str) -> Node:
+    """Parse an ``A1``-style label (``Y30``, ``aa7``) into a 0-based :class:`Node`."""
+    m = _HOLE_RE.fullmatch(text)
+    if not m or int(m[2]) < 1:
+        raise ValueError(f"not a hole label: {text!r} (expected e.g. A1, K12, AB3)")
+    return Node(row=parse_row_label(m[1]), col=int(m[2]) - 1)
+
 
 @dataclass(frozen=True, order=True)
 class Node:
     row: int
     col: int
 
+    @property
+    def label(self) -> str:
+        return hole_label(self.row, self.col)
+
     def __str__(self) -> str:
-        return f"({self.col},{self.row})"
+        return self.label
 
 
 @dataclass(frozen=True)
@@ -69,6 +126,16 @@ class Grid:
 
     def contains(self, node: Node) -> bool:
         return 0 <= node.col < self.cols and 0 <= node.row < self.rows
+
+    @property
+    def last(self) -> Node:
+        """The bottom-right hole."""
+        return Node(row=self.rows - 1, col=self.cols - 1)
+
+    @property
+    def span_label(self) -> str:
+        """``A1-Y30`` for the 30 x 25 fixture."""
+        return f"{Node(0, 0).label}-{self.last.label}"
 
     @property
     def nodes(self) -> int:

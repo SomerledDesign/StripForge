@@ -96,3 +96,22 @@ def test_cli_rejects_with_tight_tolerance(tpi_board_path, capsys):
     assert rc == 1
     rejected = [line.split(":")[1].strip() for line in out.splitlines() if "REJECTED" in line]
     assert rejected == ["C3", "C2", "C1"]  # 0.04 mm > 0.02 mm; F1 (0.01 mm) still snaps
+
+
+def test_hole_labels_in_reports(result, tpi_board_path, capsys):
+    assert result.grid.span_label == "A1-Y30"
+    by_id = {c.id: c for c in result.split.cuts}
+    assert by_id["X1"].label == "B26" and by_id["X1"].where == "hole B26"
+    assert by_id["X5"].label == "D3-D4" and by_id["X5"].where == "between D3 and D4"
+    text = format_text(result)
+    assert "Holes: A1-Y30" in text
+    assert "off pitch: C1    max 0.040 mm  [pad 2 L4 off" in text
+    assert "X5   knife D3-D4" in text
+    main(["analyze", str(tpi_board_path), "--json"])
+    data = json.loads(capsys.readouterr().out)
+    assert data["grid"]["labels"] == "A1-Y30"
+    x5 = next(c for c in data["cuts"] if c["id"] == "X5")
+    assert (x5["label"], x5["row"], x5["col"]) == ("D3-D4", 3, 2.5)
+    r3 = next(s for s in data["snaps"] if s["ref"] == "R3")
+    assert [(p["hole"], p["hole_label"]) for p in r3["pads"]] == [([24, 7], "H25"), ([24, 11], "L25")]
+    assert all("label" in p for p in data["pieces"])

@@ -2,7 +2,16 @@ import pytest
 
 from kicad_text import fp, pad, pcb
 from stripforge.board import parse_board
-from stripforge.grid import Grid, Node, snap_board, snap_footprint
+from stripforge.grid import (
+    Grid,
+    Node,
+    hole_label,
+    parse_hole,
+    parse_row_label,
+    row_label,
+    snap_board,
+    snap_footprint,
+)
 
 TOL = 150_000
 
@@ -80,3 +89,37 @@ def test_rotated_footprint_snaps_where_rotation_puts_it():
 def test_snap_board_skips_offboard_refs():
     b = parse_board(pcb(fp("J9", "1.27 1.27", pad("1", "0 0", "A")), fp("R1", "1.27 3.81", pad("1", "0 0"))))
     assert [s.ref for s in snap_board(b, grid10x5(), TOL, skip_refs=["J9"])] == ["R1"]
+
+
+@pytest.mark.parametrize(
+    "row, label", [(0, "A"), (1, "B"), (25, "Z"), (26, "AA"), (27, "AB"), (51, "AZ"), (52, "BA"), (701, "ZZ")]
+)
+def test_row_labels_spreadsheet_style(row, label):
+    assert row_label(row) == label
+    assert parse_row_label(label) == row
+    assert parse_row_label(label.lower()) == row
+
+
+def test_hole_labels():
+    assert hole_label(0, 0) == "A1"
+    assert Node(row=24, col=29).label == "Y30" == str(Node(row=24, col=29))
+    assert Node(row=23, col=55).label == "X56"
+    assert parse_hole("A1") == Node(0, 0)
+    assert parse_hole(" k12 ") == Node(row=10, col=11)
+    assert parse_hole("AB3") == Node(row=27, col=2)
+    for node in (Node(0, 0), Node(24, 29), Node(701, 99)):
+        assert parse_hole(node.label) == node
+    # positions off the board still get a printable label
+    assert Node(row=-1, col=3).label == "row-1.4"
+    assert Node(row=0, col=-1).label == "A0"
+
+
+@pytest.mark.parametrize("bad", ["", "1A", "A", "A0", "AAA1", "A-1", "Ä1"])
+def test_parse_hole_rejects(bad):
+    with pytest.raises(ValueError):
+        parse_hole(bad)
+
+
+def test_grid_span_label():
+    g = Grid.from_outline((50_000_000, 50_000_000, 126_200_000, 113_500_000))
+    assert g.span_label == "A1-Y30" and g.last == Node(row=24, col=29)

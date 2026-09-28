@@ -160,6 +160,7 @@ def to_dict(a: Analysis) -> dict:
             "rows": g.rows,
             "pitch_mm": g.pitch_nm / 1e6,
             "origin_mm": _xy((g.origin_x_nm, g.origin_y_nm)),
+            "labels": g.span_label,
             "outline_mm": [v / 1e6 for v in a.board.outline] if a.board.outline else None,
         },
         "snap_tol_mm": a.config.snap_tol_mm,
@@ -181,6 +182,7 @@ def to_dict(a: Analysis) -> dict:
                         "pad": p.number,
                         "net": p.net,
                         "hole": [p.node.col, p.node.row] if p.node else None,
+                        "hole_label": p.node.label if p.node else None,
                         "offset_mm": _xy((p.dx_nm, p.dy_nm)),
                         "dev_mm": p.dev_nm / 1e6,
                     }
@@ -192,6 +194,7 @@ def to_dict(a: Analysis) -> dict:
         "cuts": [
             {
                 "id": c.id,
+                "label": c.label,
                 "row": c.row,
                 "col": c.col,
                 "style": c.style,
@@ -201,7 +204,13 @@ def to_dict(a: Analysis) -> dict:
             for c in a.split.cuts
         ],
         "pieces": [
-            {"row": p.row, "cols": [p.col_start, p.col_end], "nets": list(p.nets), "pads": list(p.pads)}
+            {
+                "label": p.label,
+                "row": p.row,
+                "cols": [p.col_start, p.col_end],
+                "nets": list(p.nets),
+                "pads": list(p.pads),
+            }
             for p in a.split.pieces
             if p.pads
         ],
@@ -219,8 +228,12 @@ def format_text(a: Analysis) -> str:
     add = lines.append
     add(f"StripForge analyze: {a.board.path}")
     add(
-        f"Grid: {g.cols} cols x {g.rows} rows at {_mm(g.pitch_nm)} mm, hole (0,0) at "
-        f"({_mm(g.origin_x_nm)}, {_mm(g.origin_y_nm)}) mm [{a.grid_source}]; holes are (col,row) from 0"
+        f"Grid: {g.cols} cols x {g.rows} rows at {_mm(g.pitch_nm)} mm, hole A1 at "
+        f"({_mm(g.origin_x_nm)}, {_mm(g.origin_y_nm)}) mm [{a.grid_source}]"
+    )
+    add(
+        f"Holes: {g.span_label}; strips (rows) are letters A, B, ... top to bottom, holes along a strip "
+        "are numbered from 1 left to right (component side)"
     )
     add(f"Footprints: {len(a.board.footprints)}, pads: {len(a.board.pads)}, nets: {len(a.board.nets)}")
     if a.netlist_summary:
@@ -252,7 +265,7 @@ def format_text(a: Analysis) -> str:
     add(f"Cuts ({a.config.cut_style}): {len(cuts)} ({nh} hole, {len(cuts) - nh} knife)")
     for c in cuts:
         sides = f"{c.between[0]} [{c.reason[0]}] | {c.between[1]} [{c.reason[1]}]"
-        add(f"  {c.id:<4} {c.style:<5} {c.where:<28} {sides}")
+        add(f"  {c.id:<4} {c.style:<5} {c.label:<9} {sides}")
     add("")
     ppn = a.split.pieces_per_net
     add(f"Pieces per net ({len(ppn)} nets on the strips):")
@@ -265,7 +278,8 @@ def format_text(a: Analysis) -> str:
     need = a.split.split_nets
     add(f"Nets needing links (M2): {len(need)}" + ("" if need else " (none)"))
     for net, n in need.items():
-        add(f"  {net}: {n} pieces -> at least {n - 1} link(s)")
+        where = ", ".join(p.label for p in a.split.pieces if net in p.nets)
+        add(f"  {net}: {n} pieces -> at least {n - 1} link(s) [{where}]")
     add("")
     add(f"Warnings: {len(a.warnings)}" + ("" if a.warnings else " (none)"))
     for w in a.warnings:

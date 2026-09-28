@@ -129,6 +129,13 @@ Notes:
 
 - A node is `(row, col)` and maps to `origin + (col·2.54, row·2.54)` mm. Internally we use integer
   nanometres, as KiCad does.
+- **Hole labels (Kevin's decision, 2026-09-27).** Copper strips run horizontally. Strips (rows) are
+  letters `A..Z`, then `AA, AB, …, ZZ` (spreadsheet style), top to bottom as seen from the
+  component side. Holes along a strip (columns) are numbered from 1, left to right. The top-left
+  hole is `A1`; the 30 × 25 TPI fixture ends at `Y30`, Kevin's X56 board at `X56`. Every
+  human-readable report (cuts, links, snap reports, hints) uses labels; the JSON keeps the 0-based
+  `(col, row)` too and adds a `label`/`hole_label` field. Code: `grid.hole_label`,
+  `grid.parse_hole`, `grid.row_label`, `grid.parse_row_label`.
 - **Per-footprint rigid snap.** Try the footprint's current orientation plus 90° steps, and pick
   the translation that minimises the *maximum* pad-to-node deviation. We never alter footprint
   geometry. If the best max deviation is ≤ `snap_tol` (default **0.15 mm**), we accept and log the
@@ -198,7 +205,7 @@ together.**
 - The **gap is the electrical truth**. KiCad's connectivity and DRC see exactly what the physical
   board will have.
 - The **marker** is a cross or circle on `User.1`, which we rename "Strip.Cuts" in the board file,
-  plus an optional label (`X12`). It makes the cut visible in the editor and plottable for the
+  plus an optional label (`X12`, placed at hole `C12`, say). It makes the cut visible in the editor and plottable for the
   build sheet.
 - **Why not a "cut" footprint as the primary representation?**
   - A footprint with no pads is invisible to DRC and connectivity, so it adds nothing to checking.
@@ -255,8 +262,8 @@ We make KiCad's **built-in** electrical checks do the work rather than inventing
 - `kicad-cli pcb drc --format json --severity-all --schematic-parity --exit-code-violations -o drc.json board.kicad_pcb`.
   Exit code 0 means clean and 5 means violations were found.
 - `drc.py` parses the JSON and buckets violations into **short**, **open**, **parity**,
-  **stripboard-rule** and **other**. The report is addressed in stripboard coordinates
-  ("row F, col 23") as well as mm.
+  **stripboard-rule** and **other**. The report is addressed in hole labels ("F23") as
+  well as mm.
 - An allowlist of expected warnings (for example, silk over holes) lives in the repo.
 
 ### 4.9 Build sheet
@@ -265,11 +272,11 @@ We make KiCad's **built-in** electrical checks do the work rather than inventing
   - strips, with cut holes and knife cuts shown as red ✕ marks;
   - pads as dots labelled `ref.pin`;
   - links drawn dashed, as ghosted component-side items;
-  - row letters and column numbers that match the physical board;
+  - strip letters (`A…`) and hole numbers (`1…`) that match the physical board and the reports;
   - a board outline and an orientation marker (a notched corner), so the classic "built it
     mirrored" error is hard to make.
 - A second page shows the **component side**: part outlines, refs and link positions.
-- Tables: a cut list (`X1 row C col 12 hole`), a link list (`W3 col 18 rows D–H 10.16 mm`), and
+- Tables: a cut list (`X1 C12 hole`), a link list (`W3 D18–H18 10.16 mm`), and
   a parts list.
 - PDF comes from the SVG via `cairosvg` (optional dependency). As a cross-check, also run
   `kicad-cli pcb export pdf --mirror --layers B.Cu,User.1,Edge.Cuts,B.Fab` so KiCad renders the

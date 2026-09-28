@@ -20,7 +20,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 
 from .config import CutStyle
-from .grid import Node
+from .grid import Node, hole_label
 from .strips import HoleMap, Piece, Strip
 
 
@@ -34,11 +34,19 @@ class Cut:
     between: tuple[str, str] = ("", "")  # the pads either side, e.g. ("J2.3", "J2.4")
 
     @property
+    def label(self) -> str:
+        """``K12`` for a hole cut; ``K12-K13`` for a knife cut between those two holes."""
+        c = int(self.col)
+        if self.style == "hole":
+            return hole_label(self.row, c)
+        return f"{hole_label(self.row, c)}-{hole_label(self.row, c + 1)}"
+
+    @property
     def where(self) -> str:
         if self.style == "hole":
-            return f"hole ({int(self.col)},{self.row})"
+            return f"hole {self.label}"
         c = int(self.col)
-        return f"between ({c},{self.row}) and ({c + 1},{self.row})"
+        return f"between {hole_label(self.row, c)} and {hole_label(self.row, c + 1)}"
 
 
 @dataclass
