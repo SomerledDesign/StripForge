@@ -26,7 +26,9 @@ class BoardConfig:
     origin_mm: tuple[float, float] | None = None  # centre of hole (col 0, row 0)
     pitch_mm: float = 2.54
     hole_inset_mm: float | None = None
-    strip_width_mm: float = 1.8  # Mildrew to confirm
+    # 1.8 mm: caliper-measured on Kevin's X56 board (2026-09-27). rules/stripforge.kicad_dru must be
+    # regenerated with rules/gen_dru.py --strip-width <w> whenever this changes.
+    strip_width_mm: float = 1.8
     cut_style: CutStyle = CutStyle.AUTO
     snap_tol_mm: float = 0.15
     cut_marker_layer: str = "User.1"  # renamed "Strip.Cuts" in the board file

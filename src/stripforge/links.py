@@ -10,7 +10,7 @@ class LinkProposal:
     col: int
     row_a: int
     row_b: int
-    footprint: str  # from Mildrew's zero-ohm link family, e.g. "Stripboard_Links:Link_P10.16"
+    footprint: str  # from Mildrew's zero-ohm link family, e.g. "StripForge:Link_P10.16"
 
 
 def propose(pieces, net_pads):

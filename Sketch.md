@@ -256,8 +256,8 @@ together.**
     It also drifts out of sync if someone moves it without moving the gap.
   - A footprint *with* pads would create fake nets or copper, and it would need to be in the
     schematic or marked "Not in schematic".
-  - We still leave the door open: Mildrew may define a board-only, pad-less `Stripboard:CUT_Hole`
-    / `CUT_Knife` footprint (Not in schematic, excluded from BOM and position files) as a
+  - We still leave the door open: Mildrew may define a board-only, pad-less `StripForge:CUT_Hole`
+    / `StripForge:CUT_Knife` footprint (Not in schematic, excluded from BOM and position files) as a
     *selectable marker* in M2 or later, if refdes numbering and selection in the GUI turn out to
     matter. The validator must then check that each marker's position matches a real gap.
 

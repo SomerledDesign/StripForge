@@ -9,7 +9,9 @@ rows = 24                    # strips A..X
 cols = 56                    # holes 1..56 along each strip
 origin_mm = [51.27, 51.27]   # centre of hole A1 (col 0, row 0)
 pitch_mm = 2.54
-strip_width_mm = 1.8         # Mildrew to confirm
+# Strip width: 1.8 mm, measured with calipers on Kevin's X56 board (2026-09-27). If you change it,
+# regenerate the DRC rules to match: python3 rules/gen_dru.py --strip-width <w>
+strip_width_mm = 1.8
 cut_style = "auto"           # hole | knife | auto (hole where a free hole exists, else knife + warning)
 snap_tol_mm = 0.15
 cut_marker_layer = "User.1"
