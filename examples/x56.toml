@@ -23,6 +23,16 @@ offboard_refs = []   # pin-header wire pads for switches/battery are ON-board; l
 slotted = ["BT1"]            # MPD BH23APC battery holder: slot centres 32.385 mm apart, pins seat 31.75 mm
 slot_max_mm = 1.0
 # slot_max_mm_by_ref = { BT1 = 0.5 }
+# Parts not on the stripboard (panel-mounted, hand-wired): not snapped, no strips for their pads,
+# listed as "wired off-board" on the build sheet. (offboard_refs above is the older name.)
+# skip = ["SW3"]
+
+# Bent legs, the "Beckham tolerance" (bend it like Beckham): a part whose legs can be bent onto
+# the holes may be up to this many mm off them, in any direction, instead of snap_tol_mm (across
+# the strip for a slotted part). 6 mil = 0.1524 mm. Max 0.5 mm; over 0.3 mm warns. Tables go
+# after the top-level keys; each table's keys run to the next [table].
+# [bend]
+# SW2 = 0.16   # DPDT slide switch: 312 mil rows on 300 mil holes, 6 mil off per row
 
 # DRC filters for `stripforge drc` and the plugin's Run DRC. Everything filtered is still counted
 # in the report ("filtered (config): ..."). Keep this table last in the file (TOML tables end the

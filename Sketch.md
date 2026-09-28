@@ -366,6 +366,10 @@ We make KiCad's **built-in** electrical checks do the work rather than inventing
   decision) and the library-not-configured warning (footprints are embedded). Unconnected items
   are also grouped by net, and positions are given as hole labels as well as mm. Exit 3 when
   kicad-cli is not found; its tests are skipped in CI.
+- **Per-part tolerances (2026-09-28):** `[bend]` ("Beckham tolerance") gives a part its own snap
+  tolerance in any direction (across the strip when also slotted) and lists the legs to bend;
+  `skip` (alias `offboard_refs`) leaves hand-wired parts out entirely. Added for Kevin's DPDT
+  slide switch SW2 (312 mil rows on 300 mil holes: 0.1524 mm per row).
 - **`[drc]` config table (2026-09-27):** `ignore` (KiCad DRC types, board-wide) and
   `allow_overlap` (reference pairs whose courtyard items are accepted) filter items into a
   "filtered (config)" bucket that is counted per type/pair, never silently dropped. Added for the
@@ -535,6 +539,11 @@ real-parts board: 22 footprints, 41 nets, 86 pads, with BT1 slotted.*
   where the decisions are made and saved to `stripboard.toml`: board size (rows, cols, origin),
   slotted parts (with the filing amount and the lopsided warning shown per part), DRC ignores and
   allowed courtyard overlaps, cut style.
+- **Per-part choices in one table:** each footprint that doesn't sit cleanly on the holes gets a
+  row with its offsets and a choice: on grid / **slotted** (file the end holes) / **bend** (the
+  Beckham tolerance, with the leg bend shown in mm and mil) / **skip** (wired off-board) /
+  **adapter** (a carrier board or socket; not implemented yet). The dialog suggests the fitting
+  choice the way the rejection hints do, and writes `slotted`, `[bend]` and `skip`.
 - **Analyze inside the dialog** (live report pane; Build strips and Run DRC as buttons there).
 - **Built-in Sheet view:** a PDF-viewer-like preview of the build sheet (pages, zoom, copper /
   component side), instead of only opening the browser.

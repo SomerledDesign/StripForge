@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `[bend]` table, the "Beckham tolerance": per-part snap tolerance in mm (e.g. `SW2 = 0.16` for a
+  312 mil row pitch on 300 mil holes), in any direction, across the strip for slotted parts.
+  Analyze lists each leg to bend (mm and mil), the build sheet says "bend legs up to ...", and
+  `[bend]` parts are never moved by the best-fit shift. Values over 0.5 mm are refused, over
+  0.3 mm warned.
+- `skip = [...]`: parts wired off-board (alias of `offboard_refs`): not snapped, no strips, a
+  warning naming the nets to hand-wire, and a "Wired off-board" list on the build sheet.
+- Warnings for `slotted` / `[bend]` / `skip` entries naming parts that are not on the board.
+- Rejection hints by direction: across the strip suggests `[bend]` with a value, along the strip
+  suggests `slotted`, and a part that only sits off the grid is told how far to move it. A slotted
+  part whose slots point away from its centre is warned to be half a pitch off.
+
 - `[drc]` table in `stripboard.toml`: `ignore` (KiCad DRC types suppressed board-wide) and
   `allow_overlap` (reference pairs whose courtyard overlaps are accepted). Applied by
   `stripforge drc --config` and the plugin's Run DRC; suppressed items are counted in a

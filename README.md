@@ -260,6 +260,40 @@ end. Place the footprint with its origin on a hole; if one end is nearer its hol
 analyze warns, e.g. "BT1 slot offsets 0.000/0.635 mm; shift -0.318 mm along the strip (toward lower
 hole numbers) to centre it" (in KiCad: Move Exactly, X -0.3175).
 
+### Bent legs: `[bend]` (the "Beckham tolerance")
+
+Some parts can't sit on the holes but their legs bend far enough to reach them, like Kevin's DPDT
+slide switch (SW2): 300 mil pin pitch along a row but 312 mil between the rows. Centred, each row
+is 6 mil (0.1524 mm) off its strip, just over `snap_tol_mm` (0.15 mm). List such parts in a `[bend]`
+table with the most a leg may be off its hole, in mm (6 mil = 0.1524 mm, 10 mil = 0.254 mm):
+
+```toml
+[bend]   # Beckham tolerance: parts whose legs can be bent onto the holes (bend it like Beckham)
+SW2 = 0.16
+```
+
+- The value replaces `snap_tol_mm` for that part only, in any direction. For a part that is also
+  `slotted`, the slot takes the along-strip offset and `[bend]` sets the across-strip tolerance.
+- Values must be more than 0 and at most 0.5 mm; above 0.3 mm there is a warning (check the part
+  really bends that far). A `[bend]`, `slotted` or `skip` entry for a part that isn't on the board
+  is warned about.
+- Analyze lists every leg to bend (`bend legs: SW2 [bend] 0.16 mm [pad 1 at C40: 0.152 mm (6.0 mil)
+  across the strip; ...]`) and warns that the part was accepted with its bend tolerance. The build
+  sheet's parts list says "bend legs up to 0.152 mm (6.0 mil) across the strip to fit the holes".
+- `[bend]` parts are placed off the holes on purpose, so the best-fit shift never moves them.
+- A rejected part now gets the matching hint: a miss across the strip suggests `[bend]` with a
+  value (e.g. `SW2 = 0.16`), a miss along the strip suggests `slotted`, and a part whose pins match
+  the pitch but sit off the grid is told how far to move it (KiCad: Move Exactly).
+
+### Parts off the stripboard: `skip`
+
+`skip = ["SW3", "J9"]` lists parts that are not on the stripboard (panel-mounted, hand-wired). They
+are not snapped or rejected, their pads get no strips, and nothing is planned for them. Analyze
+warns, per part, which nets must be hand-wired to it, and the build sheet lists them under "Wired
+off-board". Nets they share with on-board parts are still split and linked as usual on the
+board; the wire to the skipped part is up to you. (`offboard_refs`, the older name, still works;
+the two lists are merged.)
+
 ### Strip width and the DRC rules
 
 `strip_width_mm` is 1.8 mm (caliper-measured on Kevin's X56 board). The rules in
