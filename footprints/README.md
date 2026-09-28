@@ -31,7 +31,15 @@ Names: `Link_P{k*2.54:.2f}` (two-decimal mm) for k = 1…32, i.e. `Link_P2.54, L
 Link_P25.40, …, Link_P78.74, Link_P81.28`. This matches the `Link_P10.16` example in
 `src/stripforge/links.py` and covers Sketch.md §4.4's `Link_P5.08 … Link_P25.40` range. Kevin's
 decisions (2026-09-27): keep `Link_P2.54` (adjacent strips) and extend the family to 32 pitches.
-The library is 34 footprints: 32 links + 2 cut markers.
+The library is 339 footprints: 32 links + 305 off-pitch diagonal links + 2 cut markers.
+
+## Off-pitch diagonal links: `Link_D3.59` … `Link_D81.16` (305 footprints)
+
+For a link between holes `dx` across and `dy` down whose length `sqrt(dx² + dy²)` pitches is not a
+whole number (a whole number uses a rotated `Link_P*`). Named by length in mm (two decimals), one
+per distinct length up to 32 pitches; drawn vertical like `Link_P*` (pad 2 below pad 1, written to
+the nanometre) and rotated on the board by the build. The description lists the offsets it fits
+(e.g. `Link_D9.16`: 2x3).
 
 | Item | Value |
 |---|---|

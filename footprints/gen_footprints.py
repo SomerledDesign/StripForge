@@ -9,6 +9,9 @@ Families:
 
 * ``Link_P<L>``: zero-ohm wire link (ref prefix W, same net on both pins), two THT pads
   k x 2.54 mm apart, pad 2 straight *below* pad 1 (+Y), anchor on pad 1.
+* ``Link_D<L>``: the same wire link for an off-pitch diagonal, pads sqrt(dx^2 + dy^2) x 2.54 mm
+  apart for whole-hole offsets (dx, dy) that are not a whole number of pitches (1x1 = 3.59 mm,
+  1x2 = 5.68 mm, ... up to 32 pitches). The planner rotates it so both pads land on holes.
 * ``CUT_Hole``: pad-less, board-only marker for a spot-face (hole) cut, anchored on the hole.
 * ``CUT_Knife``: pad-less, board-only marker for a knife cut, anchored midway between two holes.
 
@@ -23,6 +26,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import math
 import uuid
 from pathlib import Path
 
@@ -33,6 +37,27 @@ NS = uuid.UUID("5f0b6b0e-2d7c-4c55-9a55-5354524950f0")  # fixed namespace for uu
 
 # Wire link family: spans in pitches. k = 1 (adjacent strips) up to k = 32 (81.28 mm).
 LINK_SPANS = range(1, 33)
+MAX_PITCHES = 32
+
+
+def diagonal_squares(max_pitches: int = MAX_PITCHES) -> list[int]:
+    """``dx^2 + dy^2`` for whole-hole offsets with ``dx, dy >= 1`` no longer than ``max_pitches``
+    whose length is not a whole number of pitches (those use Link_P*)."""
+    sq = {
+        dx * dx + dy * dy
+        for dx in range(1, max_pitches + 1)
+        for dy in range(1, max_pitches + 1)
+        if dx * dx + dy * dy <= max_pitches * max_pitches
+    }
+    return sorted(n for n in sq if math.isqrt(n) ** 2 != n)
+
+
+def diagonal_offsets(n: int) -> list[tuple[int, int]]:
+    """The ``(dx, dy)`` offsets, ``dx <= dy``, with ``dx^2 + dy^2 == n``."""
+    return [(dx, dy) for dx in range(1, math.isqrt(n) + 1) for dy in range(dx, math.isqrt(n) + 1)
+            if dx * dx + dy * dy == n]  # fmt: skip
+
+
 LINK_DRILL = 1.0  # stripboard holes are 0.94-1.02 mm (BusBoard 0.94, Vero 1.02, generic 1.0)
 # Round pad; kept <= strip width (1.8 mm, measured on the X56 board) so it never reaches the next strip.
 LINK_PAD = 1.7
@@ -90,9 +115,11 @@ class FP:
             f'(stroke (width {fmt(w)}) (type solid)) (fill no) (layer "{layer}") (uuid "{self.uid()}"))'
         )
 
-    def pad(self, num, x, y, size, drill):
+    def pad(self, num, x, y, size, drill, exact=False):
+        # an off-pitch link's pad 2 is written to the nanometre so it lands on the hole when rotated
+        ys = f"{y:.6f}".rstrip("0").rstrip(".") if exact else fmt(y)
         self.add(
-            f'  (pad "{num}" thru_hole circle (at {fmt(x)} {fmt(y)}) (size {fmt(size)} {fmt(size)}) '
+            f'  (pad "{num}" thru_hole circle (at {fmt(x)} {ys}) (size {fmt(size)} {fmt(size)}) '
             f'(drill {fmt(drill)}) (layers "*.Cu" "*.Mask") (remove_unused_layers no) (uuid "{self.uid()}"))'
         )
 
@@ -112,14 +139,29 @@ def link_name(k: int) -> str:
     return f"Link_P{k * PITCH:.2f}"
 
 
-def make_link(k: int) -> tuple[str, str]:
-    name = link_name(k)
-    length = k * PITCH
+def diagonal_name(n: int) -> str:
+    return f"Link_D{math.sqrt(n) * PITCH:.2f}"
+
+
+def make_link(k: int, n: int | None = None) -> tuple[str, str]:
+    """Link_P for ``k`` pitches, or (``n`` given) Link_D for an off-pitch diagonal dx^2 + dy^2 = n."""
+    if n is None:
+        name, length = link_name(k), k * PITCH
+        span = f"{k} pitch = {length:.2f} mm, vertical"
+        tag = f"P{length:.2f}mm"
+    else:
+        name, length = diagonal_name(n), math.sqrt(n) * PITCH
+        offs = ", ".join(f"{dx}x{dy}" for dx, dy in diagonal_offsets(n))
+        span = (
+            f"off-pitch diagonal for hole offsets {offs} = {length:.2f} mm, drawn vertical, "
+            "rotated on the board"
+        )
+        tag = f"D{length:.2f}mm diagonal"
     fp = FP(name)
     props = FP(name)
     props._n = 100  # keep property uuids distinct from body uuids
     descr = (
-        f"StripForge zero-ohm wire link (W), {k} pitch = {length:.2f} mm, vertical: pad 2 is {length:.2f} mm "
+        f"StripForge zero-ohm wire link (W), {span}: pad 2 is {length:.2f} mm "
         f"below pad 1 (+Y), anchor on pad 1. Both pins on the same net. "
         f"Drill {LINK_DRILL} mm, pad {LINK_PAD} mm."
     )
@@ -138,8 +180,8 @@ def make_link(k: int) -> tuple[str, str]:
     c = LINK_PAD / 2 + CRT_MARGIN
     fp.rect(-c, -c, c, length + c, "F.CrtYd", 0.05)
     fp.pad("1", 0, 0, LINK_PAD, LINK_DRILL)
-    fp.pad("2", 0, length, LINK_PAD, LINK_DRILL)
-    tags = f"StripForge stripboard wire link jumper zero ohm 0R W P{length:.2f}mm"
+    fp.pad("2", 0, length, LINK_PAD, LINK_DRILL, exact=n is not None)
+    tags = f"StripForge stripboard wire link jumper zero ohm 0R W {tag}"
     # The wire joins pads 1 and 2: a jumper pad group tells KiCad's connectivity (ratsnest, DRC
     # unconnected items) that they are one node. Without it a placed link connects nothing.
     jumper = '  (jumper_pad_groups ("1" "2"))'
@@ -182,7 +224,8 @@ def make_cut(kind: str, layer: str) -> tuple[str, str]:
 
 def generate(out: Path, cut_layer: str) -> list[Path]:
     out.mkdir(parents=True, exist_ok=True)
-    items = [make_link(k) for k in LINK_SPANS] + [make_cut("Hole", cut_layer), make_cut("Knife", cut_layer)]
+    items = [make_link(k) for k in LINK_SPANS] + [make_link(0, n) for n in diagonal_squares()]
+    items += [make_cut("Hole", cut_layer), make_cut("Knife", cut_layer)]
     written = []
     for name, text in items:
         p = out / f"{name}.kicad_mod"

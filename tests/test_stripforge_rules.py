@@ -51,8 +51,11 @@ def test_library_is_generated_and_up_to_date(tmp_path):
     out = tmp_path / "StripForge.pretty"
     gen_fp.generate(out, "User.1")
     names = sorted(p.name for p in out.iterdir())
-    assert len(names) == 34 and "Link_P81.28.kicad_mod" in names
-    assert names == sorted([f"{n}.kicad_mod" for n in LINKS + ["CUT_Hole", "CUT_Knife"]])
+    diag = [gen_fp.diagonal_name(n) for n in gen_fp.diagonal_squares()]
+    assert len(diag) == 305 and "Link_D3.59" in diag and "Link_D81.16" in diag
+    assert len(names) == 34 + 305 and "Link_P81.28.kicad_mod" in names
+    assert names == sorted([f"{n}.kicad_mod" for n in LINKS + diag + ["CUT_Hole", "CUT_Knife"]])
+    assert sorted(p.name for p in LIB.iterdir()) == names  # nothing stale left in the library
     for p in out.iterdir():
         assert (LIB / p.name).read_text() == p.read_text(), f"{p.name} is stale: re-run gen_footprints.py"
 
@@ -65,6 +68,16 @@ def test_link_geometry():
         )
         assert [(n, float(x), float(y)) for n, x, y in pads] == [("1", 0, 0), ("2", 0, round(k * 2.54, 2))]
         assert "(attr through_hole)" in t
+
+
+def test_off_pitch_link_geometry():
+    for n in gen_fp.diagonal_squares():
+        name = gen_fp.diagonal_name(n)
+        t = (LIB / f"{name}.kicad_mod").read_text()
+        pads = re.findall(r'\(pad "(\d)" thru_hole circle \(at ([-\d.]+) ([-\d.]+)\)', t)
+        assert [(k, float(x)) for k, x, _ in pads] == [("1", 0), ("2", 0)] and float(pads[0][2]) == 0
+        assert abs(float(pads[1][2]) - n**0.5 * 2.54) < 1e-6
+        assert '(jumper_pad_groups ("1" "2"))' in t
 
 
 def test_cut_markers_are_board_only_and_padless():
