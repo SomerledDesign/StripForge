@@ -3,7 +3,9 @@
 """Regenerate the plugin toolbar icons in plugins/icons/ from resources/icon.png (needs Pillow).
 
 Each action gets the StripForge "S" at 24 and 48 px (48 for high-DPI screens) with a letter badge:
-A = Analyze, B = Build strips, D = Run DRC, S = Build sheet.
+A = Analyze, B = Build strips, D = Run DRC, S = Build sheet. The 64 px icon (Kevin's, 2026-09-27)
+has a "StripForge" wordmark under the S that is unreadable at toolbar size, so the toolbar icons
+use the square around the S only (TOOLBAR_CROP); the PCM keeps the full icon.
 
     python tools/make_icons.py
 """
@@ -17,11 +19,14 @@ from PIL import Image, ImageDraw, ImageFont
 ROOT = Path(__file__).resolve().parents[1]
 ACTIONS = [("analyze", "A", (40, 120, 220)), ("build", "B", (30, 150, 60)), ("drc", "D", (210, 40, 40)),
            ("sheet", "S", (120, 60, 180))]  # fmt: skip
+TOOLBAR_CROP = (10, 2, 54, 46)  # left, top, right, bottom in the 64 x 64 icon: the S and its traces
 FONTS = ["/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", "/Library/Fonts/Arial Bold.ttf"]
 
 
 def main() -> None:
     src = Image.open(ROOT / "resources" / "icon.png").convert("RGBA")
+    if src.size == (64, 64):
+        src = src.crop(TOOLBAR_CROP)
     font_path = next((f for f in FONTS if Path(f).exists()), None)
     for key, letter, colour in ACTIONS:
         for size in (24, 48):
