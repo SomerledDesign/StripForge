@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Somerled Design
-"""StripForge command line. `analyze` and `snap` work; the other subcommands are stubs (Sketch.md §7)."""
+"""StripForge command line: analyze, snap and build (plan, drc and sheet are stubs; Sketch.md §7)."""
 
 import argparse
 import json
@@ -78,6 +78,55 @@ def _analyze(args: argparse.Namespace) -> int:
     return 1 if (a.conflicts or a.rejected) else 0
 
 
+def _build(args: argparse.Namespace) -> int:
+    from . import links as links_mod
+    from .writer import BuildError, build
+
+    try:
+        res = build(
+            args.board,
+            _config(args),
+            args.output,
+            netlist=args.netlist,
+            library=args.library,
+            rules=args.rules,
+        )
+    except (BuildError, OSError, ValueError) as exc:
+        print(f"stripforge build: error: {exc}", file=sys.stderr)
+        return 2
+    a, plan = res.analysis, res.plan
+    hole = sum(1 for c in a.split.cuts if c.style == "hole")
+    print(f"StripForge build: {args.board} -> {args.output}")
+    print(
+        f"Parts: {len(a.snapped)} snapped, {len(res.moves)} moved by their best-fit shift, "
+        f"{len(a.rejected)} rejected"
+    )
+    if any(res.removed_previous):
+        t, c = res.removed_previous
+        print(f"Removed the previous StripForge output: {t} strip track(s), {c} cut marker(s)")
+    print(
+        f"Strips: {res.segments} B.Cu track(s) at {a.config.strip_width_mm:g} mm "
+        f"({res.segments_no_net} on bare strip with no net)"
+    )
+    print(
+        f"Cuts: {len(a.split.cuts)} ({hole} hole, {len(a.split.cuts) - hole} knife), "
+        f"{res.cut_markers} marker(s)"
+    )
+    sys.stdout.write(links_mod.format_text(plan).split("\n\nTo add")[0].rstrip("\n") + "\n")
+    if res.pass2:
+        print(f"Pass 2: {len(res.placed)} of {len(plan.links)} link(s) placed")
+        for p in res.link_problems:
+            print(f"  {p.status.upper()}: {p.ref} {p.detail}")
+    elif plan.links:
+        print(f"Pass 1: add W1..W{len(plan.links)} to the schematic, press F8, then build again")
+    if a.warnings or res.warnings:
+        print(f"Warnings: {len(a.warnings) + len(res.warnings)}")
+        for w in list(res.warnings) + list(a.warnings):
+            print(f"  - {w}")
+    print("Wrote: " + ", ".join(res.outputs))
+    return 0 if res.ok else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="stripforge", description=__doc__)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -111,9 +160,28 @@ def main(argv: list[str] | None = None) -> int:
     sn.add_argument("--tol", type=float, help="snap tolerance in mm (overrides the config)")
     sn.set_defaults(func=_snap)
 
+    bu = sub.add_parser(
+        "build",
+        help="write strip copper, cut markers and placed links into a copy of the board",
+        description="Snap the parts, split the strips by net, propose wire links and write a new board: "
+        "B.Cu strip tracks on their nets, real gaps at the cuts with embedded StripForge:CUT_* markers, "
+        "and any W link footprints (after F8) placed on their holes. Also writes <out>.kicad_dru (the "
+        "StripForge rules) and <out>.links.json/.csv/.txt (the link proposal and schematic instructions). "
+        "Exit code 0 = written and complete, 1 = written but nets still need links or W parts are "
+        "missing/wrong, 2 = refused or input error (nothing written).",
+    )
+    bu.add_argument("board", help="the placement .kicad_pcb (never overwritten)")
+    bu.add_argument("-o", "--output", required=True, help="the .kicad_pcb to write")
+    bu.add_argument("--netlist", help="kicadsexpr .net file to cross-check pad nets against")
+    bu.add_argument("--config", help="stripboard.toml (default: derive the grid from Edge.Cuts)")
+    bu.add_argument("--cut-style", choices=["hole", "knife", "auto"], help="override the config")
+    bu.add_argument("--tol", type=float, help="snap tolerance in mm (overrides the config)")
+    bu.add_argument("--library", help="StripForge.pretty directory (default: the repository copy)")
+    bu.add_argument("--rules", help="stripforge.kicad_dru (default: the repository copy)")
+    bu.set_defaults(func=_build)
+
     for name, help_ in [
         ("plan", "snap + split + cut/link proposal, JSON report only"),
-        ("generate", "write strips/cuts/links into a .kicad_pcb"),
         ("drc", "run kicad-cli DRC and classify shorts/opens/parity"),
         ("sheet", "export copper-side build sheet (SVG/PDF) + CSVs"),
     ]:
