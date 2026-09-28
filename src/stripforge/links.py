@@ -51,7 +51,7 @@ from .board import rotate_nm
 from .edits import ref_number
 from .grid import Node, hole_label
 from .sexpr import atom, find, find_all, head, mm_to_nm
-from .splitter import Cut, assign_nets
+from .splitter import Cut, assign_nets, knife_keep_clear
 from .strips import Piece, Strip
 from .validate import validate
 
@@ -269,6 +269,7 @@ class LinkPlan:
     cut_moves: list[CutMove] = field(default_factory=list)
     needed: int = 0  # sum over split nets of (pieces - 1)
     bus_cuts: list[Cut] = field(default_factory=list)  # cuts added to isolate bus strips
+    trim_cuts: list[Cut] = field(default_factory=list)  # cuts ending net pieces at their last used hole
 
     @property
     def ok(self) -> bool:
@@ -336,6 +337,7 @@ class _Planner:
         cache: dict | None = None,
         locked: list[LinkProposal] = (),
         taken_refs: tuple[str, ...] = (),
+        pre_trim: bool = False,
     ) -> None:
         self.a = a
         # geometry that does not change while planning (courtyard crossings, part pins in the way),
@@ -378,9 +380,14 @@ class _Planner:
                 self.diag_by_dy.setdefault(dy, []).append(dx)
         self.use_bus = bool(getattr(cfg, "bus_strips", True))
         self.taken_refs = tuple(taken_refs)
+        self.pre_trim = pre_trim
         ed = getattr(a, "edits", None)
         self.no_cut_holes = {(c.row, int(c.col)) for c in getattr(ed, "no_cut", []) if c.style == "hole"}
         self.no_cut_segs = {(c.row, int(c.col)) for c in getattr(ed, "no_cut", []) if c.style == "knife"}
+        # knife_cuts parts: never cut right beside their pins (a slide keeps the cut further out)
+        near_holes, near_segs = knife_keep_clear(a.holes, getattr(cfg, "knife_cuts", ()))
+        self.no_cut_holes |= near_holes
+        self.no_cut_segs |= near_segs
         self._refresh()
         self.needed = sum(len(ids) - 1 for ids in self._all_groups_initial())
         # your links: laid first, exactly where they are
@@ -570,13 +577,14 @@ class _Planner:
         """
         out: dict[int, tuple[Cut, str, int]] = {}
         slots = self.a.holes.slot_segments
-        knife_only = str(self.a.config.cut_style) == "knife"
+        knife_only_all = str(self.a.config.cut_style) == "knife"
         row_claims = {n.col for n in self.claimed if n.row == p.row}
         for side in ("left", "right"):
             g = self._gap(p, side)
             if g is None:
                 continue
             cut, ca, cb = g
+            knife_only = knife_only_all or bool(cut.knife_for)
             if side == "left":
                 for x in range(p.col_start - 1, ca, -1):
                     opts = [] if knife_only else [h for h in range(x - 1, ca, -1) if self._cuttable(p.row, h)]
@@ -911,6 +919,9 @@ class _Planner:
 
     def run(self) -> LinkPlan:
         needed = self.needed
+        # a retry for nets left unjoined: trim the pieces to their pins first, so the freed strip
+        # is there for buses (the pieces then lose the landing holes beyond their last pin)
+        early = self._trim() if self.pre_trim else []
         while True:
             groups = self.groups()
             if not groups:
@@ -981,7 +992,66 @@ class _Planner:
             Unlinkable(net, [[self.pieces[i].label for i in ids] for ids in comps], self.max_link_mm)
             for net, comps in self.groups().items()
         ]
-        return LinkPlan(self.links, unl, merge_moves(self.moves), needed, self.bus_cuts)
+        trims = early + (self._trim() if getattr(self.a.config, "trim_pieces", True) else [])
+        return LinkPlan(self.links, unl, merge_moves(self.moves), needed, self.bus_cuts, trims)
+
+    def _trim(self) -> list[Cut]:
+        """Cut every net piece back to its outermost used hole (a pin, a link end, a slot's hole), so
+        the strip beyond is bare copper again, free for later links and buses. Only where at least
+        ``trim_min_free`` holes come free; a hole cut just past the last used hole where it can be
+        drilled, else a knife cut (never beside a knife_cuts part's pin)."""
+        min_free = int(getattr(self.a.config, "trim_min_free", 2))
+        knife_only = str(self.a.config.cut_style) == "knife"
+        slots = self.a.holes.slot_segments
+        used_nodes = set(self.a.holes.occupants) | set(self.a.holes.reserved) | set(self.claimed)
+        used_nodes |= {n for lk in self.links for n in lk.nodes}
+        out: list[Cut] = []
+        for p in list(self.pieces):
+            if p.net is None:
+                continue
+            used = [c for c in range(p.col_start, p.col_end + 1) if Node(p.row, c) in used_nodes]
+            if not used:
+                continue
+            strip = self.strips[p.row]
+            for side in ("right", "left"):
+                last = used[-1] if side == "right" else used[0]
+                end = p.col_end if side == "right" else p.col_start
+                step = 1 if side == "right" else -1
+                if abs(end - last) < min_free:
+                    continue
+                # try outward from the last used hole: a hole cut at k, else a knife cut just before k
+                choice = None
+                for k in range(last + step, end + step, step):
+                    seg = k - 1 if side == "right" else k  # segment between k - step and k
+                    if not knife_only and self._cuttable(p.row, k) and Node(p.row, k) not in self.bus_nodes:
+                        choice = ("hole", k, abs(end - k))
+                    elif (p.row, seg) not in slots and (p.row, seg) not in self.no_cut_segs:
+                        choice = ("knife", seg, abs(end - k) + 1)
+                    if choice:
+                        break
+                if choice is None or choice[2] < min_free:
+                    continue
+                style, pos, freed = choice
+                cut_id = f"X{len(self.a.split.cuts) + 1}"
+                pad = next((o.label for o in self.a.holes.occupants.get(Node(p.row, last), [])), "link end")
+                why = (p.net, "(bare strip)") if side == "right" else ("(bare strip)", p.net)
+                if style == "hole":
+                    strip.cut_hole(pos)
+                    cut = Cut(cut_id, p.row, float(pos), "hole", why, (pad, "trim"))
+                else:
+                    strip.cut_knife(pos)
+                    cut = Cut(cut_id, p.row, pos + 0.5, "knife", why, (pad, "trim"))
+                lo, hi = sorted((end, end - step * (freed - 1)))
+                cut.note = (
+                    f"trim: cut {cut.where} ends the {p.net!r} piece after {pad} "
+                    f"({hole_label(p.row, last)}); frees {hole_label(p.row, lo)}-{hole_label(p.row, hi)} "
+                    f"({freed} hole(s)) as bare strip"
+                )
+                self.a.split.cuts.append(cut)
+                out.append(cut)
+        if out:
+            self._refresh()
+        return out
 
     def _all_groups_initial(self) -> list[list[int]]:
         by_net: dict[str, list[int]] = {}
@@ -1161,6 +1231,19 @@ def propose(a, locked=(), taken_refs=()) -> LinkPlan:
         if not stuck or stuck <= set(priority):
             break
         priority = tuple(sorted(set(priority) | stuck))
+    if best[1].unlinkable and getattr(a.config, "trim_pieces", True):
+        a.strips, a.split.cuts, a.split.pieces = copy.deepcopy(start)
+        plan = _Planner(
+            a,
+            priority=priority,
+            cache=cache,
+            locked=copy.deepcopy(keep),
+            taken_refs=taken_refs,
+            pre_trim=True,
+        ).run()
+        score = (len(plan.unlinkable), len(plan.links), len(plan.bus_cuts))
+        if score[0] < best[0][0]:
+            best = (score, plan, (a.strips, a.split.cuts, a.split.pieces))
     _, plan, (a.strips, a.split.cuts, a.split.pieces) = best
     # a W you placed that could not be kept: give its ref to the new link on the same holes, else to
     # a new link of its net (pass 2 then moves that W onto the new link's holes)
@@ -1188,6 +1271,8 @@ def propose(a, locked=(), taken_refs=()) -> LinkPlan:
             )
     for m in plan.cut_moves:
         a.split.warnings.append(m.text)
+    for cut in plan.trim_cuts:
+        a.split.warnings.append(f"{cut.id}: {cut.note}")
     buses: dict[str, list[str]] = {}
     for lk in plan.links:
         if lk.bus:

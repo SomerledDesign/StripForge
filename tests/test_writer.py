@@ -14,7 +14,7 @@ SPLIT = [("P1", 0, 0, "A"), ("P2", 6, 0, "B"), ("P3", 0, 2, "A")]
 
 def build(tmp_path, parts=SPLIT, cfg=None, **kw):
     out = tmp_path / "out.kicad_pcb"
-    return writer.build(one_pad_board(tmp_path, parts), cfg or BoardConfig(), out, **kw), out
+    return writer.build(one_pad_board(tmp_path, parts), cfg or BoardConfig(trim_pieces=False), out, **kw), out
 
 
 def touches(seg, point):
@@ -44,7 +44,7 @@ def test_no_copper_touches_a_hole_cut(tmp_path):
 
 
 def test_knife_cut_leaves_a_gap_between_two_holes(tmp_path):
-    res, out = build(tmp_path, cfg=BoardConfig(cut_style=CutStyle.KNIFE))
+    res, out = build(tmp_path, cfg=BoardConfig(trim_pieces=False, cut_style=CutStyle.KNIFE))
     (cut,) = res.analysis.split.cuts
     assert cut.style == "knife" and cut.col == 2.5
     segs = segments(out)
@@ -53,7 +53,7 @@ def test_knife_cut_leaves_a_gap_between_two_holes(tmp_path):
 
 
 def test_cut_markers_are_embedded_board_only(tmp_path):
-    res, out = build(tmp_path, cfg=BoardConfig(cut_style=CutStyle.KNIFE))
+    res, out = build(tmp_path, cfg=BoardConfig(trim_pieces=False, cut_style=CutStyle.KNIFE))
     (cut_fp,) = footprints(out, "CUT")
     assert cut_fp.ref == "CUT1" and cut_fp.lib_id == "StripForge:CUT_Knife"
     assert (cut_fp.x_nm, cut_fp.y_nm) == (7_620_000, 1_270_000)
@@ -73,7 +73,7 @@ def test_rules_and_link_files_are_written_next_to_the_board(tmp_path):
 
 
 def test_rules_width_mismatch_warns(tmp_path):
-    res, _ = build(tmp_path, cfg=BoardConfig(strip_width_mm=2.0))
+    res, _ = build(tmp_path, cfg=BoardConfig(trim_pieces=False, strip_width_mm=2.0))
     assert any("gen_dru.py" in w for w in res.warnings)
     res, _ = build(tmp_path)
     assert not any("gen_dru.py" in w for w in res.warnings)
@@ -83,9 +83,9 @@ def test_input_is_never_overwritten(tmp_path):
     board = one_pad_board(tmp_path, SPLIT)
     before = board.read_bytes()
     with pytest.raises(writer.BuildError):
-        writer.build(board, BoardConfig(), board)
+        writer.build(board, BoardConfig(trim_pieces=False), board)
     assert board.read_bytes() == before
-    writer.build(board, BoardConfig(), tmp_path / "out.kicad_pcb")
+    writer.build(board, BoardConfig(trim_pieces=False), tmp_path / "out.kicad_pcb")
     assert board.read_bytes() == before
 
 
@@ -93,18 +93,18 @@ def test_foreign_tracks_are_refused(tmp_path):
     seg = '(segment (start 1 1) (end 3 1) (width 0.25) (layer "B.Cu") (net "A") (uuid "u1"))'
     board = one_pad_board(tmp_path, SPLIT, extra=seg)
     with pytest.raises(writer.BuildError, match="did not write"):
-        writer.build(board, BoardConfig(), tmp_path / "out.kicad_pcb")
+        writer.build(board, BoardConfig(trim_pieces=False), tmp_path / "out.kicad_pcb")
 
 
 def test_rebuild_replaces_own_output_and_is_deterministic(tmp_path):
     res, out = build(tmp_path)
     again = tmp_path / "again.kicad_pcb"
-    res2 = writer.build(out, BoardConfig(), again)
+    res2 = writer.build(out, BoardConfig(trim_pieces=False), again)
     assert res2.removed_previous == (43, 1)
     assert res2.segments == 43 and len(footprints(again, "CUT")) == 1
     # same board, same bytes (uuid5)
     third = tmp_path / "third.kicad_pcb"
-    writer.build(tmp_path / "in.kicad_pcb", BoardConfig(), third)
+    writer.build(tmp_path / "in.kicad_pcb", BoardConfig(trim_pieces=False), third)
     assert third.read_bytes() == out.read_bytes()
 
 
@@ -128,7 +128,7 @@ def test_pass2_places_links_on_their_holes(tmp_path):
     res, out = build(tmp_path)
     links = json.loads((tmp_path / "out.links.json").read_text())["links"]
     p2 = _pass2_board(tmp_path, links)
-    res2 = writer.build(p2, BoardConfig(), tmp_path / "p2.kicad_pcb")
+    res2 = writer.build(p2, BoardConfig(trim_pieces=False), tmp_path / "p2.kicad_pcb")
     assert res2.pass2 and [p.status for p in res2.placements] == ["placed"]
     assert res2.ok
     (w1,) = footprints(tmp_path / "p2.kicad_pcb", "W")
@@ -147,7 +147,7 @@ def test_pass2_reports_missing_extra_and_wrong_net(tmp_path):
     extra = dict(links[0], ref="W9")
     wrong = dict(links[1], net="B")
     p2 = _pass2_board(tmp_path, [wrong, extra])  # W1 missing
-    res2 = writer.build(p2, BoardConfig(), tmp_path / "p2.kicad_pcb")
+    res2 = writer.build(p2, BoardConfig(trim_pieces=False), tmp_path / "p2.kicad_pcb")
     status = {p.ref: p.status for p in res2.placements}
     assert status == {"W1": "missing", "W2": "wrong-net", "W9": "extra"}
     assert not res2.ok
@@ -158,10 +158,12 @@ def test_real_fixture_build(tmp_path, real_board_path, real_netlist_path):
     out = tmp_path / "b.kicad_pcb"
     res = writer.build(real_board_path, cfg, out, netlist=str(real_netlist_path))
     assert len(res.analysis.snapped) == 22 and not res.analysis.rejected
-    assert res.cut_markers == len(res.analysis.split.cuts) == 67
+    assert (
+        res.cut_markers == len(res.analysis.split.cuts) == 97
+    )  # 30 of them trim pieces back to their last used hole
     assert res.segments == len(segments(out))
     assert not any("Edge.Cuts" in w for w in res.warnings)  # the outline is the X56 board
-    assert res.segments == 1212 and res.segments_no_net == 86
+    assert res.segments == 1152 and res.segments_no_net == 712
     assert res.holes_drawn == 1256  # every free grid hole (pass 1: link holes still empty)
     # pass 2 on a copy: every proposed link is placed
     links = json.loads((tmp_path / "b.links.json").read_text())["links"]

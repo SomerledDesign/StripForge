@@ -24,7 +24,9 @@ from stripforge.sexpr import atom, find, find_all, head
 
 
 def build(tmp_path, parts, cfg=None, name="out.kicad_pcb"):
-    return writer.build(one_pad_board(tmp_path, parts), cfg or BoardConfig(), tmp_path / name)
+    return writer.build(
+        one_pad_board(tmp_path, parts), cfg or BoardConfig(trim_pieces=False), tmp_path / name
+    )
 
 
 # row A: A at A2 | cut A3 | B at A4  -> the A piece is A1-A2 (A1 free)
@@ -41,7 +43,7 @@ def test_pythagorean_offsets_are_whole_pitch_lengths():
 
 
 def test_diagonal_link_when_no_column_fits(tmp_path):
-    res = build(tmp_path, DIAGONAL, BoardConfig(bus_strips=False))
+    res = build(tmp_path, DIAGONAL, BoardConfig(trim_pieces=False, bus_strips=False))
     assert res.plan.ok and res.plan.needed == 1
     (lk,) = res.plan.links
     assert (lk.start, lk.end, lk.kind, lk.pitches) == ("A1", "D5", "diagonal", 5)
@@ -52,7 +54,7 @@ def test_diagonal_link_when_no_column_fits(tmp_path):
 
 
 def test_diagonal_links_can_be_turned_off(tmp_path):
-    cfg = BoardConfig(diagonal_links=False, bus_strips=False)
+    cfg = BoardConfig(trim_pieces=False, diagonal_links=False, bus_strips=False)
     res = build(tmp_path, DIAGONAL, cfg)
     assert not res.plan.ok and res.plan.links == []
     assert "on a diagonal" in res.plan.unlinkable[0].text
@@ -60,10 +62,12 @@ def test_diagonal_links_can_be_turned_off(tmp_path):
 
 def test_pass2_places_a_diagonal_link_rotated_onto_its_holes(tmp_path):
     board = one_pad_board(tmp_path, DIAGONAL)
-    res = writer.build(board, BoardConfig(bus_strips=False), tmp_path / "p1.kicad_pcb")
+    res = writer.build(board, BoardConfig(trim_pieces=False, bus_strips=False), tmp_path / "p1.kicad_pcb")
     links = json.loads((tmp_path / "p1.links.json").read_text())["links"]
     pass2_sim.add_links_to_board(board, links, tmp_path / "f8.kicad_pcb")
-    res2 = writer.build(tmp_path / "f8.kicad_pcb", BoardConfig(bus_strips=False), tmp_path / "p2.kicad_pcb")
+    res2 = writer.build(
+        tmp_path / "f8.kicad_pcb", BoardConfig(trim_pieces=False, bus_strips=False), tmp_path / "p2.kicad_pcb"
+    )
     assert [p.status for p in res2.placements] == ["placed"] and res2.ok
     (w1,) = [f for f in load_board(tmp_path / "p2.kicad_pcb").footprints if f.ref == "W1"]
     g = res.analysis.grid
@@ -98,7 +102,7 @@ def test_bus_strip_is_cut_down_to_what_it_uses(tmp_path):
     parts = [("P1", 1, 0, "A"), ("P2", 3, 0, "B"), ("P3", 5, 2, "C"), ("P4", 8, 2, "A"), ("P5", 18, 4, "D")]
     text = pcb(*[fp(r, hole(c, w), pad("1", "0 0", n)) for r, c, w, n in parts], outline=(0, 0, 50.8, 12.7))
     (tmp_path / "in.kicad_pcb").write_text(text)
-    res = writer.build(tmp_path / "in.kicad_pcb", BoardConfig(), tmp_path / "out.kicad_pcb")
+    res = writer.build(tmp_path / "in.kicad_pcb", BoardConfig(trim_pieces=False), tmp_path / "out.kicad_pcb")
     assert res.plan.ok
     (cut,) = res.plan.bus_cuts
     assert (cut.row, cut.style, cut.label) == (1, "hole", "B9")
@@ -123,7 +127,12 @@ def test_links_never_meet_and_never_pass_over_a_pin(tmp_path, real_board_path, r
 def test_max_link_mm_limits_link_length(tmp_path):
     parts = [("P1", 0, 0, "A"), ("P2", 6, 0, "B"), ("P3", 0, 4, "A")]  # A1 .. E1: 4 strips apart
     assert build(tmp_path, parts).plan.ok
-    res = build(tmp_path, parts, BoardConfig(max_link_mm=5.08, bus_strips=False), name="short.kicad_pcb")
+    res = build(
+        tmp_path,
+        parts,
+        BoardConfig(trim_pieces=False, max_link_mm=5.08, bus_strips=False),
+        name="short.kicad_pcb",
+    )
     assert not res.plan.ok and "up to 5.08 mm" in res.plan.unlinkable[0].text
 
 
@@ -164,12 +173,12 @@ def test_drawn_holes_are_not_parts_and_rebuild_is_identical(tmp_path):
     out = tmp_path / "out.kicad_pcb"
     assert {f.ref for f in load_board(out).footprints} >= {"P1", "P2"}
     assert not any(f.ref.startswith("SF_HOLES") for f in load_board(out).footprints)
-    writer.build(out, BoardConfig(), tmp_path / "again.kicad_pcb")
+    writer.build(out, BoardConfig(trim_pieces=False), tmp_path / "again.kicad_pcb")
     assert (tmp_path / "again.kicad_pcb").read_text() == out.read_text()
 
 
 def test_draw_holes_off(tmp_path):
-    res = build(tmp_path, [("P1", 0, 0, "A")], BoardConfig(draw_holes=False))
+    res = build(tmp_path, [("P1", 0, 0, "A")], BoardConfig(trim_pieces=False, draw_holes=False))
     assert res.holes_drawn == 0 and hole_pads(tmp_path / "out.kicad_pcb") == {}
 
 
@@ -183,7 +192,9 @@ def test_no_hole_next_to_another_drill(tmp_path):
         fp("MH1", hole(1, 1), pad("", "0 0", None, "np_thru_hole", "3.2")),
     )
     (tmp_path / "in.kicad_pcb").write_text(text)
-    writer.build(tmp_path / "in.kicad_pcb", BoardConfig(skip=["MH1"]), tmp_path / "out.kicad_pcb")
+    writer.build(
+        tmp_path / "in.kicad_pcb", BoardConfig(trim_pieces=False, skip=["MH1"]), tmp_path / "out.kicad_pcb"
+    )
     pads = hole_pads(tmp_path / "out.kicad_pcb")
     assert not {"B1", "B2", "B3", "A2", "C2"} & set(pads)
     assert {"A3", "D2", "B4"} <= set(pads)
@@ -229,7 +240,7 @@ OFF_PITCH = [("P1", 1, 0, "A"), ("P2", 3, 0, "B"), ("P3", 2, 2, "C"), ("P4", 5, 
 
 
 def test_off_pitch_diagonal_uses_a_rotated_link_d(tmp_path):
-    res = build(tmp_path, OFF_PITCH, BoardConfig(bus_strips=False))
+    res = build(tmp_path, OFF_PITCH, BoardConfig(trim_pieces=False, bus_strips=False))
     assert res.plan.ok and res.plan.needed == 1
     (lk,) = res.plan.links
     assert (lk.start, lk.end, lk.kind, lk.off_pitch) == ("A1", "C5", "diagonal", True)
@@ -241,7 +252,9 @@ def test_off_pitch_diagonal_uses_a_rotated_link_d(tmp_path):
     links = json.loads((tmp_path / "out.links.json").read_text())["links"]
     board = one_pad_board(tmp_path, OFF_PITCH)
     pass2_sim.add_links_to_board(board, links, tmp_path / "f8.kicad_pcb")
-    res2 = writer.build(tmp_path / "f8.kicad_pcb", BoardConfig(bus_strips=False), tmp_path / "p2.kicad_pcb")
+    res2 = writer.build(
+        tmp_path / "f8.kicad_pcb", BoardConfig(trim_pieces=False, bus_strips=False), tmp_path / "p2.kicad_pcb"
+    )
     assert [p.status for p in res2.placements] == ["placed"] and res2.ok
     (w1,) = [f for f in load_board(tmp_path / "p2.kicad_pcb").footprints if f.ref == "W1"]
     want = sorted(res.analysis.grid.hole_xy(n) for n in lk.nodes)
@@ -250,7 +263,7 @@ def test_off_pitch_diagonal_uses_a_rotated_link_d(tmp_path):
 
 
 def test_off_pitch_links_can_be_turned_off(tmp_path):
-    res = build(tmp_path, OFF_PITCH, BoardConfig(bus_strips=False, off_pitch_links=False))
+    res = build(tmp_path, OFF_PITCH, BoardConfig(trim_pieces=False, bus_strips=False, off_pitch_links=False))
     assert not res.plan.ok and res.plan.links == []
 
 

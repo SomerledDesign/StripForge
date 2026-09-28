@@ -154,6 +154,16 @@ class BoardConfig:
     # Parts not on the stripboard (hand-wired, panel-mounted): no snap, no strips for their pads,
     # listed as "wired off-board" on the build sheet. offboard_refs is the older name; both work.
     skip: list[str] = field(default_factory=list)
+    # Parts with big pads (e.g. a slide switch's 2.9 mm blade pads): every cut next to their pins is
+    # a knife cut between holes, never a drilled hole cut, placed so the hole beside each pin stays on
+    # that pin's net (the pad overhangs it); the link planner never slides those cuts closer.
+    knife_cuts: list[str] = field(default_factory=list)
+    # After link planning, cut every net piece back to its outermost used hole (pin, link end) when
+    # that frees at least trim_min_free holes, so the rest of the strip is bare copper again. When a
+    # net is left unjoined, planning is also tried with the pieces trimmed first (more bare strip for
+    # buses) and kept if it joins more.
+    trim_pieces: bool = True
+    trim_min_free: int = 4
     # Wire links (M2): the longest link the planner may propose, in mm (the Link_P* footprints go
     # up to 32 pitches, 81.28 mm). Links run down a column, along a strip (bridging a cut), or on a
     # diagonal from any free hole to any free hole (a rotated Link_P* when the length is a whole
@@ -204,6 +214,13 @@ def from_dict(data: dict) -> BoardConfig:
     if not isinstance(cfg.skip, list) or not all(isinstance(r, str) and r for r in cfg.skip):
         raise ValueError('skip must be a list of references, e.g. skip = ["SW3"]')
     cfg.skip = [str(r) for r in cfg.skip]
+    if not isinstance(cfg.knife_cuts, list) or not all(isinstance(r, str) and r for r in cfg.knife_cuts):
+        raise ValueError('knife_cuts must be a list of references, e.g. knife_cuts = ["SW2"]')
+    cfg.knife_cuts = [str(r) for r in cfg.knife_cuts]
+    if isinstance(cfg.trim_min_free, bool) or not isinstance(cfg.trim_min_free, int) or cfg.trim_min_free < 1:
+        raise ValueError(
+            f"trim_min_free must be a whole number of holes, 1 or more, got {cfg.trim_min_free!r}"
+        )
     if cfg.origin_mm is not None:
         if len(cfg.origin_mm) != 2:
             raise ValueError("origin_mm must be [x, y]")
@@ -222,7 +239,14 @@ def from_dict(data: dict) -> BoardConfig:
         setattr(cfg, name, float(v))
     if cfg.hole_drill_mm >= cfg.strip_width_mm:
         raise ValueError(f"hole_drill_mm ({cfg.hole_drill_mm:g}) must be smaller than strip_width_mm")
-    for name in ("diagonal_links", "off_pitch_links", "bus_strips", "draw_holes", "respect_edits"):
+    for name in (
+        "diagonal_links",
+        "off_pitch_links",
+        "bus_strips",
+        "draw_holes",
+        "respect_edits",
+        "trim_pieces",
+    ):
         if not isinstance(getattr(cfg, name), bool):
             raise ValueError(f"{name} must be true or false")
     # skip and offboard_refs mean the same; the rest of the code reads offboard_refs

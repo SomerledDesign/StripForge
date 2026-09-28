@@ -56,7 +56,9 @@ def test_counts_match_the_board(real):
     m, h = real["m2"], real["h2"]
     assert m.built == "built"
     cut_ids = items(h, "cut")
-    assert len(cut_ids) == len(m.a.split.cuts) == len(m.prep.old_cuts) == 67  # incl. the bus-strip cuts
+    assert (
+        len(cut_ids) == len(m.a.split.cuts) == len(m.prep.old_cuts) == 97
+    )  # incl. the bus-strip and trim cuts
     assert sorted(cut_ids) == sorted(f"X{fp.ref[3:]}" for fp in m.prep.old_cuts)
     assert len(re.findall(r'data-style="knife"', h)) == 26
     assert len(items(h, "link")) == 35 and [r.status for r in m.links] == ["placed"] * 35
@@ -162,7 +164,7 @@ def test_copper_view_is_mirrored_and_labelled_on_both_edges(real):
 def test_mirror_on_an_asymmetric_board(tmp_path):
     # one cut near the left edge (component side) must appear near the right edge on the copper view
     board = one_pad_board(tmp_path, [("P1", 0, 0, "A"), ("P2", 2, 0, "B")])
-    m = buildsheet.sheet_model(board, BoardConfig(), date=DATE)
+    m = buildsheet.sheet_model(board, BoardConfig(trim_pieces=False), date=DATE)
     (cut,) = m.a.split.cuts
     assert cut.label == "A2"
     (v,) = buildsheet.views(m, True)
@@ -212,11 +214,11 @@ def test_cli_sheet_writes_html_svg_and_csv(real, tmp_path, capsys):
     code = main(["sheet", str(real["p2"]), "--config", str(real["board"].parents[1] / "x56.toml"),
                  "-o", str(out), "--no-pdf", "--date", DATE])  # fmt: skip
     text = capsys.readouterr().out
-    assert code == 0 and "Cuts: 67, slot jobs: 2, wire links: 35 (35 placed)" in text
+    assert code == 0 and "Cuts: 97, slot jobs: 2, wire links: 35 (35 placed)" in text
     for suffix in (".html", ".copper.svg", ".component.svg", ".cuts.csv"):
         assert out.with_suffix(suffix).exists()
     rows = out.with_suffix(".cuts.csv").read_text().splitlines()
-    assert rows[0].startswith("id,strip,style,at") and len(rows) == 68
+    assert rows[0].startswith("id,strip,style,at") and len(rows) == 98
     assert main(["sheet", str(tmp_path / "missing.kicad_pcb"), "-o", str(out), "--no-pdf"]) == 2
     shutil.rmtree(tmp_path)
 

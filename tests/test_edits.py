@@ -63,23 +63,29 @@ def test_manual_table_in_toml(tmp_path):
 
 
 def build(tmp_path, cfg=None, parts=SPLIT, name="out.kicad_pcb"):
-    return writer.build(one_pad_board(tmp_path, parts), cfg or BoardConfig(), tmp_path / name)
+    return writer.build(
+        one_pad_board(tmp_path, parts), cfg or BoardConfig(trim_pieces=False), tmp_path / name
+    )
 
 
 def test_manual_cut_replaces_the_automatic_one_and_no_cut_is_avoided(tmp_path):
     auto = build(tmp_path)
     (c0,) = auto.analysis.split.cuts
-    res = build(tmp_path, BoardConfig(manual={"cuts": ["A6"]}), name="m.kicad_pcb")
+    res = build(tmp_path, BoardConfig(trim_pieces=False, manual={"cuts": ["A6"]}), name="m.kicad_pcb")
     (c,) = res.analysis.split.cuts
     assert (c.row, c.col, c.style) == (0, 5, "hole") and "[manual] cuts" in c.user
-    res = build(tmp_path, BoardConfig(manual={"no_cut": [f"A{int(c0.col) + 1}"]}), name="n.kicad_pcb")
+    res = build(
+        tmp_path,
+        BoardConfig(trim_pieces=False, manual={"no_cut": [f"A{int(c0.col) + 1}"]}),
+        name="n.kicad_pcb",
+    )
     (c,) = res.analysis.split.cuts
     assert c.row == 0 and c.col != c0.col and 0 < c.col < 6 and not c.user
     assert res.plan.ok
 
 
 def test_manual_link_is_locked(tmp_path):
-    res = build(tmp_path, BoardConfig(manual={"links": ["A3-C3"]}))
+    res = build(tmp_path, BoardConfig(trim_pieces=False, manual={"links": ["A3-C3"]}))
     (lk,) = res.plan.links
     assert (lk.start, lk.end, lk.origin) == ("A3", "C3", "config") and res.plan.ok
     assert lk.to_dict()["locked"] == "config"
@@ -87,10 +93,12 @@ def test_manual_link_is_locked(tmp_path):
 
 
 def test_manual_link_on_a_pin_or_shorting_two_nets_is_rejected(tmp_path):
-    res = build(tmp_path, BoardConfig(manual={"links": ["A1-C4"]}))
+    res = build(tmp_path, BoardConfig(trim_pieces=False, manual={"links": ["A1-C4"]}))
     assert any("A1-C4" in w for w in res.analysis.split.warnings + res.warnings)
     assert links(res) != [("A1", "C4")] and res.plan.ok
-    res = build(tmp_path, BoardConfig(manual={"links": ["A8-C8"]}), name="s.kicad_pcb")  # B to A
+    res = build(
+        tmp_path, BoardConfig(trim_pieces=False, manual={"links": ["A8-C8"]}), name="s.kicad_pcb"
+    )  # B to A
     assert any("A8-C8" in w and "short" in w for w in res.analysis.split.warnings + res.warnings)
     assert ("A8", "C8") not in links(res)
 
@@ -100,7 +108,7 @@ TWO = SPLIT + [("P4", 0, 4, "A"), ("P5", 6, 4, "C")]  # a second cut, on row E
 
 def pass2(tmp_path, cfg=None, parts=SPLIT):
     """Pass 1 then pass 2 (links placed): returns the built pass-2 board path."""
-    cfg = cfg or BoardConfig()
+    cfg = cfg or BoardConfig(trim_pieces=False)
     build(tmp_path, cfg, parts, name="p1.kicad_pcb")
     lks = json.loads((tmp_path / "p1.links.json").read_text())["links"]
     pass2_sim.add_links_to_board(tmp_path / "in.kicad_pcb", lks, tmp_path / "f8.kicad_pcb")
@@ -118,14 +126,14 @@ def edit(path, ref, hole, knife=False, delete=False):
     else:
         from stripforge.analyze import make_grid
 
-        g, _ = make_grid(b, BoardConfig())
+        g, _ = make_grid(b, BoardConfig(trim_pieces=False))
         x, y = g.hole_xy(parse_hole(hole))
         place_at(fp, x + (g.pitch_nm // 2 if knife else 0), y, fp.angle)
     save_board(b, path)
 
 
 def rebuild(path, cfg=None):
-    return writer.build(path, cfg or BoardConfig(), path, in_place=True)
+    return writer.build(path, cfg or BoardConfig(trim_pieces=False), path, in_place=True)
 
 
 def test_unchanged_rebuild_in_place_is_identical(tmp_path):
@@ -176,7 +184,7 @@ def test_link_moved_onto_a_pin_is_rejected_and_replanned(tmp_path):
 def test_respect_edits_false_plans_from_scratch(tmp_path):
     p2 = pass2(tmp_path)
     edit(p2, "W1", "A3")
-    res = rebuild(p2, BoardConfig(respect_edits=False))
+    res = rebuild(p2, BoardConfig(trim_pieces=False, respect_edits=False))
     assert links(res) == [("A2", "C2")] and res.plan.links[0].origin == ""
     assert not any(w.startswith("edits:") for w in res.warnings)
 
@@ -193,5 +201,7 @@ def test_build_sheet_marks_your_cuts_and_links(tmp_path):
     edit(p2, "W1", "A5")
     edit(p2, "CUT1", "A6")
     rebuild(p2)
-    html = buildsheet.render_html(buildsheet.sheet_model(p2, BoardConfig(), date="2026-09-28"))
+    html = buildsheet.render_html(
+        buildsheet.sheet_model(p2, BoardConfig(trim_pieces=False), date="2026-09-28")
+    )
     assert html.count("<b>(yours)</b>") == 2

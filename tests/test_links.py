@@ -11,7 +11,9 @@ from stripforge.links import LINK_MAX_PITCHES, link_footprint, to_csv
 
 
 def build(tmp_path, parts, cfg=None):
-    return writer.build(one_pad_board(tmp_path, parts), cfg or BoardConfig(), tmp_path / "out.kicad_pcb")
+    return writer.build(
+        one_pad_board(tmp_path, parts), cfg or BoardConfig(trim_pieces=False), tmp_path / "out.kicad_pcb"
+    )
 
 
 def test_link_footprint_names_match_the_library():

@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `knife_cuts = ["SW2"]`: every cut next to a listed part's pins is a knife cut, placed so the hole
+  beside each pin stays on that pin's net (its big pad overhangs it); the planner never slides those
+  cuts closer. Pins too close for that get a warning. Build sheet: "knife, per SW2 setting".
+- Trimming: after planning, each net piece is cut back to its outermost used hole (pin or link end)
+  when that frees at least `trim_min_free` (default 4) holes as bare strip (`trim_pieces`, default
+  on). A retry with the pieces trimmed first is tried when a net is left unjoined.
+
 - Your own cuts and links are kept: move, add or delete `CUT…` markers and move `W` links in the
   built `*-stripforge.kicad_pcb`, then build again (the plugin's Build strips on a `-stripforge`
   board rebuilds it in place; `stripforge build --in-place`): they are "locked" and StripForge only

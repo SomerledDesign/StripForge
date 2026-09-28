@@ -198,7 +198,8 @@ def _config_ref_warnings(board: Board, cfg: BoardConfig) -> list[str]:
     """Config entries naming parts that aren't on the board, or a part both skipped and fitted."""
     refs = {fp.ref for fp in board.footprints}
     out = []
-    for what, listed in (("slotted", cfg.slotted), ("[bend]", list(cfg.bend)), ("skip", cfg.skip)):
+    for what, listed in (("slotted", cfg.slotted), ("[bend]", list(cfg.bend)), ("skip", cfg.skip),
+                          ("knife_cuts", cfg.knife_cuts)):  # fmt: skip
         for r in listed:
             if r not in refs:
                 out.append(f"config: {r} is listed in {what} but is not on the board (typo or renamed?)")
@@ -235,7 +236,7 @@ def analyze_board(
         from .edits import from_config
 
         edits = from_config(cfg)
-    result = split(strips, holes, cfg.cut_style, edits)
+    result = split(strips, holes, cfg.cut_style, edits, knife_refs=cfg.knife_cuts)
     a = Analysis(
         board=board,
         grid=grid,

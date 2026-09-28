@@ -33,6 +33,7 @@ class Cut:
     reason: tuple[str, str]  # the two nets separated
     between: tuple[str, str] = ("", "")  # the pads either side, e.g. ("J2.3", "J2.4")
     user: str = ""  # a cut you made (where it came from, e.g. "CUT12 in the board"); never slid
+    knife_for: str = ""  # a knife cut made because of knife_cuts (the part refs, e.g. "SW2")
     note: str = field(default="", repr=False, compare=False)
     note_missing: str = field(default="", repr=False, compare=False)
 
@@ -86,6 +87,21 @@ def _row_pads(holes: HoleMap, row: int) -> list[tuple[int, str, str]]:
     return sorted(out)
 
 
+def knife_keep_clear(holes: HoleMap, knife_refs) -> tuple[set[tuple[int, int]], set[tuple[int, int]]]:
+    """For the ``knife_cuts`` parts: the holes right beside their pins (``(row, col)``, never cut: a
+    drilled hole there would cut into the big pad) and the strip segments that touch those holes
+    (``(row, seg)``: a knife cut there leaves the neighbour hole, whose copper the pad overhangs, on
+    another net). Knife cuts go further out, so the hole beside each pin stays on the pin's net."""
+    refs = set(knife_refs or ())
+    near_holes: set[tuple[int, int]] = set()
+    near_segs: set[tuple[int, int]] = set()
+    for node, occ in holes.occupants.items():
+        if refs & {o.ref for o in occ}:
+            near_holes |= {(node.row, node.col - 1), (node.row, node.col + 1)}
+            near_segs |= {(node.row, node.col - 1), (node.row, node.col)}
+    return near_holes, near_segs
+
+
 def place_cuts(
     strips: list[Strip],
     holes: HoleMap,
@@ -93,6 +109,7 @@ def place_cuts(
     fixed: list | None = None,
     no_cut: list | None = None,
     complete: bool = False,
+    knife_refs=(),
 ) -> tuple[list[Cut], list[str]]:
     """Cut every strip between neighbouring pads of different nets (see the module docstring).
 
@@ -100,7 +117,14 @@ def place_cuts(
     is and never slid, and a gap that already has one gets no cut of StripForge's. ``no_cut`` are
     spots StripForge must not cut. With ``complete`` (the fixed cuts are all the board's cuts), a gap
     with no fixed cut would short two nets: StripForge cuts it and says so.
+
+    ``knife_refs`` (``knife_cuts``) are parts with big pads: every cut next to one of their pins is a
+    knife cut, placed to leave the hole beside each of its pins on that pin's net (see
+    :func:`knife_keep_clear`); when the pins are too close for that, the best knife cut there is made
+    and a warning says so.
     """
+    knife_refs = set(knife_refs or ())
+    near_holes, near_segs = knife_keep_clear(holes, knife_refs)
     style = CutStyle(style)
     found: list[tuple[int, float, Cut]] = []
     warnings: list[str] = []
@@ -133,10 +157,24 @@ def place_cuts(
                 continue
             if any(ca < u.col < cb for u in mine):
                 continue  # the user's cut separates them
+            listed = sorted(
+                {o.ref for c in (ca, cb) for o in holes.occupants.get(Node(strip.row, c), [])} & knife_refs
+            )
+            if listed:
+                cut = _knife_for(strip.row, ca, cb, na, nb, la, lb, listed, holes, banned_segs, near_segs)
+                if complete:
+                    cut.note_missing = (
+                        f"no cut between {la} [{na}] and {lb} [{nb}] in the board: that would short the "
+                        f"two nets, so StripForge cuts {cut.where}"
+                    )
+                found.append((strip.row, cut.col, cut))
+                continue
             free = [
                 c
                 for c in range(ca + 1, cb)
-                if holes.is_free(Node(strip.row, c)) and (strip.row, c) not in banned_holes
+                if holes.is_free(Node(strip.row, c))
+                and (strip.row, c) not in banned_holes
+                and (strip.row, c) not in near_holes
             ]
             if style is not CutStyle.KNIFE and free:
                 mid2 = ca + cb  # compare 2*c against ca+cb to stay in integers
@@ -170,6 +208,12 @@ def place_cuts(
                 )
             found.append((strip.row, cut.col, cut))
         for u in mine:
+            if u.style == "hole" and (strip.row, int(u.col)) in near_holes:
+                warnings.append(
+                    f"{u.source}: hole cut at {u.label} is right beside a pin of a knife_cuts part "
+                    f"({', '.join(sorted(knife_refs))}): the drill cuts into its pad; a knife cut one hole "
+                    "further out is safer"
+                )
             left = [(c, n, lab) for c, n, lab in pads if c < u.col]
             right = [(c, n, lab) for c, n, lab in pads if c > u.col]
             ln, ll = (left[-1][1], left[-1][2]) if left else ("(bare strip)", "")
@@ -192,6 +236,33 @@ def place_cuts(
     return cuts, warnings
 
 
+def _knife_for(row, ca, cb, na, nb, la, lb, listed, holes, banned_segs, near_segs) -> Cut:
+    """The knife cut between pads ``ca`` and ``cb`` when one of them belongs to a knife_cuts part:
+    as far from that part's pins as it needs to be (leaving the hole beside each pin on its net),
+    then as central as possible."""
+    pins = [c for c in (ca, cb) if {o.ref for o in holes.occupants.get(Node(row, c), [])} & set(listed)]
+    segs = [c for c in range(ca, cb) if (row, c) not in banned_segs] or list(range(ca, cb))
+    clear = [c for c in segs if (row, c) not in near_segs and (row, c) not in holes.slot_segments]
+    clear = clear or [c for c in segs if (row, c) not in near_segs]
+    mid2 = ca + cb - 1
+
+    def key(c: int) -> tuple:
+        far = min(abs(2 * c + 1 - 2 * p) for p in pins)  # doubled distance to the nearest listed pin
+        return (-min(far, 3), abs(2 * c - mid2), c)
+
+    seg = min(clear or segs, key=key)
+    who = " and ".join(listed)
+    cut = Cut("", row, seg + 0.5, "knife", (na, nb), (la, lb), knife_for=who)
+    if not clear:
+        need = 3 if len(pins) == 2 else 2
+        cut.note = (
+            f"knife cut {cut.where} separating {la} [{na}] and {lb} [{nb}] (knife_cuts {who}): the pins are "
+            f"{cb - ca} hole(s) apart, too close to leave a spare hole beside each big pad (needs {need}); "
+            "the neighbour hole's copper sits within the pad's overhang, so check DRC clearance here"
+        )
+    return cut
+
+
 def assign_nets(strips: list[Strip], holes: HoleMap) -> list[Piece]:
     pieces: list[Piece] = []
     for strip in strips:
@@ -209,10 +280,12 @@ def assign_nets(strips: list[Strip], holes: HoleMap) -> list[Piece]:
 
 
 def split(
-    strips: list[Strip], holes: HoleMap, style: CutStyle | str = CutStyle.AUTO, edits=None
+    strips: list[Strip], holes: HoleMap, style: CutStyle | str = CutStyle.AUTO, edits=None, knife_refs=()
 ) -> SplitResult:
     if edits is None:
-        cuts, warnings = place_cuts(strips, holes, style)
+        cuts, warnings = place_cuts(strips, holes, style, knife_refs=knife_refs)
     else:
-        cuts, warnings = place_cuts(strips, holes, style, edits.cuts, edits.no_cut, edits.complete)
+        cuts, warnings = place_cuts(
+            strips, holes, style, edits.cuts, edits.no_cut, edits.complete, knife_refs=knife_refs
+        )
     return SplitResult(cuts=cuts, pieces=assign_nets(strips, holes), warnings=warnings)

@@ -353,6 +353,36 @@ SW2 = 0.16
   value (e.g. `SW2 = 0.16`), a miss along the strip suggests `slotted`, and a part whose pins match
   the pitch but sit off the grid is told how far to move it (KiCad: Move Exactly).
 
+### Big-pad parts: `knife_cuts`
+
+Parts whose pads overhang neighbouring holes (a slide switch's 2.9 mm blade pads, for example) need
+knife cuts, not drilled hole cuts, around them: a hole cut next to the pin would drill into the pad.
+List them:
+
+```toml
+knife_cuts = ["SW2"]
+```
+
+Every cut that isolates a pin of a listed part is a knife cut, placed so the hole beside each of
+its pins stays on that pin's net (the pad overhangs it). The link planner never slides those cuts
+closer. When two pins of different nets are too close to leave a spare hole beside each (one or two
+holes apart), the best knife cut is still made and a warning says so: check DRC clearance there.
+The build sheet marks them "knife, per SW2 setting". An unknown reference is reported.
+
+### Trim unused strip ends: `trim_pieces`
+
+After the links are planned, every net piece is cut back to its outermost used hole (a pin or a
+link end) when that frees at least `trim_min_free` holes (default 4) as bare copper again, free for
+other nets and buses:
+
+```toml
+# trim_pieces = true
+# trim_min_free = 4
+```
+
+Hole vs knife follows the usual rules (and `knife_cuts`). When a net is left unjoined, planning is
+also tried with the pieces trimmed first (more bare strip for buses) and kept if it joins more.
+
 ### Parts off the stripboard: `skip`
 
 `skip = ["SW3", "J9"]` lists parts that are not on the stripboard (panel-mounted, hand-wired). They

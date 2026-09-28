@@ -473,6 +473,14 @@ built board's CUT markers and on-hole `W` footprints when they differ from Strip
 unjoined is planned. Invalid edits are rejected with a warning (pin, cut or slot hole, short, wrong
 net); a deleted cut that would short is put back. The plugin rebuilds a `-stripforge` board in place.
 
+### 4.12 knife_cuts and trimming unused strip ends
+
+`knife_cuts = ["SW2"]`: every cut next to a listed part's pins is a knife cut, placed to leave the
+hole beside each pin on that pin's net; the planner never slides those cuts closer. After planning,
+`trim_pieces` (default on) cuts each net piece back to its outermost used hole when that frees at
+least `trim_min_free` (default 4) holes as bare strip. A retry with pieces trimmed first is tried
+when a net is left unjoined.
+
 ## 5. v0 scope
 
 In scope:

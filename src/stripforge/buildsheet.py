@@ -910,7 +910,10 @@ def _cut_how(cut: Cut) -> str:
     if cut.style == "hole":
         return f"hole <b>{cut.label}</b>"
     c = int(cut.col)
-    return f"<b>knife {hole_label(cut.row, c)}|{hole_label(cut.row, c + 1)}</b>"
+    how = f"<b>knife {hole_label(cut.row, c)}|{hole_label(cut.row, c + 1)}</b>"
+    if cut.knife_for:
+        how += f" (knife, per {_e(cut.knife_for)} setting)"
+    return how
 
 
 def render_html(model: SheetModel) -> str:

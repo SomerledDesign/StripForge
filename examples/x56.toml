@@ -20,6 +20,11 @@ offboard_refs = []   # pin-header wire pads for switches/battery are ON-board; l
 # within snap_tol_mm across it); the report then says how far to file each end hole, e.g. for the
 # BH23APC: "file hole U16 0.025" (0.635 mm) toward U17 (toward the part centre)". Place the part
 # with its footprint origin on a hole so both ends are filed the same (analyze warns otherwise).
+# Parts with big pads (a slide switch's 2.9 mm blade pads): knife cuts only, clear of the pads.
+# knife_cuts = ["SW2"]
+# After planning, cut each net piece back to its last used hole when that frees this many holes.
+# trim_pieces = true
+# trim_min_free = 4
 slotted = ["BT1"]            # MPD BH23APC battery holder: slot centres 32.385 mm apart, pins seat 31.75 mm
 slot_max_mm = 1.0
 # slot_max_mm_by_ref = { BT1 = 0.5 }
