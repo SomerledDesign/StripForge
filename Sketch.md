@@ -167,7 +167,8 @@ Notes:
   (`slot_max_mm`, default 1.0 mm, less than half a pitch; per-ref overrides in
   `slot_max_mm_by_ref`). For a listed part a pad further off than `snap_tol` is accepted when it
   lies along the strip (`|dx| ≤ slot_max`) and on the strip centreline (`|dy| ≤ snap_tol`). Each
-  such pad is a **slot job**, reported as "file hole V16 toward V17 by 0.318 mm" and kept in the
+  such pad is a **slot job**, reported as "file hole V16 0.025" (0.635 mm) toward V17 (toward the
+  part centre)" (the pad offset plus half the oval drill's excess length, 2026-09-27) and kept in the
   analysis (`Analysis.slot_jobs`, JSON `slot_jobs`) for the M3 build sheet. The hole a slot points
   toward is never used for a hole cut, and knife cuts avoid the slotted segment where they can.
   Slotted parts are never moved by the best-fit shift.
@@ -365,6 +366,10 @@ We make KiCad's **built-in** electrical checks do the work rather than inventing
   decision) and the library-not-configured warning (footprints are embedded). Unconnected items
   are also grouped by net, and positions are given as hole labels as well as mm. Exit 3 when
   kicad-cli is not found; its tests are skipped in CI.
+- **`[drc]` config table (2026-09-27):** `ignore` (KiCad DRC types, board-wide) and
+  `allow_overlap` (reference pairs whose courtyard items are accepted) filter items into a
+  "filtered (config)" bucket that is counted per type/pair, never silently dropped. Added for the
+  X56 TPI fixture, where J2's carrier courtyard overlaps C2 and C3 by design.
 - Measured on the real-parts fixture with `examples/x56.toml` (2026-09-27): pass 1 gives 0 shorts,
   0 clearance, 39 unconnected (exactly the links needed, net by net), 104 filtered `track_dangling`,
   and parity 0 against Mildrew's schematic; the simulated pass 2 (25 `W` links) gives 14
@@ -391,7 +396,7 @@ SVGs and `<out>.cuts.csv`.
   The scale is capped at 2× and fits 250 × 160 mm.
 - **3. Checklists in build order**, each line with a checkbox:
   - cuts grouped by strip (hole or knife);
-  - slot jobs ("file U16 toward U17 by 0.32 mm");
+  - slot jobs ("file U16 0.025" (0.635 mm) toward U17 (toward the part centre)");
   - wire links (ref, from, to, length in holes, footprint, net, placed or not);
   - parts, low profile first (links, resistors, diodes, then ICs/sockets, capacitors, headers,
     switches, other), with the hole of every pin.
@@ -423,8 +428,9 @@ SVGs and `<out>.cuts.csv`.
 - **Flow:**
   1. kipy gives the open board (`board.name`, `project.path`; checked against KiCad 10.0.4).
   2. A dialog offers to save first. The API has no "modified" flag, so the plugin always asks.
-  3. It uses `stripboard.toml` next to the board, otherwise derives the grid from Edge.Cuts, and
-     points out any other `*.toml` found there.
+  3. It uses `stripboard.toml` next to the board, else the only other `*.toml` there if it is a
+     valid StripForge config (noted in the report), else derives the grid from Edge.Cuts and
+     points out the other `*.toml` files found.
   4. It exports a fresh netlist from `<project>.kicad_sch` with kicad-cli (path from
      `get_kicad_binary_path`).
   5. It runs the CLI code in-process and shows the report in a dialog, with "Show in Finder" and
@@ -523,6 +529,21 @@ real-parts board: 22 footprints, 41 nets, 86 pads, with BT1 slotted.*
   The live IPC backend was deferred on purpose (§4.10). Kevin's in-KiCad click test and the M2
   mutation tests are open.
 - *Exit:* criterion 5 passes. Kevin's real build (criterion 8) is the final sign-off.
+
+**Future: one StripForge dialog (after 0.1.x).**
+- Replace the four toolbar buttons with **one "StripForge" button** that opens a single dialog
+  where the decisions are made and saved to `stripboard.toml`: board size (rows, cols, origin),
+  slotted parts (with the filing amount and the lopsided warning shown per part), DRC ignores and
+  allowed courtyard overlaps, cut style.
+- **Analyze inside the dialog** (live report pane; Build strips and Run DRC as buttons there).
+- **Built-in Sheet view:** a PDF-viewer-like preview of the build sheet (pages, zoom, copper /
+  component side), instead of only opening the browser.
+- Before writing it, look at how other KiCad / perfboard tools do dialogs and previews for code to
+  reuse. **perfboard-studio / PerfStudio** (medinstech; code Apache-2.0, 3D meshes CC-BY-SA-4.0)
+  is a candidate: Apache-2.0 code may be used in this GPL-3.0-or-later project with credit (keep
+  its LICENSE/NOTICE text and name it in Credits); do not copy the CC-BY-SA meshes. Note it uses
+  PySide6/Qt and Python 3.12+, while a KiCad 10 plugin has wxPython and Python 3.9, so ideas and
+  pure-Python parts port more easily than UI code. GPL-compatible KiCad plugins are fine too.
 
 ## 8. Jarvis / Mildrew split
 

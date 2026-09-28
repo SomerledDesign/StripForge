@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `[drc]` table in `stripboard.toml`: `ignore` (KiCad DRC types suppressed board-wide) and
+  `allow_overlap` (reference pairs whose courtyard overlaps are accepted). Applied by
+  `stripforge drc --config` and the plugin's Run DRC; suppressed items are counted in a
+  "filtered (config)" line. Unknown keys are an error, unknown type names a warning.
+- Analyze warns when a slotted part is placed lopsided ("BT1 slot offsets 0.000/0.635 mm; shift
+  -0.318 mm along the strip ... to centre it").
+- A part rejected only for being off along the strip now hints `slotted = ["REF"]`.
+
+### Changed
+
+- Slot jobs give the filing distance for the pad's drill (offset plus half an oval drill's excess
+  length) in inches and mm, toward the part centre: the BH23APC reads 0.025" (0.635 mm), not
+  0.32 mm. JSON `slot_jobs` gain `file_mm`, `file_in` and `inward`.
+- New StripForge icon (Kevin's 64 × 64 px "S" with wordmark) as `resources/icon.png` (PCM), and
+  regenerated toolbar icons cropped to the "S".
+- The plugin uses the only other `*.toml` next to the board (e.g. `X56.toml`) when there is no
+  `stripboard.toml` and it is a valid config.
+
+### Fixed
+
+- The plugin no longer says "Wrote <name>-stripforge.kicad_pcb" for a refused build when an old
+  output file exists.
+
 ## [0.1.0] - 2026-09-27
 
 M3: build sheet and KiCad plugin.

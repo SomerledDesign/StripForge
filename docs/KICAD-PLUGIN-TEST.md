@@ -13,7 +13,7 @@ KiCad"). Use a **copy** of a project, because Build strips writes files next to 
 4. **Expect four StripForge buttons** on the PCB editor toolbar ("S" icon with A / B / D / S badges).
    If they are missing: check the status-bar warnings, and Preferences > Plugins > "Recreate Plugin
    Environment", then reopen the PCB editor.
-5. If the project has an X56-style config, copy it next to the board as `stripboard.toml`.
+5. If the project has an X56-style config, copy it next to the board as `stripboard.toml` (a single other `*.toml`, e.g. `X56.toml`, is also picked up; the report says which config was used).
 6. Click **StripForge: Analyze**.
    - Expect a "Save the board first?" dialog, then a report dialog that starts with `Board:`,
      `Config:` and `Netlist: exported from <project>.kicad_sch`.

@@ -98,8 +98,9 @@ is private.
      installed) and opens it in the browser.
 
 Each action offers to save the board first, because StripForge reads the saved file. It uses
-`stripboard.toml` next to the board if there is one, otherwise it derives the grid from the
-Edge.Cuts outline. If `<project>.kicad_sch` is there, it exports a fresh netlist with kicad-cli to
+`stripboard.toml` next to the board if there is one. Without it, it uses the only other `*.toml`
+next to the board (e.g. `X56.toml`) if that is a valid StripForge config, and says so in the
+report; with several, or none, it derives the grid from the Edge.Cuts outline. If `<project>.kicad_sch` is there, it exports a fresh netlist with kicad-cli to
 cross-check pad nets. Results appear in a dialog ("Show in Finder", "Copy report"). If a button
 does nothing, see the status-bar warnings or Preferences > Plugins > "Recreate Plugin
 Environment". To uninstall a hand install, delete the folder from step 2. Manual test steps:
@@ -203,7 +204,7 @@ view SVGs and `<out>.cuts.csv` are always written. The sheet has:
 2. **Component side (top):** part outlines, refs, values, pin-1 marks and links drawn as wires.
 3. **Checklists in build order** with checkboxes:
    - cuts grouped by strip;
-   - slot jobs ("file U16 toward U17 by 0.32 mm");
+   - slot jobs ("file U16 0.025" (0.635 mm) toward U17 (toward the part centre)");
    - wire links (ref, from, to, length in holes, footprint);
    - parts, low-profile first, with every pin's hole.
 4. **Net check:** every net and every hole it must touch, for a continuity meter.
@@ -225,12 +226,39 @@ Large boards are split across pages.
 - **reported, not failing**: a `W` link over a part courtyard (a wire can run under a part), and
   other warnings (silk), summarised by type.
 
+**Config filters (`[drc]` in `stripboard.toml`):** pass `--config` (the plugin always does) and
+the table's filters apply. Everything they suppress is still counted, one line per type or pair:
+`filtered (config): 1 courtyards_overlap J2/C2, 2 pth_inside_courtyard J2/C2, 1 silk_overlap`.
+
+```toml
+[drc]
+# KiCad 10 DRC type names, suppressed board-wide (a name KiCad doesn't have is warned about)
+ignore = ["silk_overlap", "silk_over_copper", "silk_edge_clearance"]
+# courtyard overlaps accepted for exactly these reference pairs (order doesn't matter): covers
+# courtyards_overlap and pth_/npth_inside_courtyard between the two parts; others still count
+allow_overlap = [["J2", "C2"], ["J2", "C3"]]
+```
+
+Unknown keys in `[drc]` are an input error (exit 2). The type names are the `type` values in
+kicad-cli's JSON report (KiCad 10's list is in `stripforge.config.KICAD_DRC_TYPES`).
+
 Schematic parity needs the `.kicad_sch` (and `.kicad_pro`) next to the board with the same name;
 without it kicad-cli skips parity and the report says so. For a built board with another name
 (`<name>-stripforge.kicad_pcb`), pass `--schematic <name>.kicad_sch`: DRC then runs on a shadow copy
 of the project in a temp folder. The KiCad plugin does this automatically. After pass 1 the unconnected items are
 exactly the links still to add; after pass 2 they should be 0. Exit 3 means kicad-cli was not found
 (the tests needing it are skipped in CI).
+
+### Slotted parts
+
+Parts whose pins are not on the 2.54 mm grid along a strip (the MPD BH23APC 23A holder, BT1) are
+listed in `slotted = ["BT1"]`. Their end holes are filed toward the part centre instead of
+rejecting the part. The filing distance is the pad's offset from its hole plus half of how much
+longer than wide its drill is: for the BH23APC (oval 1.635 × 1.0 mm slots 0.3175 mm inboard;
+slot centres 32.385 mm apart, pins seat 31.75 mm apart) that is **0.025" (0.635 mm)** at each
+end. Place the footprint with its origin on a hole; if one end is nearer its hole than the other,
+analyze warns, e.g. "BT1 slot offsets 0.000/0.635 mm; shift -0.318 mm along the strip (toward lower
+hole numbers) to centre it" (in KiCad: Move Exactly, X -0.3175).
 
 ### Strip width and the DRC rules
 
@@ -271,10 +299,13 @@ tools/            make_pcm_zip.py (PCM package), make_icons.py (toolbar icons)
 
 ### Icon
 
-The StripForge icon is `assets/StripForge-icon-1024x1024.png` (1488 × 1328 px; a JPEG copy sits
-next to it). The KiCad plugin manager icon is `resources/icon.png`, a 64 × 64 px crop of the "S".
-The PCM `metadata.json` schema has no icon field: the PCM takes the icon from `resources/icon.png`
-in the package archive, and from an `icon.png` next to `metadata.json` in the metadata repository.
+The StripForge icon is `resources/icon.png`: Kevin's 64 × 64 px icon (the copper "S" with a
+"StripForge" wordmark, 2026-09-27), used as the KiCad Plugin and Content Manager icon. The PCM
+`metadata.json` schema has no icon field: the PCM takes the icon from `resources/icon.png` in the
+package archive, and from an `icon.png` next to `metadata.json` in the metadata repository. The
+toolbar icons in `plugins/icons/` (24 and 48 px, one per action with a letter badge) are made from
+it by `python tools/make_icons.py`, cropped to the "S" because the wordmark can't be read at
+toolbar size. The larger artwork (`assets/StripForge-icon-1024x1024.png`) is kept for reference.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) and [CHANGELOG.md](CHANGELOG.md).
 

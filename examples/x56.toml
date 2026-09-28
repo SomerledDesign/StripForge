@@ -17,7 +17,19 @@ snap_tol_mm = 0.15
 cut_marker_layer = "User.1"
 offboard_refs = []   # pin-header wire pads for switches/battery are ON-board; list true off-board refs here
 # Slotted parts: a listed part's pad may sit up to slot_max_mm off its hole along the strip (and
-# within snap_tol_mm across it); the report then says "file hole V16 toward V17 by 0.318 mm".
-slotted = ["BT1"]            # MPD BH23APC battery holder (pads 0.3175 mm inboard of holes 1 and 14)
+# within snap_tol_mm across it); the report then says how far to file each end hole, e.g. for the
+# BH23APC: "file hole U16 0.025" (0.635 mm) toward U17 (toward the part centre)". Place the part
+# with its footprint origin on a hole so both ends are filed the same (analyze warns otherwise).
+slotted = ["BT1"]            # MPD BH23APC battery holder: slot centres 32.385 mm apart, pins seat 31.75 mm
 slot_max_mm = 1.0
 # slot_max_mm_by_ref = { BT1 = 0.5 }
+
+# DRC filters for `stripforge drc` and the plugin's Run DRC. Everything filtered is still counted
+# in the report ("filtered (config): ..."). Keep this table last in the file (TOML tables end the
+# top-level keys). Type names are KiCad 10's DRC "type" values, e.g. silk_overlap, silk_over_copper,
+# silk_edge_clearance, courtyards_overlap.
+# [drc]
+# ignore = ["silk_overlap", "silk_over_copper", "silk_edge_clearance"]   # board-wide
+# # courtyard overlaps (courtyards_overlap, pth_/npth_inside_courtyard) accepted for exactly these
+# # reference pairs, order-insensitive; any other overlap is still reported
+# allow_overlap = [["J2", "C2"], ["J2", "C3"]]
