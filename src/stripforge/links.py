@@ -48,6 +48,7 @@ import math
 from dataclasses import dataclass, field
 
 from .board import rotate_nm
+from .edits import ref_number
 from .grid import Node, hole_label
 from .sexpr import atom, find, find_all, head, mm_to_nm
 from .splitter import Cut, assign_nets
@@ -64,7 +65,20 @@ LINK_COURTYARD_NM = 1_100_000  # half-width of the Link_P* courtyard (pad radius
 # a hole's centre: lead radius (0.5) + wire radius (0.3) + a little.
 LEAD_CLEAR_NM = 900_000
 PLAN_ROUNDS = 4
-KIND_RANK = {"vertical": 0, "horizontal": 1, "diagonal": 2, "bus": 3}
+# Candidate tiers, the first thing a candidate is ranked by (straight links are always the desire):
+# a straight-down link (sliding cuts if need be), a link along a strip, two straight-down links
+# meeting on a bare bus strip, a whole-pitch diagonal, an off-pitch diagonal, and last a bus strip
+# reached by a diagonal leg. Within a tier: courtyards crossed, cut slides, knife cuts, length.
+TIER_VERTICAL, TIER_HORIZONTAL, TIER_BUS, TIER_DIAGONAL, TIER_OFF_PITCH, TIER_BUS_DIAGONAL = range(6)
+
+
+def _tier(dx: int, dy: int) -> int:
+    if dx == 0:
+        return TIER_VERTICAL
+    if dy == 0:
+        return TIER_HORIZONTAL
+    sq = dx * dx + dy * dy
+    return TIER_DIAGONAL if math.isqrt(sq) ** 2 == sq else TIER_OFF_PITCH
 
 
 def pythagorean_offsets(max_pitches: int) -> list[tuple[int, int]]:
@@ -124,6 +138,7 @@ class LinkProposal:
     footprint: str  # e.g. "StripForge:Link_P10.16"
     col_b: int | None = None  # column of pad 2 (None: the same column, a straight-down link)
     bus: str = ""  # "R" when this is one of a pair of links meeting on bus strip R
+    origin: str = ""  # "board" (a W you placed), "config" ([manual] links): kept as it is
 
     @property
     def end_col(self) -> int:
@@ -196,6 +211,7 @@ class LinkProposal:
             "kind": self.kind,
             "rotation": self.rotation,
             "bus": self.bus,
+            "locked": self.origin,
             "pitches": self.pitches,
             "length_mm": self.length_mm,
             "footprint": self.footprint,
@@ -211,7 +227,22 @@ class CutMove:
 
     @property
     def text(self) -> str:
-        return f"{self.cut_id}: moved from {self.before} to {self.after} so a {self.net!r} link can land"
+        nets = self.net.split("\n")
+        what = f"a {nets[0]!r} link" if len(nets) == 1 else " and ".join(repr(n) for n in nets) + " links"
+        return f"{self.cut_id}: moved from {self.before} to {self.after} so {what} can land"
+
+
+def merge_moves(moves: list[CutMove]) -> list[CutMove]:
+    """One entry per cut: a cut slid twice (for two nets) is reported from its first place to its last."""
+    out: dict[str, CutMove] = {}
+    for m in moves:
+        prev = out.get(m.cut_id)
+        if prev is None:
+            out[m.cut_id] = CutMove(m.cut_id, m.before, m.after, m.net)
+        else:
+            nets = prev.net.split("\n")
+            prev.after, prev.net = m.after, "\n".join(nets + [m.net] if m.net not in nets else nets)
+    return [m for m in out.values() if m.before != m.after]
 
 
 @dataclass
@@ -246,7 +277,7 @@ class LinkPlan:
     @property
     def joins(self) -> int:
         """Piece-to-piece joins made (a bus-strip pair of links is one join)."""
-        return len(self.links) - sum(1 for lk in self.links if lk.bus) // 2
+        return self.needed - sum(len(u.groups) - 1 for u in self.unlinkable)
 
     def to_dict(self) -> dict:
         return {
@@ -298,7 +329,13 @@ def _overlap(a: Box, b: Box) -> bool:
 
 class _Planner:
     def __init__(
-        self, a, skip_refs: set[str] = frozenset(), priority: tuple[str, ...] = (), cache: dict | None = None
+        self,
+        a,
+        skip_refs: set[str] = frozenset(),
+        priority: tuple[str, ...] = (),
+        cache: dict | None = None,
+        locked: list[LinkProposal] = (),
+        taken_refs: tuple[str, ...] = (),
     ) -> None:
         self.a = a
         # geometry that does not change while planning (courtyard crossings, part pins in the way),
@@ -340,7 +377,23 @@ class _Planner:
             if dy:
                 self.diag_by_dy.setdefault(dy, []).append(dx)
         self.use_bus = bool(getattr(cfg, "bus_strips", True))
+        self.taken_refs = tuple(taken_refs)
+        ed = getattr(a, "edits", None)
+        self.no_cut_holes = {(c.row, int(c.col)) for c in getattr(ed, "no_cut", []) if c.style == "hole"}
+        self.no_cut_segs = {(c.row, int(c.col)) for c in getattr(ed, "no_cut", []) if c.style == "knife"}
         self._refresh()
+        self.needed = sum(len(ids) - 1 for ids in self._all_groups_initial())
+        # your links: laid first, exactly where they are
+        for lk in locked:
+            self.links.append(lk)
+            self.segments.append(lk.nodes)
+            self.claimed.update(lk.nodes)
+            for n in lk.nodes:
+                i = self.piece_at.get(n)
+                if i is not None and not self.pieces[i].nets and not self.pieces[i].pads:
+                    self.bus_nodes[n] = lk.net
+        if locked:
+            self._refresh()
 
     # pieces and connectivity
     def _refresh(self) -> None:
@@ -505,7 +558,7 @@ class _Planner:
             return None
         for cut in self.a.split.cuts:
             if cut.row == p.row and ca < cut.col < cb:
-                return cut, ca, cb
+                return None if cut.user else (cut, ca, cb)  # your cut stays where you put it
         return None
 
     def _slide_options(self, p: Piece) -> dict[int, tuple[Cut, str, int]]:
@@ -530,7 +583,11 @@ class _Planner:
                     hole = next((h for h in opts if not row_claims & set(range(h, p.col_start))), None)
                     if hole is not None:
                         out.setdefault(x, (cut, "hole", hole))
-                    elif (p.row, x - 1) not in slots and not row_claims & set(range(x, p.col_start)):
+                    elif (
+                        (p.row, x - 1) not in slots
+                        and (p.row, x - 1) not in self.no_cut_segs
+                        and not row_claims & set(range(x, p.col_start))
+                    ):
                         out.setdefault(x, (cut, "knife", x - 1))
             else:
                 for x in range(p.col_end + 1, cb):
@@ -538,13 +595,17 @@ class _Planner:
                     hole = next((h for h in opts if not row_claims & set(range(p.col_end + 1, h + 1))), None)
                     if hole is not None:
                         out.setdefault(x, (cut, "hole", hole))
-                    elif (p.row, x) not in slots and not row_claims & set(range(p.col_end + 1, x + 1)):
+                    elif (
+                        (p.row, x) not in slots
+                        and (p.row, x) not in self.no_cut_segs
+                        and not row_claims & set(range(p.col_end + 1, x + 1))
+                    ):
                         out.setdefault(x, (cut, "knife", x))
         return out
 
     def _cuttable(self, row: int, col: int) -> bool:
         node = Node(row, col)
-        return self.a.holes.is_free(node) and node not in self.claimed
+        return self.a.holes.is_free(node) and node not in self.claimed and (row, col) not in self.no_cut_holes
 
     def _apply_slide(self, cut: Cut, style: str, pos: int, net: str) -> None:
         strip = self.strips[cut.row]
@@ -607,7 +668,7 @@ class _Planner:
                         continue
                     knives = sum(1 for _, style, _ in need if style == "knife")
                     cost = (
-                        self._overlaps(col, p.row, q.row),
+                        TIER_VERTICAL,
                         self._crossings(col, p.row, q.row),
                         0,
                         len(need),
@@ -654,9 +715,9 @@ class _Planner:
                     lk = LinkProposal("", net, c, p.row, n2.row, "", col_b=n2.col)
                     lk.footprint = link_footprint_for(lk.dx, lk.dy)
                     cost = (
-                        0,
+                        _tier(lk.dx, lk.dy),
                         self._crossings_any(n1, n2),
-                        KIND_RANK[lk.kind],
+                        0,
                         0,
                         0,
                         lk.span,
@@ -668,17 +729,19 @@ class _Planner:
                     yield cost, net, [lk], [], None
 
     def _legs_to(self, comp: list[int], bus: Piece, avoid: list[tuple[Node, Node]], limit: int | None = None):
-        """Links from any free hole of ``comp`` to bare piece ``bus``: straight down/up a column, or
-        on a diagonal. Cheapest first: ``(crossings, kind, pitches, col, n1, n2)``; with ``limit``,
-        only the cheapest ``limit`` of them (exact: pairs are checked in (kind, pitches, col) order
-        and the search stops once ``limit`` legs cross no courtyard)."""
+        """Links from any free hole of ``comp`` to bare piece ``bus``: straight down/up a column (also
+        from a hole a piece gains by sliding one of its cuts), or on a diagonal. Cheapest first:
+        ``(crossings, diagonal, slides, knives, length, col, n1, n2, need)``; with ``limit``, only the
+        cheapest ``limit`` (exact: groups are checked in (straight, no slide, length) order and the
+        search stops once ``limit`` legs cross no courtyard)."""
         taken = {n for seg in avoid for n in seg}
         bus_cols = {
             c
             for c in range(bus.col_start, bus.col_end + 1)
             if (n := Node(bus.row, c)) not in taken and self.free(n)
         }
-        groups: dict[tuple[bool, int], list[tuple[int, int, list[int]]]] = {}  # (diag, dx²+k²) -> legs
+        # (diagonal, slides, dx² + k²) -> [(row, dx, cols, need-by-col)]
+        groups: dict[tuple[bool, int, int], list] = {}
         for i in comp:
             p = self.pieces[i]
             k = abs(p.row - bus.row)
@@ -687,33 +750,43 @@ class _Planner:
             sign = 1 if bus.row > p.row else -1
             cols = [c for c in range(p.col_start, p.col_end + 1)
                     if (n := Node(p.row, c)) not in taken and self.free(n)]  # fmt: skip
-            if not cols:
-                continue
-            for dx in [0, *self.diag_by_dy.get(k, [])]:
-                groups.setdefault((dx != 0, dx * dx + k * k), []).append((p.row, dx * sign, cols))
+            if cols:
+                for dx in [0, *self.diag_by_dy.get(k, [])]:
+                    groups.setdefault((dx != 0, 0, dx * dx + k * k), []).append((p.row, dx * sign, cols, {}))
+            # straight legs from a hole the piece gains by sliding a cut along its gap
+            slid = {}
+            for col, opt in self._slide_options(p).items():
+                if p.col_start <= col <= p.col_end or col not in bus_cols:
+                    continue
+                n1 = Node(p.row, col)
+                moving = opt[0].style == "hole" and int(opt[0].col) == col
+                if n1 in taken or not (self.free(n1) or moving and self._cuttable(p.row, col)):
+                    continue
+                slid[col] = [opt]
+            if slid:
+                groups.setdefault((False, 1, k * k), []).append((p.row, 0, sorted(slid), slid))
         out = []
         clean = 0
-        for diag, sq in sorted(groups):
+        for diag, slides, sq in sorted(groups):
             legs = sorted(
                 [
-                    (c, Node(row, c), Node(bus.row, c + dx))
-                    for row, dx, cols in groups[(diag, sq)]
+                    (c, Node(row, c), Node(bus.row, c + dx), need.get(c, []))
+                    for row, dx, cols, need in groups[(diag, slides, sq)]
                     for c in cols
                     if c + dx in bus_cols
                 ],
                 key=lambda t: (t[0], t[1].row, t[2].col),
             )
-            for c, n1, n2 in legs:
+            for c, n1, n2, need in legs:
                 if self._blocked(n1, n2) or self._link_conflicts(n1, n2, avoid):
                     continue
                 crossings = self._crossings_any(n1, n2)
-                out.append(
-                    (crossings, KIND_RANK["diagonal" if diag else "vertical"], math.sqrt(sq), c, n1, n2)
-                )
+                knives = sum(1 for _, style, _ in need if style == "knife")
+                out.append((crossings, diag, slides, knives, math.sqrt(sq), c, n1, n2, need))
                 clean += crossings == 0
             if limit is not None and clean >= limit:
                 break
-        out.sort(key=lambda t: t[:4])
+        out.sort(key=lambda t: t[:6])
         return out if limit is None else out[:limit]
 
     def _bus_candidates(self, net: str, comps: list[list[int]]):
@@ -731,15 +804,19 @@ class _Planner:
                     ):
                         continue
                     best = None
-                    for cx, kx, lx, colx, a1, a2 in self._legs_to(comps[x], bus, [], 6):
-                        for cy, ky, ly, coly, b1, b2 in self._legs_to(comps[y], bus, [(a1, a2)], 1):
+                    for cx, dgx, sx, kx, lx, colx, a1, a2, needx in self._legs_to(comps[x], bus, [], 6):
+                        for cy, dgy, sy, ky, ly, coly, b1, b2, needy in self._legs_to(
+                            comps[y], bus, [(a1, a2)], 1
+                        ):
+                            if {id(c) for c, _, _ in needx} & {id(c) for c, _, _ in needy}:
+                                break  # both legs would slide the same cut
                             span = lx + ly + abs(a2.col - b2.col) / 100
                             cost = (
-                                0,
+                                TIER_BUS_DIAGONAL if dgx or dgy else TIER_BUS,
                                 cx + cy,
-                                KIND_RANK["bus"],
-                                kx + ky,
                                 0,
+                                sx + sy,
+                                kx + ky,
                                 span,
                                 0,
                                 bus.row,
@@ -747,11 +824,11 @@ class _Planner:
                                 net,
                             )
                             if best is None or cost < best[0]:
-                                best = (cost, (a1, a2), (b1, b2))
+                                best = (cost, (a1, a2), (b1, b2), needx + needy)
                             break
                     if best is None:
                         continue
-                    cost, leg_a, leg_b = best
+                    cost, leg_a, leg_b, need = best
                     links = []
                     for n1, n2 in (leg_a, leg_b):
                         top, bot = sorted((n1, n2), key=lambda n: n.row)
@@ -762,7 +839,7 @@ class _Planner:
                             lk.col_b = None
                         lk.footprint = link_footprint_for(lk.dx, lk.dy)
                         links.append(lk)
-                    yield cost, net, links, [], (bus.row, bus.col_start, bus.col_end)
+                    yield cost, net, links, need, (bus.row, bus.col_start, bus.col_end)
 
     def _best_offset(self, net: str, comps: list[list[int]]):
         """The cheapest along-a-strip or diagonal candidate for ``net`` (cached while it stays
@@ -792,8 +869,8 @@ class _Planner:
 
     def _still_valid(self, cand) -> bool:
         """Can a bus candidate found in an earlier iteration still be laid as it is?"""
-        _, _, links, _, span = cand
-        if self._bus_index(span) is None:
+        _, _, links, need, span = cand
+        if need or self._bus_index(span) is None:  # a cut slide may be stale: recompute
             return False
         for lk in links:
             n1, n2 = lk.nodes
@@ -824,6 +901,8 @@ class _Planner:
             if not knife_only and self._cuttable(bus.row, hole):
                 strip.cut_hole(hole)
                 cut = Cut(cut_id, bus.row, float(hole), "hole", why, ("bus", "bare strip"))
+            elif (bus.row, seg) in self.no_cut_segs:
+                continue  # no_cut: leave the rest of the bare strip on the bus
             else:
                 strip.cut_knife(seg)
                 cut = Cut(cut_id, bus.row, seg + 0.5, "knife", why, ("bus", "bare strip"))
@@ -831,25 +910,31 @@ class _Planner:
             self.bus_cuts.append(cut)
 
     def run(self) -> LinkPlan:
-        needed = sum(len(ids) - 1 for ids in self._all_groups_initial())
+        needed = self.needed
         while True:
             groups = self.groups()
             if not groups:
                 break
             best, best_key = None, None
+            net_tier: dict[str, int] = {}
             for net, comps in groups.items():
                 cands = list(self._candidates(net, comps, allow_slides=True))
-                off = self._best_offset(net, comps)
-                if off is not None:
-                    cands.append(off)
+                if not cands:  # no straight link: along a strip or a diagonal
+                    off = self._best_offset(net, comps)
+                    if off is not None:
+                        cands.append(off)
                 for cand in cands:
+                    net_tier[net] = min(net_tier.get(net, 99), cand[0][0])
                     key = (net not in self.priority, *cand[0])
                     if best_key is None or key < best_key:
                         best, best_key = cand, key
             if self.use_bus:
-                # bus strips: for any net when nothing else fits, and always for priority nets (the
-                # ones an earlier round left unjoined) so they get their bus before others box them in
-                bus_nets = groups if best is None else {n: c for n, c in groups.items() if n in self.priority}
+                # bus strips (two straight links beat a diagonal): for any net with nothing better
+                # than a diagonal, and always for priority nets (the ones an earlier round left
+                # unjoined) so they get their bus before others box them in
+                bus_nets = {
+                    n: c for n, c in groups.items() if net_tier.get(n, 99) > TIER_BUS or n in self.priority
+                }
                 for net, comps in bus_nets.items():
                     # options only shrink as links are laid: a net whose groups have not changed
                     # keeps its best bus candidate while that can still be laid, and a net that had
@@ -877,16 +962,26 @@ class _Planner:
                 self.segments.append(lk.nodes)
                 self.claimed.update(lk.nodes)
             if bus is not None:
-                self._isolate_bus(self._bus_index(bus), links, net)
+                b = self._bus_index(bus)
+                if b is not None:
+                    self._isolate_bus(b, links, net)
+                else:  # a slide reshaped the strip: just give the link ends on it to the net
+                    for lk in links:
+                        for n in lk.nodes:
+                            if n.row == bus[0]:
+                                self.bus_nodes[n] = net
             self._refresh()
         self.links.sort(key=lambda lk: (lk.row_a, lk.col, lk.row_b, lk.end_col))
-        for n, lk in enumerate(self.links, start=1):
+        # your placed links keep their references; the rest are numbered after them
+        yours = [lk for lk in self.links if lk.origin == "board"]
+        start = max((ref_number(r) for r in [*(lk.ref_hint for lk in yours), *self.taken_refs]), default=0)
+        for n, lk in enumerate((lk for lk in self.links if lk.origin != "board"), start=start + 1):
             lk.ref_hint = f"W{n}"
         unl = [
             Unlinkable(net, [[self.pieces[i].label for i in ids] for ids in comps], self.max_link_mm)
             for net, comps in self.groups().items()
         ]
-        return LinkPlan(self.links, unl, self.moves, needed, self.bus_cuts)
+        return LinkPlan(self.links, unl, merge_moves(self.moves), needed, self.bus_cuts)
 
     def _all_groups_initial(self) -> list[list[int]]:
         by_net: dict[str, list[int]] = {}
@@ -963,8 +1058,84 @@ def _seg_box_distance(p: tuple[int, int], q: tuple[int, int], box: Box) -> float
     return best
 
 
-def propose(a) -> LinkPlan:
+def lock_links(a, specs) -> tuple[list[LinkProposal], list[str], list]:
+    """Your links (:class:`stripforge.edits.LinkSpec`) as proposals to keep where they are, a
+    warning for every one that can't be used (a pin or a cut in its hole, two nets shorted), and
+    those specs."""
+    out: list[LinkProposal] = []
+    warns: list[str] = []
+    rejected: list = []
+    pieces = a.split.pieces
+    piece_at = {Node(p.row, c): i for i, p in enumerate(pieces) for c in range(p.col_start, p.col_end + 1)}
+    strips = {st.row: st for st in a.strips}
+    used: dict[Node, str] = {}
+    bare_net: dict[int, str] = {}
+    for spec in specs:
+        name = spec.ref or spec.label
+        bad = None
+        for n in (spec.n1, spec.n2):
+            h = hole_label(n.row, n.col)
+            st = strips.get(n.row)
+            if st is None or not a.grid.contains(n):
+                bad = f"hole {h} is off the stripboard"
+            elif n in a.holes.occupants:
+                bad = f"hole {h} has a pin in it ({', '.join(o.label for o in a.holes.occupants[n])})"
+            elif n.col in st.dead_holes:
+                bad = f"hole {h} is a hole cut"
+            elif n in a.holes.reserved:
+                bad = f"hole {h} is where a slot is filed"
+            elif n in used:
+                bad = f"hole {h} is already used by {used[n]}"
+            if bad:
+                break
+        if bad is None:
+            ends = [piece_at.get(n) for n in (spec.n1, spec.n2)]
+            nets = sorted({pieces[i].net or bare_net.get(i) for i in ends if i is not None} - {None})
+            if len(nets) > 1:
+                bad = f"it would short {nets[0]!r} and {nets[1]!r}"
+            elif nets and spec.net and nets[0] != spec.net:
+                bad = (
+                    f"it is on {spec.net!r} in the schematic but lands on a strip of {nets[0]!r} (a cut "
+                    "moved?); move it, or change its net in the schematic"
+                )
+            elif not nets and not spec.net:
+                bad = "neither end is on a strip that carries a net"
+        if bad is not None:
+            warns.append(f"your link {name} ({spec.source}, {spec.label}) is not used: {bad}")
+            rejected.append(spec)
+            continue
+        net = nets[0] if nets else spec.net
+        dx, dy = spec.n2.col - spec.n1.col, spec.n2.row - spec.n1.row
+        try:
+            fp = spec.footprint or link_footprint_for(dx, dy)
+        except ValueError as exc:
+            warns.append(f"your link {name} ({spec.source}) is not used: {exc}")
+            rejected.append(spec)
+            continue
+        lk = LinkProposal(
+            spec.ref, net, spec.n1.col, spec.n1.row, spec.n2.row, fp,
+            col_b=None if dx == 0 else spec.n2.col, origin="board" if spec.ref else "config",
+        )  # fmt: skip
+        for i in ends:
+            if i is not None and not pieces[i].net:
+                bare_net[i] = net
+        for n in lk.nodes:
+            used[n] = name
+        for other in out:
+            if _segments_meet(*lk.nodes, *other.nodes):
+                warns.append(
+                    f"your links {name} and {other.ref_hint or other.start + '-' + other.end} cross or touch"
+                )
+        out.append(lk)
+    return out, warns, rejected
+
+
+def propose(a, locked=(), taken_refs=()) -> LinkPlan:
     """Propose links for every split net of analysis ``a`` (pass 1).
+
+    ``locked`` are your links (:class:`stripforge.edits.LinkSpec`): kept exactly where they are;
+    only what they leave unjoined gets new links, numbered after your links and ``taken_refs``
+    (the other ``W`` references already on the board).
 
     ``a`` is edited in place when a cut has to slide or a bus strip is cut off: its strips, cuts,
     pieces and validation are updated, and a warning is added for every hole cut that became a
@@ -973,13 +1144,16 @@ def propose(a) -> LinkPlan:
     # Greedy planning can box a net in with links it laid for other nets. When nets are left
     # unjoined, plan again from scratch with those nets first (up to a few rounds) and keep the
     # best attempt: fewest unlinkable nets, then fewest links, then fewest extra cuts.
+    keep, lock_warns, rejected = lock_links(a, locked)
     start = (a.strips, a.split.cuts, a.split.pieces)
     best = None
     priority: tuple[str, ...] = ()
     cache: dict = {}
     for _ in range(PLAN_ROUNDS):
         a.strips, a.split.cuts, a.split.pieces = copy.deepcopy(start)
-        plan = _Planner(a, priority=priority, cache=cache).run()
+        plan = _Planner(
+            a, priority=priority, cache=cache, locked=copy.deepcopy(keep), taken_refs=taken_refs
+        ).run()
         score = (len(plan.unlinkable), len(plan.links), len(plan.bus_cuts))
         if best is None or score < best[0]:
             best = (score, plan, (a.strips, a.split.cuts, a.split.pieces))
@@ -988,7 +1162,30 @@ def propose(a) -> LinkPlan:
             break
         priority = tuple(sorted(set(priority) | stuck))
     _, plan, (a.strips, a.split.cuts, a.split.pieces) = best
+    # a W you placed that could not be kept: give its ref to the new link on the same holes, else to
+    # a new link of its net (pass 2 then moves that W onto the new link's holes)
+    free = [spec for spec in rejected if spec.ref]
+    for same_holes in (True, False):
+        for spec in list(free):
+            for lk in plan.links:
+                if lk.origin or lk.ref_hint in {s.ref for s in rejected}:
+                    continue
+                if same_holes and lk.nodes == (spec.n1, spec.n2) and spec.net in (None, lk.net):
+                    pass
+                elif same_holes or spec.net != lk.net:
+                    continue
+                lk.ref_hint = spec.ref
+                free.remove(spec)
+                break
     a.validation = validate(a.split, a.holes, a.strips)
+    a.split.warnings += lock_warns
+    stuck = {u.net for u in plan.unlinkable}
+    for cut in a.split.cuts:
+        if cut.user and cut.reason[0] == cut.reason[1] and cut.reason[0] in stuck:
+            a.split.warnings.append(
+                f"{cut.id}: your cut {cut.where} ({cut.user}) splits {cut.reason[0]!r}, which can't be "
+                "joined again; move or remove it"
+            )
     for m in plan.cut_moves:
         a.split.warnings.append(m.text)
     buses: dict[str, list[str]] = {}
@@ -1022,6 +1219,15 @@ def to_json(plan: LinkPlan, board: str | None = None) -> str:
     return json.dumps(data, indent=2) + "\n"
 
 
+def refs_to_add(plan: LinkPlan) -> str:
+    """``W1..W34`` (or ``W35, W37``): the links still to add to the schematic (yours are there)."""
+    refs = [lk.ref_hint for lk in plan.links if lk.origin != "board"]
+    nums = [ref_number(r) for r in refs]
+    if refs and nums == list(range(nums[0], nums[0] + len(nums))):
+        return refs[0] if len(refs) == 1 else f"{refs[0]}..{refs[-1]}"
+    return ", ".join(refs)
+
+
 def format_text(plan: LinkPlan) -> str:
     """The link report plus step-by-step instructions for adding the links to the schematic."""
     out = [f"Links: {len(plan.links)} proposed for {plan.needed} needed"]
@@ -1033,6 +1239,10 @@ def format_text(plan: LinkPlan) -> str:
             how = f"  ({lk.kind}, rotated {lk.rotation:g} deg)"
         if lk.bus:
             how += f"  (to bus strip {lk.bus})"
+        if lk.origin == "board":
+            how += "  (yours, kept)"
+        elif lk.origin == "config":
+            how += "  ([manual] links)"
         out.append(f"  {lk.ref_hint:<4} {lk.start:>4} -> {lk.end:<4} {lk.footprint:<24} {lk.net}{how}")
     for cut in plan.bus_cuts:
         out.append(f"  note: {cut.id}: {cut.style} cut at {cut.label} isolates a bus strip")
@@ -1041,7 +1251,8 @@ def format_text(plan: LinkPlan) -> str:
     if plan.unlinkable:
         out.append(f"Unlinkable nets: {len(plan.unlinkable)}")
         out += [f"  ERROR: {u.text}" for u in plan.unlinkable]
-    if plan.links:
+    to_add = [lk for lk in plan.links if lk.origin != "board"]
+    if to_add:
         out += [
             "",
             "To add the links to the schematic (pass 2):",
@@ -1053,5 +1264,5 @@ def format_text(plan: LinkPlan) -> str:
             "",
             "  Ref  Footprint                Net",
         ]
-        out += [f"  {lk.ref_hint:<4} {lk.footprint:<24} {lk.net}" for lk in plan.links]
+        out += [f"  {lk.ref_hint:<4} {lk.footprint:<24} {lk.net}" for lk in to_add]
     return "\n".join(out) + "\n"

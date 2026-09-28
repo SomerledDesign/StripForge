@@ -12,8 +12,14 @@ from sfbuild import one_pad_board
 from stripforge import config, drc, resources, writer
 from stripforge.board import HOLES_LIB_ID, load_board
 from stripforge.config import BoardConfig
-from stripforge.grid import Node
-from stripforge.links import _segments_meet, any_offsets, link_footprint_for, pythagorean_offsets
+from stripforge.links import (
+    LEAD_CLEAR_NM,
+    _point_seg_distance,
+    _segments_meet,
+    any_offsets,
+    link_footprint_for,
+    pythagorean_offsets,
+)
 from stripforge.sexpr import atom, find, find_all, head
 
 
@@ -35,7 +41,7 @@ def test_pythagorean_offsets_are_whole_pitch_lengths():
 
 
 def test_diagonal_link_when_no_column_fits(tmp_path):
-    res = build(tmp_path, DIAGONAL)
+    res = build(tmp_path, DIAGONAL, BoardConfig(bus_strips=False))
     assert res.plan.ok and res.plan.needed == 1
     (lk,) = res.plan.links
     assert (lk.start, lk.end, lk.kind, lk.pitches) == ("A1", "D5", "diagonal", 5)
@@ -54,10 +60,10 @@ def test_diagonal_links_can_be_turned_off(tmp_path):
 
 def test_pass2_places_a_diagonal_link_rotated_onto_its_holes(tmp_path):
     board = one_pad_board(tmp_path, DIAGONAL)
-    res = writer.build(board, BoardConfig(), tmp_path / "p1.kicad_pcb")
+    res = writer.build(board, BoardConfig(bus_strips=False), tmp_path / "p1.kicad_pcb")
     links = json.loads((tmp_path / "p1.links.json").read_text())["links"]
     pass2_sim.add_links_to_board(board, links, tmp_path / "f8.kicad_pcb")
-    res2 = writer.build(tmp_path / "f8.kicad_pcb", BoardConfig(), tmp_path / "p2.kicad_pcb")
+    res2 = writer.build(tmp_path / "f8.kicad_pcb", BoardConfig(bus_strips=False), tmp_path / "p2.kicad_pcb")
     assert [p.status for p in res2.placements] == ["placed"] and res2.ok
     (w1,) = [f for f in load_board(tmp_path / "p2.kicad_pcb").footprints if f.ref == "W1"]
     g = res.analysis.grid
@@ -106,12 +112,12 @@ def test_links_never_meet_and_never_pass_over_a_pin(tmp_path, real_board_path, r
     for i, a in enumerate(links):
         for b in links[i + 1 :]:
             assert not _segments_meet(*a.nodes, *b.nodes), (a.ref_hint, b.ref_hint)
-    pins = set(res.analysis.holes.occupants)
+    g = res.analysis.grid
+    pins = [g.hole_xy(n) for n in res.analysis.holes.occupants]
     for lk in links:
-        (r1, c1), (r2, c2) = ((n.row, n.col) for n in lk.nodes)
-        steps = max(abs(r2 - r1), abs(c2 - c1))
-        inner = {Node(r1 + (r2 - r1) * k // steps, c1 + (c2 - c1) * k // steps) for k in range(1, steps)}
-        assert not inner & pins, lk.ref_hint
+        p, q = (g.hole_xy(n) for n in lk.nodes)
+        # the wire keeps LEAD_CLEAR_NM (0.9 mm) from every pin hole's centre
+        assert all(_point_seg_distance(x, y, p, q) >= LEAD_CLEAR_NM for x, y in pins), lk.ref_hint
 
 
 def test_max_link_mm_limits_link_length(tmp_path):
@@ -254,3 +260,11 @@ def test_link_footprint_for_every_offset_is_in_the_library():
         assert resources.footprint_file(name).exists(), name
     assert link_footprint_for(3, 4) == "StripForge:Link_P12.70"
     assert link_footprint_for(-1, 1) == "StripForge:Link_D3.59"
+
+
+def test_straight_links_on_a_bus_beat_a_diagonal(tmp_path):
+    # the DIAGONAL board with bus strips on: two straight links via a bare strip, no diagonal
+    res = build(tmp_path, DIAGONAL)
+    assert res.plan.ok and res.plan.joins == 1
+    assert [lk.kind for lk in res.plan.links] == ["vertical", "vertical"]
+    assert len({lk.bus for lk in res.plan.links}) == 1 and res.plan.links[0].bus

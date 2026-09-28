@@ -38,6 +38,7 @@ class Analysis:
     grid_warnings: list[str] = field(default_factory=list)
     config_ref_warnings: list[str] = field(default_factory=list)
     hints: list[Hint] = field(default_factory=list)
+    edits: object = None  # stripforge.edits.Edits: your own cuts and links (None: none)
 
     @property
     def tol_nm(self) -> int:
@@ -212,7 +213,9 @@ def analyze(board_path: str | Path, cfg: BoardConfig | None = None, netlist: str
     return analyze_board(load_board(board_path), cfg, netlist)
 
 
-def analyze_board(board: Board, cfg: BoardConfig | None = None, netlist: str | None = None) -> Analysis:
+def analyze_board(
+    board: Board, cfg: BoardConfig | None = None, netlist: str | None = None, edits=None
+) -> Analysis:
     """Snap, build strips and split for an in-memory board (see :func:`analyze`)."""
     cfg = cfg or BoardConfig()
     grid, source = make_grid(board, cfg)
@@ -228,7 +231,11 @@ def analyze_board(board: Board, cfg: BoardConfig | None = None, netlist: str | N
     )
     holes = assign_holes(snaps)
     strips = build_strips(grid)
-    result = split(strips, holes, cfg.cut_style)
+    if edits is None:
+        from .edits import from_config
+
+        edits = from_config(cfg)
+    result = split(strips, holes, cfg.cut_style, edits)
     a = Analysis(
         board=board,
         grid=grid,
@@ -242,6 +249,7 @@ def analyze_board(board: Board, cfg: BoardConfig | None = None, netlist: str | N
         grid_warnings=_grid_warnings(board, grid, source),
         config_ref_warnings=_config_ref_warnings(board, cfg),
         hints=placement_hints(board, snaps, grid, mm_to_nm(cfg.snap_tol_mm), cfg.cut_style, result.cuts),
+        edits=edits,
     )
     if netlist:
         a.netlist_summary, a.netlist_warnings = _check_netlist(board, str(netlist))
@@ -273,7 +281,7 @@ def apply_best_fit(a: Analysis) -> tuple[Analysis, dict[str, tuple[int, int]]]:
     for ref, (dx, dy) in moves.items():
         a.board.footprint(ref).move(dx, dy)
     netlist = a.netlist_summary["path"] if a.netlist_summary else None
-    return analyze_board(a.board, a.config, netlist), moves
+    return analyze_board(a.board, a.config, netlist, a.edits), moves
 
 
 # --- reporting -------------------------------------------------------------------------------

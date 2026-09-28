@@ -158,10 +158,10 @@ def test_real_fixture_build(tmp_path, real_board_path, real_netlist_path):
     out = tmp_path / "b.kicad_pcb"
     res = writer.build(real_board_path, cfg, out, netlist=str(real_netlist_path))
     assert len(res.analysis.snapped) == 22 and not res.analysis.rejected
-    assert res.cut_markers == len(res.analysis.split.cuts) == 63
+    assert res.cut_markers == len(res.analysis.split.cuts) == 67
     assert res.segments == len(segments(out))
     assert not any("Edge.Cuts" in w for w in res.warnings)  # the outline is the X56 board
-    assert res.segments == 1214 and res.segments_no_net == 102
+    assert res.segments == 1212 and res.segments_no_net == 86
     assert res.holes_drawn == 1256  # every free grid hole (pass 1: link holes still empty)
     # pass 2 on a copy: every proposed link is placed
     links = json.loads((tmp_path / "b.links.json").read_text())["links"]
@@ -172,7 +172,8 @@ def test_real_fixture_build(tmp_path, real_board_path, real_netlist_path):
     assert res2.holes_drawn == res.holes_drawn - 2 * len(links)  # the W pads take their holes
     assert [lk.to_dict() for lk in res2.plan.links] == [lk.to_dict() for lk in res.plan.links]
     ws = footprints(tmp_path / "p2.kicad_pcb", "W")
-    assert len(ws) == 28
+    assert len(ws) == 35
     angles = {fp.ref: float(atom(find(fp.node, "at"), 3) or 0) for fp in ws}
-    assert {r: a for r, a in angles.items() if a} == {"W21": 68.1986}  # the one off-pitch diagonal
-    assert next(lk for lk in res.plan.links if lk.ref_hint == "W21").footprint == "StripForge:Link_D13.68"
+    # diagonals only where nothing straight fits (last resort)
+    assert {r: a for r, a in angles.items() if a} == {"W5": 331.389, "W20": 8.1301, "W29": 21.8014}
+    assert next(lk for lk in res.plan.links if lk.ref_hint == "W20").footprint == "StripForge:Link_D17.96"

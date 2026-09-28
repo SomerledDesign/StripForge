@@ -39,6 +39,7 @@ import uuid
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
+from . import edits as edits_mod
 from . import links as links_mod
 from . import resources
 from .analyze import Analysis, analyze_board, apply_best_fit, make_grid
@@ -405,12 +406,38 @@ def prepare(board: Board, cfg: BoardConfig, netlist: str | None = None) -> Prepa
     cfg = replace(cfg, offboard_refs=sorted(set(cfg.offboard_refs) | {fp.ref for fp in link_fps}))
     cfg, clip_warnings = clip_to_outline(board, cfg, grid)
 
-    a = analyze_board(board, cfg, netlist)
+    mine = edits_mod.from_config(cfg)
+    a = analyze_board(board, cfg, netlist, mine)
     a, moves = apply_best_fit(a)
-    plan = links_mod.propose(a)
+    plan = links_mod.propose(a, mine.links)
+    warnings = list(clip_warnings)
+    if cfg.respect_edits and not a.conflicts:
+        theirs = edits_mod.from_board(board, a.grid, old_cuts, link_fps, mm_to_nm(cfg.snap_tol_mm))
+        if theirs and _edited(a, plan, theirs):
+            # the board's cuts or placed links differ from StripForge's own plan: keep them all
+            both = mine.merged(theirs)
+            a = analyze_board(board, cfg, netlist, both)
+            a, more = apply_best_fit(a)
+            moves.update(more)
+            plan = links_mod.propose(a, both.links, [fp.ref for fp in link_fps])
+            yours = sum(1 for c in a.split.cuts if c.user.endswith("in the board"))
+            kept = sum(1 for lk in plan.links if lk.origin == "board")
+            warnings.append(
+                f"edits: kept your {yours} cut(s) and {kept} placed link(s) from the board as they are; "
+                "StripForge only filled in what they leave open (respect_edits = false plans from scratch)"
+            )
+            warnings += theirs.warnings
     if a.conflicts:
         raise BuildError("the board has conflicts; fix them first:\n  " + "\n  ".join(a.conflicts))
-    return Prepared(a, plan, moves, cfg, link_fps, own_tracks, old_cuts, foreign, clip_warnings)
+    return Prepared(a, plan, moves, cfg, link_fps, own_tracks, old_cuts, foreign, warnings)
+
+
+def _edited(a, plan: links_mod.LinkPlan, theirs) -> bool:
+    """Do the board's cut markers or placed ``W`` links differ from StripForge's own plan?"""
+    if theirs.cuts and {c.key for c in theirs.cuts} != {(c.row, c.col, c.style) for c in a.split.cuts}:
+        return True
+    planned = {lk.ref_hint: tuple(sorted(lk.nodes)) for lk in plan.links}
+    return any(planned.get(spec.ref) != (spec.n1, spec.n2) for spec in theirs.links)
 
 
 def build(
@@ -420,12 +447,16 @@ def build(
     netlist: str | None = None,
     library: str | Path | None = None,
     rules: str | Path | None = None,
+    in_place: bool = False,
 ) -> BuildResult:
-    """Build ``out_path`` from ``board_path`` (see the module docstring). Raises BuildError."""
+    """Build ``out_path`` from ``board_path`` (see the module docstring). Raises BuildError.
+
+    ``in_place`` allows ``out_path`` to be ``board_path``: rebuild a built board after editing it
+    (your cuts and links are kept; see :mod:`stripforge.edits`)."""
 
     board_path, out_path = Path(board_path), Path(out_path)
-    if out_path.resolve() == board_path.resolve():
-        raise BuildError("-o must name a new file, not the input board")
+    if out_path.resolve() == board_path.resolve() and not in_place:
+        raise BuildError("-o must name a new file, not the input board (or pass --in-place)")
     library = resources.library_dir(library)
     rules = resources.rules_file(rules)
     board = load_board(board_path)
@@ -450,6 +481,9 @@ def build(
     by_ref = {lk.ref_hint: lk for lk in plan.links}
     for fp in sorted(link_fps, key=lambda f: (len(f.ref), f.ref)):
         lk = by_ref.get(fp.ref)
+        if lk is not None and lk.origin == "board":
+            res.placements.append(LinkPlacement(fp.ref, "placed", f"{lk.start} -> {lk.end} (yours, kept)"))
+            continue
         if lk is None:
             res.placements.append(LinkPlacement(fp.ref, "extra", "not in the link proposal; remove it"))
             continue

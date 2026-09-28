@@ -32,6 +32,9 @@ class Cut:
     style: str  # "hole" | "knife"
     reason: tuple[str, str]  # the two nets separated
     between: tuple[str, str] = ("", "")  # the pads either side, e.g. ("J2.3", "J2.4")
+    user: str = ""  # a cut you made (where it came from, e.g. "CUT12 in the board"); never slid
+    note: str = field(default="", repr=False, compare=False)
+    note_missing: str = field(default="", repr=False, compare=False)
 
     @property
     def label(self) -> str:
@@ -83,36 +86,109 @@ def _row_pads(holes: HoleMap, row: int) -> list[tuple[int, str, str]]:
     return sorted(out)
 
 
-def place_cuts(strips: list[Strip], holes: HoleMap, style: CutStyle | str) -> tuple[list[Cut], list[str]]:
+def place_cuts(
+    strips: list[Strip],
+    holes: HoleMap,
+    style: CutStyle | str,
+    fixed: list | None = None,
+    no_cut: list | None = None,
+    complete: bool = False,
+) -> tuple[list[Cut], list[str]]:
+    """Cut every strip between neighbouring pads of different nets (see the module docstring).
+
+    ``fixed`` are the user's cuts (:class:`stripforge.edits.CutSpec`): each is made exactly where it
+    is and never slid, and a gap that already has one gets no cut of StripForge's. ``no_cut`` are
+    spots StripForge must not cut. With ``complete`` (the fixed cuts are all the board's cuts), a gap
+    with no fixed cut would short two nets: StripForge cuts it and says so.
+    """
     style = CutStyle(style)
-    cuts: list[Cut] = []
+    found: list[tuple[int, float, Cut]] = []
     warnings: list[str] = []
+    by_row = {s.row: s for s in strips}
+    banned_holes = {(c.row, int(c.col)) for c in no_cut or [] if c.style == "hole"}
+    banned_segs = {(c.row, int(c.col)) for c in no_cut or [] if c.style == "knife"}
+    user: dict[int, list] = {}
+    seen = set()
+    for spec in fixed or []:
+        strip = by_row.get(spec.row)
+        c = int(spec.col)
+        if strip is None or not 0 <= c < strip.cols or (spec.style == "knife" and c >= strip.cols - 1):
+            warnings.append(f"{spec.source}: cut {spec.label} is off the stripboard; ignored")
+            continue
+        if spec.style == "hole" and Node(spec.row, c) in holes.occupants:
+            who = ", ".join(o.label for o in holes.occupants[Node(spec.row, c)])
+            warnings.append(
+                f"{spec.source}: hole cut at {spec.label} would cut off the pin in it ({who}); ignored"
+            )
+            continue
+        if spec.key in seen:
+            continue
+        seen.add(spec.key)
+        user.setdefault(spec.row, []).append(spec)
     for strip in strips:
         pads = _row_pads(holes, strip.row)
+        mine = user.get(strip.row, [])
         for (ca, na, la), (cb, nb, lb) in pairs(pads):
             if na == nb:
                 continue
-            cut_id = f"X{len(cuts) + 1}"
-            free = [c for c in range(ca + 1, cb) if holes.is_free(Node(strip.row, c))]
+            if any(ca < u.col < cb for u in mine):
+                continue  # the user's cut separates them
+            free = [
+                c
+                for c in range(ca + 1, cb)
+                if holes.is_free(Node(strip.row, c)) and (strip.row, c) not in banned_holes
+            ]
             if style is not CutStyle.KNIFE and free:
                 mid2 = ca + cb  # compare 2*c against ca+cb to stay in integers
                 col = min(free, key=lambda c: (abs(2 * c - mid2), c))
-                strip.cut_hole(col)
-                cuts.append(Cut(cut_id, strip.row, float(col), "hole", (na, nb), (la, lb)))
-                continue
-            segs = [c for c in range(ca, cb) if (strip.row, c) not in holes.slot_segments] or list(
-                range(ca, cb)
-            )
-            mid2 = ca + cb - 1  # the middle segment, doubled
-            seg = min(segs, key=lambda c: (abs(2 * c - mid2), c))
-            strip.cut_knife(seg)
-            cut = Cut(cut_id, strip.row, seg + 0.5, "knife", (na, nb), (la, lb))
-            cuts.append(cut)
-            if style is not CutStyle.KNIFE:
-                why = "adjacent holes" if cb == ca + 1 else "no free hole between them"
-                warnings.append(
-                    f"{cut_id}: knife cut {cut.where} separating {la} [{na}] and {lb} [{nb}]: {why}"
+                cut = Cut("", strip.row, float(col), "hole", (na, nb), (la, lb))
+            else:
+                segs = (
+                    [
+                        c
+                        for c in range(ca, cb)
+                        if (strip.row, c) not in holes.slot_segments and (strip.row, c) not in banned_segs
+                    ]
+                    or [c for c in range(ca, cb) if (strip.row, c) not in banned_segs]
+                    or list(range(ca, cb))
                 )
+                mid2 = ca + cb - 1  # the middle segment, doubled
+                seg = min(segs, key=lambda c: (abs(2 * c - mid2), c))
+                cut = Cut("", strip.row, seg + 0.5, "knife", (na, nb), (la, lb))
+                if style is not CutStyle.KNIFE:
+                    why = "adjacent holes" if cb == ca + 1 else "no free hole between them"
+                    cut.note = f"knife cut {cut.where} separating {la} [{na}] and {lb} [{nb}]: {why}"
+                if (strip.row, seg) in banned_segs:
+                    warnings.append(
+                        f"no_cut: {la} [{na}] and {lb} [{nb}] must be cut apart and there is nowhere "
+                        f"else; cut {cut.where}"
+                    )
+            if complete:
+                cut.note_missing = (
+                    f"no cut between {la} [{na}] and {lb} [{nb}] in the board: that would short the two "
+                    f"nets, so StripForge cuts {cut.where}"
+                )
+            found.append((strip.row, cut.col, cut))
+        for u in mine:
+            left = [(c, n, lab) for c, n, lab in pads if c < u.col]
+            right = [(c, n, lab) for c, n, lab in pads if c > u.col]
+            ln, ll = (left[-1][1], left[-1][2]) if left else ("(bare strip)", "")
+            rn, rl = (right[0][1], right[0][2]) if right else ("(bare strip)", "")
+            cut = Cut("", strip.row, float(u.col), u.style, (ln, rn), (ll, rl), user=u.source)
+            found.append((strip.row, cut.col, cut))
+    cuts: list[Cut] = []
+    for row, _col, cut in sorted(found, key=lambda t: (t[0], t[1])):
+        cut.id = f"X{len(cuts) + 1}"
+        c = int(cut.col)
+        if cut.style == "hole":
+            by_row[row].cut_hole(c)
+        else:
+            by_row[row].cut_knife(c)
+        cuts.append(cut)
+        if cut.note:
+            warnings.append(f"{cut.id}: {cut.note}")
+        if cut.note_missing:
+            warnings.append(f"{cut.id}: {cut.note_missing}")
     return cuts, warnings
 
 
@@ -132,6 +208,11 @@ def assign_nets(strips: list[Strip], holes: HoleMap) -> list[Piece]:
     return pieces
 
 
-def split(strips: list[Strip], holes: HoleMap, style: CutStyle | str = CutStyle.AUTO) -> SplitResult:
-    cuts, warnings = place_cuts(strips, holes, style)
+def split(
+    strips: list[Strip], holes: HoleMap, style: CutStyle | str = CutStyle.AUTO, edits=None
+) -> SplitResult:
+    if edits is None:
+        cuts, warnings = place_cuts(strips, holes, style)
+    else:
+        cuts, warnings = place_cuts(strips, holes, style, edits.cuts, edits.no_cut, edits.complete)
     return SplitResult(cuts=cuts, pieces=assign_nets(strips, holes), warnings=warnings)

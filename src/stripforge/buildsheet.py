@@ -1019,7 +1019,7 @@ def _cut_list(model: SheetModel, cuts: list[Cut]) -> list[str]:
             out.append(
                 f'<li class="item" data-kind="cut" data-cut="{c.id}" data-style="{c.style}">{_box()}'
                 f'<span class="mono">{c.id}</span> {_cut_how(c)} <span class="muted">({_e(c.between[0])}|'
-                f"{_e(c.between[1])})</span></li>"
+                f"{_e(c.between[1])})</span>{' <b>(yours)</b>' if c.user else ''}</li>"
             )
     out.append("</ul>")
     return out
@@ -1053,6 +1053,8 @@ def _link_list(model: SheetModel) -> list[str]:
     for r in model.links:
         lk = r.link
         status = "placed" if r.status == "placed" else f"<b>{_e(r.detail)}</b>"
+        if lk.origin:
+            status += " <b>(yours)</b>" if lk.origin == "board" else " <b>([manual])</b>"
         out.append(
             f'<tr class="item" data-kind="link" data-link="{lk.ref_hint}"><td>{_box()}</td><td class="mono">{lk.ref_hint}</td>'
             f"<td><b>{lk.start}</b></td><td><b>{lk.end}</b></td><td>{lk.pitches} ({_f(lk.length_mm)} mm){_link_how(lk)}</td>"

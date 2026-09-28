@@ -92,6 +92,7 @@ def _build(args: argparse.Namespace) -> int:
             netlist=args.netlist,
             library=args.library,
             rules=args.rules,
+            in_place=args.in_place,
         )
     except (BuildError, OSError, ValueError) as exc:
         print(f"stripforge build: error: {exc}", file=sys.stderr)
@@ -121,8 +122,8 @@ def _build(args: argparse.Namespace) -> int:
         print(f"Pass 2: {len(res.placed)} of {len(plan.links)} link(s) placed")
         for p in res.link_problems:
             print(f"  {p.status.upper()}: {p.ref} {p.detail}")
-    elif plan.links:
-        print(f"Pass 1: add W1..W{len(plan.links)} to the schematic, press F8, then build again")
+    elif links_mod.refs_to_add(plan):
+        print(f"Pass 1: add {links_mod.refs_to_add(plan)} to the schematic, press F8, then build again")
     if a.warnings or res.warnings:
         print(f"Warnings: {len(a.warnings) + len(res.warnings)}")
         for w in list(res.warnings) + list(a.warnings):
@@ -262,7 +263,7 @@ def main(argv: list[str] | None = None) -> int:
         "Exit code 0 = written and complete, 1 = written but nets still need links or W parts are "
         "missing/wrong, 2 = refused or input error (nothing written).",
     )
-    bu.add_argument("board", help="the placement .kicad_pcb (never overwritten)")
+    bu.add_argument("board", help="the placement .kicad_pcb (never overwritten unless --in-place)")
     bu.add_argument("-o", "--output", required=True, help="the .kicad_pcb to write")
     bu.add_argument("--netlist", help="kicadsexpr .net file to cross-check pad nets against")
     bu.add_argument("--config", help="stripboard.toml (default: derive the grid from Edge.Cuts)")
@@ -270,6 +271,12 @@ def main(argv: list[str] | None = None) -> int:
     bu.add_argument("--tol", type=float, help="snap tolerance in mm (overrides the config)")
     bu.add_argument("--library", help="StripForge.pretty directory (default: the repository copy)")
     bu.add_argument("--rules", help="stripforge.kicad_dru (default: the repository copy)")
+    bu.add_argument(
+        "--in-place",
+        action="store_true",
+        help="allow -o to be the input: rebuild a built board after moving its cuts and links in pcbnew "
+        "(they are kept where you put them; StripForge fills in the rest)",
+    )
     bu.set_defaults(func=_build)
 
     dr = sub.add_parser(

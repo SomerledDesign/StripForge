@@ -167,6 +167,12 @@ class BoardConfig:
     # looks like the real board in KiCad and the 3D viewer; hole cuts are drawn as bare holes.
     draw_holes: bool = True
     hole_drill_mm: float = 1.0
+    # Your own cuts and links. Building from a board with StripForge cut markers and placed W links
+    # (e.g. the built board after moving them in pcbnew) keeps them where they are and only fills
+    # in what is missing; false plans from scratch. [manual] gives them as text:
+    # links = ["J16-T16"], cuts = ["J15", "C34-C35"] (hole, knife), no_cut = ["J17"].
+    respect_edits: bool = True
+    manual: dict = field(default_factory=dict)
     # Non-fatal config problems found while loading (e.g. a very large [bend]); shown as warnings.
     warnings: list[str] = field(default_factory=list)
 
@@ -187,9 +193,13 @@ def from_dict(data: dict) -> BoardConfig:
         raise ValueError("unknown stripboard config key(s): warnings")
     drc = drc_from_dict(data.pop("drc", {}))
     bend, bend_warns = bend_from_dict(data.pop("bend", {}))
+    from .edits import manual_from_dict
+
+    manual = manual_from_dict(data.pop("manual", {}))
     cfg = BoardConfig(**data)
     cfg.drc = drc
     cfg.bend = bend
+    cfg.manual = manual
     cfg.warnings = bend_warns
     if not isinstance(cfg.skip, list) or not all(isinstance(r, str) and r for r in cfg.skip):
         raise ValueError('skip must be a list of references, e.g. skip = ["SW3"]')
@@ -212,7 +222,7 @@ def from_dict(data: dict) -> BoardConfig:
         setattr(cfg, name, float(v))
     if cfg.hole_drill_mm >= cfg.strip_width_mm:
         raise ValueError(f"hole_drill_mm ({cfg.hole_drill_mm:g}) must be smaller than strip_width_mm")
-    for name in ("diagonal_links", "off_pitch_links", "bus_strips", "draw_holes"):
+    for name in ("diagonal_links", "off_pitch_links", "bus_strips", "draw_holes", "respect_edits"):
         if not isinstance(getattr(cfg, name), bool):
             raise ValueError(f"{name} must be true or false")
     # skip and offboard_refs mean the same; the rest of the code reads offboard_refs

@@ -89,7 +89,7 @@ def test_report_files(tmp_path):
     data = json.loads((tmp_path / "out.links.json").read_text())
     assert data["links"][0] == {
         "ref": "W1", "net": "A", "from": "A2", "to": "C2", "col": 1, "row_a": 0, "col_b": 1, "row_b": 2,
-        "kind": "vertical", "rotation": 0.0, "bus": "", "pitches": 2, "length_mm": 5.08,
+        "kind": "vertical", "rotation": 0.0, "bus": "", "locked": "", "pitches": 2, "length_mm": 5.08,
         "footprint": "StripForge:Link_P5.08",
     }  # fmt: skip
     assert data["links_needed"] == 1
@@ -107,10 +107,10 @@ def test_real_fixture_plan(tmp_path, real_board_path, real_netlist_path):
     res = writer.build(real_board_path, cfg, out, netlist=str(real_netlist_path))
     plan = res.plan
     assert plan.needed == 39
-    assert len(plan.links) == 28 and plan.joins == 25  # three joins go via a bus strip
-    assert len(plan.unlinkable) == 13
+    assert len(plan.links) == 35 and plan.joins == 29  # six joins go via a bus strip
+    assert len(plan.unlinkable) == 10
     assert sum(len(u.groups) - 1 for u in plan.unlinkable) == plan.needed - plan.joins
-    assert [lk.ref_hint for lk in plan.links] == [f"W{i}" for i in range(1, 29)]
+    assert [lk.ref_hint for lk in plan.links] == [f"W{i}" for i in range(1, 36)]
     assert all(1 <= lk.pitches <= LINK_MAX_PITCHES for lk in plan.links)
     nodes = [n for lk in plan.links for n in lk.nodes]
     assert len(nodes) == len(set(nodes))

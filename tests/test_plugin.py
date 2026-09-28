@@ -204,13 +204,18 @@ def test_run_analyze_build_sheet_without_kicad(sfp, project):
     assert "Built board:" in shown[-1][1] and "Result:" in shown[-1][1]
 
 
-def test_run_refuses_to_build_from_an_output_and_reports_errors(sfp, project, monkeypatch):
+def test_build_on_an_output_rebuilds_it_in_place_and_reports_errors(sfp, project, monkeypatch):
     tmp, board, shown = project
     out = tmp / "fix-stripforge.kicad_pcb"
     shutil.copy(tmp / "fix.kicad_pcb", out)
     board._path = out
+    assert sfp.cli_args("build", out, None)[:4] == ["build", str(out), "-o", str(out)]
+    assert "--in-place" in sfp.cli_args("build", out, None)
+    assert "--in-place" not in sfp.cli_args("build", tmp / "fix.kicad_pcb", None)
     assert sfp.run("build") == 0
-    assert "already a StripForge output" in shown[-1][1]
+    text = shown[-1][1]
+    assert "rebuilding it in place" in text and "File > Revert" in text
+    assert '"StripForge:CUT_' in out.read_text()  # rebuilt: strips and cut markers written
 
     def boom():
         raise RuntimeError("No board is open in the PCB editor")

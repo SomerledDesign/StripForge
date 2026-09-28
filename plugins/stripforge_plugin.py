@@ -13,10 +13,12 @@ created with ``--system-site-packages``, so KiCad's wxPython is there for dialog
    Edge.Cuts; exports a fresh netlist from ``<name>.kicad_sch`` with kicad-cli when it exists;
 4. runs the same code as the ``stripforge`` command line and shows its report.
 
-Nothing changes the open board. "Build strips" writes ``<name>-stripforge.kicad_pcb`` (and its
-``.kicad_dru`` and link lists) next to it; "Run DRC" and "Build sheet" work on that built board
-(or on the open board when it is already a StripForge output). Why not live edits through the API:
-see Sketch.md §4.10.
+"Build strips" on the placement board writes ``<name>-stripforge.kicad_pcb`` (and its
+``.kicad_dru`` and link lists) next to it and leaves the open board alone. "Build strips" on the
+built board itself (after you moved cut markers or links in it) rebuilds that file in place, keeping
+your cuts and links where you put them; reload it with File > Revert. "Run DRC" and "Build sheet"
+work on the built board (or on the open board when it is already a StripForge output). Why not
+live edits through the API: see Sketch.md §4.10.
 
 The helpers at the top are pure (no kipy, no wx) so they can be tested without KiCad.
 """
@@ -149,7 +151,9 @@ def cli_args(action: str, board: Path, config: Path | None, netlist: Path | None
     if action == "analyze":
         return ["analyze", str(board), *net, *cfg]
     if action == "build":
-        return ["build", str(board), "-o", str(built_path(board)), *net, *cfg]
+        out = built_path(board)
+        in_place = ["--in-place"] if out == board else []
+        return ["build", str(board), "-o", str(out), *in_place, *net, *cfg]
     if action == "drc":
         extra = ["--schematic", str(schematic)] if schematic else []
         extra += ["--kicad-cli", kicad_cli] if kicad_cli else []
@@ -333,11 +337,11 @@ def _run_action(
     notes = [f"Board: {board}", f"Config: {config or 'none; grid derived from Edge.Cuts'}"]
     if fallback_note:
         notes.append(fallback_note)
-    if action == "build" and is_output_name(board):
-        return (
-            f"{board.name} is already a StripForge output. Open the placement board "
-            f"{base_stem(board)}.kicad_pcb and build from that.",
-            None,
+    rebuild = action == "build" and is_output_name(board)
+    if rebuild:
+        notes.append(
+            f"{board.name} is a StripForge output: rebuilding it in place, keeping the cut markers and "
+            f"W links where you put them (to start over, build from {base_stem(board)}.kicad_pcb)"
         )
     target = board
     if action in ("drc", "sheet"):
@@ -366,8 +370,12 @@ def _run_action(
     shown: Path | None = None
     if action == "build" and code in (0, 1) and built_path(board).is_file():  # not a stale file on refusal
         shown = built_path(board)
-        notes.append(f"Wrote {shown.name} next to the board; open it in KiCad to see the strips. "
-                     "The open board was not changed.")  # fmt: skip
+        if rebuild:
+            notes.append(f"Rewrote {shown.name}: in KiCad use File > Revert to load the new strips "
+                         "(do not save the open copy over it first).")  # fmt: skip
+        else:
+            notes.append(f"Wrote {shown.name} next to the board; open it in KiCad to see the strips. "
+                         "The open board was not changed.")  # fmt: skip
     if action == "sheet" and sheet_path(target).is_file():
         shown = sheet_path(target)
         webbrowser.open(shown.as_uri())
