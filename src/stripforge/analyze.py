@@ -81,6 +81,8 @@ class Analysis:
                 out.append(f"{s.ref}: non-THT pad(s) {', '.join(s.skipped_pads)} ignored (THT only in v0)")
             if s.accepted and s.reason:
                 out.append(f"{s.ref}: {s.reason}")
+            if s.accepted and s.lopsided:
+                out.append(s.lopsided)
         return out
 
 
@@ -284,6 +286,9 @@ def to_dict(a: Analysis) -> dict:
                 "toward": [j.toward.col, j.toward.row],
                 "toward_label": j.toward.label,
                 "length_mm": j.length_nm / 1e6,
+                "file_mm": j.file_len_nm / 1e6,
+                "file_in": round(j.file_len_nm / 25.4e6, 4),
+                "inward": j.inward,
                 "text": j.text,
             }
             for j in a.slot_jobs

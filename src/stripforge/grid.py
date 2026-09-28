@@ -163,6 +163,11 @@ class PadSnap:
         return f"off board (near {self.near.label})" if self.near is not None else "off board"
 
 
+# A slotted part whose best-fit shift along the strip is more than this is placed lopsided: one
+# pad nearer its hole than the other (e.g. BT1 grabbed by pad 1 and snapped to the grid in KiCad).
+LOPSIDED_NM = 50_000
+
+
 @dataclass(frozen=True)
 class SlotJob:
     """A hole to file into a short slot along the strip so an off-pitch pad fits (slotted parts)."""
@@ -171,12 +176,37 @@ class SlotJob:
     pad: str
     hole: Node
     toward: Node  # the neighbouring hole the slot points at
-    length_nm: int  # how far to elongate the hole (the pad's x offset)
+    length_nm: int  # the pad centre's offset from the hole centre along the strip
     dy_nm: int = 0  # residual offset across the strip (within tolerance)
+    # How far to file the hole edge along the strip so the pad's drill fits: the offset plus half
+    # of how much longer than wide an oval drill is (0: same as length_nm, a round drill). For the
+    # BH23APC (oval 1.635 x 1.0 mm, 0.3175 mm off) that is 0.3175 + 0.3175 = 0.635 mm (0.025").
+    file_nm: int = 0
+    inward: bool = True  # the slot points toward the part's centre (the usual case)
+
+    @property
+    def file_len_nm(self) -> int:
+        return self.file_nm or self.length_nm
+
+    @property
+    def amount(self) -> str:
+        """``0.025" (0.635 mm)``: the filing distance in inches (how stripboard is sold) and mm."""
+        mm = self.file_len_nm / 1e6
+        return f'{mm / 25.4:.3f}" ({mm:.3f} mm)'
 
     @property
     def text(self) -> str:
-        return f"file hole {self.hole.label} toward {self.toward.label} by {self.length_nm / 1e6:.3f} mm"
+        where = "toward the part centre" if self.inward else "away from the part centre"
+        return f"file hole {self.hole.label} {self.amount} toward {self.toward.label} ({where})"
+
+
+def slot_file_nm(dx_nm: int, drill_along_nm: int, drill_across_nm: int) -> int:
+    """Filing distance for a pad ``dx_nm`` off its hole with a drill of the given extents.
+
+    The stripboard hole is taken to be as wide as the drill's across-strip size, so a round drill
+    only needs the hole moved by ``|dx|`` and an oval one another ``(along - across) / 2``.
+    """
+    return abs(dx_nm) + max(0, drill_along_nm - drill_across_nm) // 2
 
 
 @dataclass
@@ -193,6 +223,7 @@ class SnapResult:
     skipped_pads: list[str] = field(default_factory=list)  # SMD/connect pads: out of scope in v0
     slotted: bool = False  # listed in the config's ``slotted``; never moved by apply_shifts
     slots: list[SlotJob] = field(default_factory=list)  # holes to elongate for this part
+    lopsided: str = ""  # a slotted part off-centre along the strip (a warning), see LOPSIDED_NM
 
     @property
     def worst_pad(self) -> PadSnap | None:
@@ -211,10 +242,12 @@ def snap_footprint(fp: Footprint, grid: Grid, tol_nm: int, slot_max_nm: int | No
     becomes a :class:`SlotJob` (file the hole toward the pad).
     """
     res = SnapResult(ref=fp.ref, slotted=slot_max_nm is not None)
+    tht = []
     for pad in fp.pads:
         if not pad.is_tht:
             res.skipped_pads.append(pad.number)
             continue
+        tht.append(pad)
         node = grid.nearest(pad.x_nm, pad.y_nm)
         hx, hy = grid.hole_xy(node)
         res.pads.append(
@@ -248,11 +281,24 @@ def snap_footprint(fp: Footprint, grid: Grid, tol_nm: int, slot_max_nm: int | No
     elif slot_max_nm is not None and all(
         p.dev_nm <= tol_nm or (abs(p.dx_nm) <= slot_max_nm and abs(p.dy_nm) <= tol_nm) for p in res.pads
     ):
-        for p in res.pads:
+        centre_x = sum(pd.x_nm for pd in tht) / len(tht)
+        for p, pd in zip(res.pads, tht):
             if p.dev_nm > tol_nm and p.node is not None:
                 step = 1 if p.dx_nm > 0 else -1
                 toward = Node(row=p.node.row, col=p.node.col + step)
-                res.slots.append(SlotJob(fp.ref, p.number, p.node, toward, abs(p.dx_nm), p.dy_nm))
+                hole_x = pd.x_nm - p.dx_nm
+                inward = (centre_x - hole_x) * step > 0
+                file_nm = slot_file_nm(p.dx_nm, pd.drill_x_nm, pd.drill_y_nm)
+                res.slots.append(
+                    SlotJob(fp.ref, p.number, p.node, toward, abs(p.dx_nm), p.dy_nm, file_nm, inward)
+                )
+        if res.slots and abs(sx) > LOPSIDED_NM:
+            offs = "/".join(f"{abs(p.dx_nm) / 1e6:.3f}" for p in res.pads)
+            way = "lower" if sx < 0 else "higher"
+            res.lopsided = (
+                f"{fp.ref} slot offsets {offs} mm; shift {sx / 1e6:.3f} mm along the strip (toward {way} "
+                f"hole numbers) to centre it, so every end hole is filed the same amount"
+            )
     elif res.max_dev_nm > tol_nm:
         res.accepted = False
         worst = res.worst_pad

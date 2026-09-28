@@ -39,6 +39,11 @@ class Pad:
     angle_rel: float = 0.0  # pad orientation relative to its footprint
     local_x_nm: int = 0  # position inside the footprint, before footprint rotation
     local_y_nm: int = 0
+    # Drill extent along the board's x axis (along the strips) and y axis, after rotation; 0 if none.
+    # A round drill gives the same value twice; an oval slot (drill oval 1.635 1) at 0/180 degrees
+    # gives (1.635, 1.0) mm. Non-axis-aligned slots are treated as round (the smaller size).
+    drill_x_nm: int = 0
+    drill_y_nm: int = 0
 
     @property
     def label(self) -> str:
@@ -150,6 +155,31 @@ def _pad_net(pad: list) -> str | None:
     return name or None
 
 
+def _drill(pad: list, angle_abs: float) -> tuple[int, int]:
+    """``(x, y)`` drill extent in nm on the board for ``(drill d)`` / ``(drill oval a b)``."""
+    node = find(pad, "drill")
+    if node is None:
+        return 0, 0
+    nums = []
+    for tok in node[1:]:
+        if isinstance(tok, list):
+            continue
+        try:
+            nums.append(mm_to_nm(tok))
+        except (TypeError, ValueError, ArithmeticError):  # decimal.InvalidOperation for "oval"
+            continue
+    if not nums:
+        return 0, 0
+    a = nums[0]
+    b = nums[1] if len(nums) > 1 else a
+    q = round(angle_abs) % 180
+    if q == 0:
+        return a, b
+    if q == 90:
+        return b, a
+    return min(a, b), min(a, b)
+
+
 def _parse_footprint(fp: list) -> Footprint:
     ref = _reference(fp)
     fx, fy, fa = _at(find(fp, "at"))
@@ -170,6 +200,8 @@ def _parse_footprint(fp: list) -> Footprint:
                 angle_rel=_norm_angle(pa - fa),
                 local_x_nm=px,
                 local_y_nm=py,
+                drill_x_nm=_drill(pad, _norm_angle(pa))[0],
+                drill_y_nm=_drill(pad, _norm_angle(pa))[1],
             )
         )
     return out

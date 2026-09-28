@@ -19,6 +19,6 @@ def fp(ref: str, at: str, *pads: str, lib: str = "Test:FP") -> str:
     )
 
 
-def pad(num: str, at: str, net: str | None = None, kind: str = "thru_hole") -> str:
+def pad(num: str, at: str, net: str | None = None, kind: str = "thru_hole", drill: str = "1") -> str:
     n = f' (net "{net}")' if net else ""
-    return f'(pad "{num}" {kind} circle (at {at}) (size 1.7 1.7) (drill 1) (layers "*.Cu" "*.Mask"){n})'
+    return f'(pad "{num}" {kind} circle (at {at}) (size 1.7 1.7) (drill {drill}) (layers "*.Cu" "*.Mask"){n})'

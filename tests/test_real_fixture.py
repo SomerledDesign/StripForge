@@ -31,8 +31,8 @@ def test_all_parts_snap_with_x56_and_bt1_is_slotted(x56):
     bt1 = next(s for s in x56.snaps if s.ref == "BT1")
     assert bt1.slotted and bt1.accepted
     assert [j.text for j in bt1.slots] == [
-        "file hole U16 toward U17 by 0.318 mm",
-        "file hole U29 toward U28 by 0.318 mm",
+        'file hole U16 0.025" (0.635 mm) toward U17 (toward the part centre)',
+        'file hole U29 0.025" (0.635 mm) toward U28 (toward the part centre)',
     ]
 
 

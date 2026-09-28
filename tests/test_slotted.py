@@ -39,17 +39,18 @@ def test_slotted_holder_passes_with_slot_jobs(tmp_path):
     assert bt1.slotted and bt1.accepted
     assert [p.node for p in bt1.pads] == [Node(row=1, col=0), Node(row=1, col=13)]
     assert a.slot_jobs == [
-        SlotJob("BT1", "1", Node(1, 0), Node(1, 1), 317_500, 0),
-        SlotJob("BT1", "2", Node(1, 13), Node(1, 12), 317_500, 0),
+        SlotJob("BT1", "1", Node(1, 0), Node(1, 1), 317_500, 0, 317_500, True),
+        SlotJob("BT1", "2", Node(1, 13), Node(1, 12), 317_500, 0, 317_500, True),
     ]
+    # round 1 mm drills: the hole only moves by the pad offset
     assert [j.text for j in a.slot_jobs] == [
-        "file hole B1 toward B2 by 0.318 mm",
-        "file hole B14 toward B13 by 0.318 mm",
+        'file hole B1 0.013" (0.318 mm) toward B2 (toward the part centre)',
+        'file hole B14 0.013" (0.318 mm) toward B13 (toward the part centre)',
     ]
     # the two pads carry different nets on one strip: one cut between them
     assert [(c.label, c.reason) for c in a.split.cuts] == [("B7", ("VBAT", "GND"))]
     text = format_text(a)
-    assert "slotted:   BT1" in text and "file hole B14 toward B13 by 0.318 mm" in text
+    assert "slotted:   BT1" in text and 'file hole B14 0.013" (0.318 mm) toward B13' in text
     data = json.loads(json.dumps(to_dict(a)))
     assert data["slotted_refs"] == ["BT1"]
     assert data["slot_jobs"][0]["hole_label"] == "B1" and data["slot_jobs"][0]["length_mm"] == 0.3175
@@ -86,3 +87,52 @@ def test_hole_cut_avoids_the_slot_neighbour(tmp_path):
     assert [j.toward.label for j in a.slot_jobs] == ["B2"]
     assert [(c.style, c.label) for c in a.split.cuts] == [("knife", "B2-B3")]
     assert a.conflicts == []
+
+
+# The real BH23APC footprint: oval drills 1.635 x 1.0 mm whose centres sit 0.3175 mm inboard, so
+# each end hole is filed 0.635 mm (0.025") toward the part centre and the pins seat 31.75 mm apart.
+BH23_OVAL = fp(
+    "BT1",
+    "1.27 3.81",
+    pad("1", "0.3175 0", "VBAT", drill="oval 1.635 1"),
+    pad("2", "32.7025 0", "GND", drill="oval 1.635 1"),
+)
+
+
+@pytest.mark.parametrize("angle", [0, 180])
+def test_bh23apc_filing_reads_0_025_inch(tmp_path, angle):
+    holder = (
+        BH23_OVAL
+        if angle == 0
+        else fp(
+            "BT1",
+            "34.29 3.81 180",
+            pad("1", "0.3175 0 180", "VBAT", drill="oval 1.635 1"),
+            pad("2", "32.7025 0 180", "GND", drill="oval 1.635 1"),
+        )
+    )
+    a = _run(tmp_path, holder, slotted=["BT1"])
+    assert a.rejected == [] and len(a.slot_jobs) == 2
+    for j in a.slot_jobs:
+        assert j.file_len_nm == 635_000 and j.inward and j.amount == '0.025" (0.635 mm)'
+        assert j.text.endswith("(toward the part centre)")
+    assert not any("slot offsets" in w for w in a.warnings)
+    data = to_dict(a)["slot_jobs"][0]
+    assert data["file_mm"] == 0.635 and data["file_in"] == 0.025 and data["inward"] is True
+
+
+def test_lopsided_slotted_part_is_warned(tmp_path):
+    # the placement Kevin had: rotated 180, origin 0.3175 mm off the grid, pad 1 dead on its hole
+    lop = fp(
+        "BT1",
+        "34.6075 3.81 180",
+        pad("1", "0.3175 0 180", "VBAT", drill="oval 1.635 1"),
+        pad("2", "32.7025 0 180", "GND", drill="oval 1.635 1"),
+    )
+    a = _run(tmp_path, lop, slotted=["BT1"])
+    assert a.rejected == []
+    msg = [w for w in a.warnings if "slot offsets" in w]
+    assert msg == [
+        "BT1 slot offsets 0.000/0.635 mm; shift -0.318 mm along the strip (toward lower hole numbers) "
+        "to centre it, so every end hole is filed the same amount"
+    ]

@@ -84,8 +84,10 @@ def test_cut_list_is_grouped_by_strip_in_order(real):
 
 def test_slot_jobs_say_which_way_and_how_far(real):
     h = real["h2"]
-    assert "file <b>U16</b> toward <b>U17</b> by <b>0.32 mm</b>" in h
-    assert "file <b>U29</b> toward <b>U28</b> by <b>0.32 mm</b>" in h
+    # the BH23APC's oval slots: file each end hole 0.025" (0.635 mm) toward the part centre
+    assert "file <b>U16</b> <b>0.025&quot; (0.635 mm)</b> toward <b>U17</b> (toward the part centre)" in h
+    assert "file <b>U29</b> <b>0.025&quot; (0.635 mm)</b> toward <b>U28</b> (toward the part centre)" in h
+    assert "0.32 mm" not in h
 
 
 def test_links_list_from_to_length_and_footprint(real):

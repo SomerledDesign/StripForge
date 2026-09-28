@@ -568,7 +568,7 @@ def copper_svg(model: SheetModel, v: _View) -> str:
             continue
         x, y = v.hole(job.hole.row, job.hole.col)
         xt, _ = v.hole(job.toward.row, job.toward.col)
-        d = max(job.length_nm / 1e6, 0.5) * (1 if xt > x else -1)
+        d = max(job.file_len_nm / 1e6, 0.5) * (1 if xt > x else -1)
         body.append(
             f'<g class="slot" data-slot="{job.hole.label}"><circle cx="{_f(x)}" cy="{_f(y)}" r="1.15"/>'
             f'<line x1="{_f(x)}" y1="{_f(y)}" x2="{_f(x + d)}" y2="{_f(y)}"/>'
@@ -977,10 +977,10 @@ def _slot_list(model: SheetModel) -> list[str]:
         return out + ['<p class="muted">No slotted parts.</p>']
     out.append('<ul class="check one">')
     for j in jobs:
-        mm = j.length_nm / 1e6
+        where = "toward the part centre" if j.inward else "away from the part centre"
         out.append(
             f'<li class="item" data-kind="slot" data-hole="{j.hole.label}">{_box()}file <b>{j.hole.label}</b> '
-            f'toward <b>{j.toward.label}</b> by <b>{mm:.2f} mm</b> ({mm / 25.4:.3f}") for {_e(j.ref)} pin '
+            f"<b>{_e(j.amount)}</b> toward <b>{j.toward.label}</b> ({where}) for {_e(j.ref)} pin "
             f"{_e(j.pad)}: elongate the hole along the strip so the pin drops in</li>"
         )
     out.append("</ul>")
