@@ -209,6 +209,36 @@ def slot_file_nm(dx_nm: int, drill_along_nm: int, drill_across_nm: int) -> int:
     return abs(dx_nm) + max(0, drill_along_nm - drill_across_nm) // 2
 
 
+@dataclass(frozen=True)
+class LegBend:
+    """A leg to bend onto its hole (a [bend] part): how far, and which way relative to the strip."""
+
+    ref: str
+    pad: str
+    hole: Node
+    dx_nm: int  # along the strip (a slot takes this part for a slotted part)
+    dy_nm: int  # across the strip
+    bend_nm: int  # the distance to bend: |dy| for a slotted pad, else the full offset
+
+    @property
+    def direction(self) -> str:
+        return "across the strip" if abs(self.dy_nm) >= abs(self.dx_nm) else "along the strip"
+
+    @property
+    def text(self) -> str:
+        return f"pad {self.pad} at {self.hole.label}: {bend_text(self.bend_nm)} {self.direction}"
+
+
+def bend_text(nm: int) -> str:
+    """``0.152 mm (6.0 mil)``: stripboard pitch is imperial, so mils help (6 mil = 0.1524 mm)."""
+    return f"{nm / 1e6:.3f} mm ({nm / 25_400:.1f} mil)"
+
+
+def suggest_bend_mm(nm: int) -> float:
+    """A [bend] value that covers ``nm``: rounded up to the next 0.01 mm (0.1524 -> 0.16)."""
+    return math.ceil(nm / 10_000 - 1e-9) / 100
+
+
 @dataclass
 class SnapResult:
     ref: str
@@ -224,6 +254,11 @@ class SnapResult:
     slotted: bool = False  # listed in the config's ``slotted``; never moved by apply_shifts
     slots: list[SlotJob] = field(default_factory=list)  # holes to elongate for this part
     lopsided: str = ""  # a slotted part off-centre along the strip (a warning), see LOPSIDED_NM
+    # The "Beckham tolerance" (bend it like Beckham): a part listed in the config's [bend] table
+    # may have legs up to bend_nm off their holes in any direction, because the builder bends
+    # them onto the holes. bend_nm is None for other parts; bends lists the pads that need it.
+    bend_nm: int | None = None
+    bends: list[LegBend] = field(default_factory=list)
 
     @property
     def worst_pad(self) -> PadSnap | None:
@@ -234,14 +269,23 @@ class SnapResult:
         return [p for p in self.pads if p.node is None]
 
 
-def snap_footprint(fp: Footprint, grid: Grid, tol_nm: int, slot_max_nm: int | None = None) -> SnapResult:
+def snap_footprint(
+    fp: Footprint, grid: Grid, tol_nm: int, slot_max_nm: int | None = None, bend_nm: int | None = None
+) -> SnapResult:
     """Map each THT pad of ``fp`` to its nearest hole and accept if all are within ``tol_nm``.
 
     With ``slot_max_nm`` (a slotted part), a pad further off than ``tol_nm`` is still accepted when
     it is off along the strip only: ``|dx| <= slot_max_nm`` and ``|dy| <= tol_nm``. Each such pad
     becomes a :class:`SlotJob` (file the hole toward the pad).
+
+    With ``bend_nm`` (the part's "Beckham tolerance" from [bend]: bend it like Beckham), ``bend_nm``
+    replaces ``tol_nm`` for this part, in any direction (for a slotted part: across the strip).
+    Every pad further off than the board's ``tol_nm`` becomes a :class:`LegBend`.
     """
-    res = SnapResult(ref=fp.ref, slotted=slot_max_nm is not None)
+    res = SnapResult(ref=fp.ref, slotted=slot_max_nm is not None, bend_nm=bend_nm)
+    board_tol_nm = tol_nm
+    if bend_nm is not None:
+        tol_nm = bend_nm
     tht = []
     for pad in fp.pads:
         if not pad.is_tht:
@@ -292,7 +336,15 @@ def snap_footprint(fp: Footprint, grid: Grid, tol_nm: int, slot_max_nm: int | No
                 res.slots.append(
                     SlotJob(fp.ref, p.number, p.node, toward, abs(p.dx_nm), p.dy_nm, file_nm, inward)
                 )
-        if res.slots and abs(sx) > LOPSIDED_NM:
+        outward = [j for j in res.slots if not j.inward]
+        if outward:
+            half = grid.pitch_nm // 2
+            res.lopsided = (
+                f"{fp.ref}: the slot(s) at {', '.join(j.hole.label for j in outward)} point away from the "
+                f"part centre (its pads sit outboard of their holes), so it is probably half a pitch off: "
+                f"move it {half / 1e6:.3f} mm along the strip (either way) to put its origin on a hole"
+            )
+        elif res.slots and abs(sx) > LOPSIDED_NM:
             offs = "/".join(f"{abs(p.dx_nm) / 1e6:.3f}" for p in res.pads)
             way = "lower" if sx < 0 else "higher"
             res.lopsided = (
@@ -303,20 +355,46 @@ def snap_footprint(fp: Footprint, grid: Grid, tol_nm: int, slot_max_nm: int | No
         res.accepted = False
         worst = res.worst_pad
         assert worst is not None
+        src = " from [bend]" if bend_nm is not None else ""
         res.reason = (
             f"pad {worst.number} is {worst.dev_nm / 1e6:.3f} mm from the nearest hole "
-            f"(tolerance {tol_nm / 1e6:.3f} mm)"
+            f"(tolerance {tol_nm / 1e6:.3f} mm{src})"
         )
-        if slot_max_nm is None and all(abs(p.dy_nm) <= tol_nm for p in res.pads):
-            res.reason += (
-                "; its pads are off only along the strip, so if the part has slotted or off-pitch pins "
-                f'list it in the config (slotted = ["{fp.ref}"] in stripboard.toml)'
-            )
         if slot_max_nm is not None:
             res.reason += (
                 f"; as a slotted part a pad may be up to {slot_max_nm / 1e6:.3f} mm off along the strip "
                 f"and {tol_nm / 1e6:.3f} mm across it"
             )
+        across = [p for p in res.pads if abs(p.dy_nm) > tol_nm]
+        if res.max_dev_after_shift_nm <= tol_nm and (sx, sy) != (0, 0):
+            # the pins match the pitch; the part is just not on the holes
+            res.reason += (
+                f"; its pins match the hole pitch, so it is just off the grid: move it by "
+                f"({sx / 1e6:.3f}, {sy / 1e6:.3f}) mm (KiCad: Move Exactly) to put every pin on a hole"
+            )
+        elif across:
+            # an across-strip miss: legs can often be bent that far (the Beckham tolerance)
+            if slot_max_nm is not None:
+                need = max(abs(p.dy_nm) for p in res.pads)
+            else:
+                need = res.max_dev_nm
+            miss = max(abs(p.dy_nm) for p in across)
+            res.reason += (
+                f"; its legs miss the holes across the strip by up to {bend_text(miss)}"
+                f", so if they can be bent onto the holes add it to the config's [bend] table "
+                f"({fp.ref} = {suggest_bend_mm(need):.2f})"
+            )
+        elif slot_max_nm is None:
+            res.reason += (
+                "; its pads are off only along the strip, so if the part has slotted or off-pitch pins "
+                f'list it in the config (slotted = ["{fp.ref}"] in stripboard.toml)'
+            )
+    if res.accepted and bend_nm is not None and not off_board:
+        slotted_pads = {j.pad for j in res.slots}
+        for p in res.pads:
+            amount = abs(p.dy_nm) if p.number in slotted_pads else p.dev_nm
+            if amount > board_tol_nm and p.node is not None:
+                res.bends.append(LegBend(fp.ref, p.number, p.node, p.dx_nm, p.dy_nm, amount))
     if res.accepted and res.pads and not off_board:
         nodes = [p.node for p in res.pads]
         dup = {n for n in nodes if nodes.count(n) > 1}
@@ -333,11 +411,14 @@ def snap_board(
     tol_nm: int,
     skip_refs: list[str] | tuple[str, ...] = (),
     slot_max_nm: dict[str, int] | None = None,
+    bend_nm: dict[str, int] | None = None,
 ) -> list[SnapResult]:
-    """Snap every footprint not in ``skip_refs``; ``slot_max_nm`` maps slotted refs to their allowance."""
+    """Snap every footprint not in ``skip_refs``; ``slot_max_nm`` maps slotted refs to their
+    allowance and ``bend_nm`` maps [bend] refs to their Beckham tolerance."""
     slots = slot_max_nm or {}
+    bends = bend_nm or {}
     return [
-        snap_footprint(fp, grid, tol_nm, slots.get(fp.ref))
+        snap_footprint(fp, grid, tol_nm, slots.get(fp.ref), bends.get(fp.ref))
         for fp in board.footprints
         if fp.ref not in skip_refs
     ]

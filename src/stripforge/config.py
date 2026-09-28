@@ -89,6 +89,38 @@ def drc_from_dict(data: object) -> DrcConfig:
     return DrcConfig(ignore=list(ignore), allow_overlap=pairs)
 
 
+# The "Beckham tolerance" (bend it like Beckham): how far a [bend] part's legs may be off their
+# holes because the builder bends them on. Above BEND_WARN_MM a warning says to check the part
+# really bends that far; above BEND_MAX_MM it is refused (at that point it is an adapter job).
+BEND_WARN_MM = 0.3
+BEND_MAX_MM = 0.5
+
+
+def bend_from_dict(data: object) -> tuple[dict[str, float], list[str]]:
+    """The ``[bend]`` table (``SW2 = 0.16``): ``({ref: mm}, warnings)``. Raises ValueError."""
+    if not isinstance(data, dict):
+        raise ValueError("[bend] must be a table of reference = millimetres, e.g. SW2 = 0.16")
+    out, warns = {}, []
+    for ref, v in data.items():
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            raise ValueError(f"[bend] {ref} must be a number of millimetres (6 mil = 0.1524 mm), got {v!r}")
+        v = float(v)
+        if v <= 0:
+            raise ValueError(f"[bend] {ref} must be more than 0 mm, got {v:g}")
+        if v > BEND_MAX_MM:
+            raise ValueError(
+                f"[bend] {ref} = {v:g} mm is more than {BEND_MAX_MM:g} mm; legs that far off need an "
+                "adapter or a different footprint, not bending"
+            )
+        if v > BEND_WARN_MM:
+            warns.append(
+                f"[bend] {ref} = {v:g} mm is a big bend (over {BEND_WARN_MM:g} mm): check the legs "
+                "really reach the holes without stressing the part"
+            )
+        out[str(ref)] = v
+    return out, warns
+
+
 @dataclass
 class BoardConfig:
     # Grid. Anything left as None is derived from the board's Edge.Cuts outline: the first hole
@@ -114,6 +146,16 @@ class BoardConfig:
     slot_max_mm: float = 1.0
     slot_max_mm_by_ref: dict[str, float] = field(default_factory=dict)  # per-ref override
     drc: DrcConfig = field(default_factory=DrcConfig)  # the [drc] table
+    # The [bend] table, the "Beckham tolerance" (bend it like Beckham): {ref: mm}. A listed part's
+    # pads may be up to that far from their holes in any direction (across the strip for a slotted
+    # part), overriding snap_tol_mm for that part only; the report and build sheet say which legs
+    # to bend and how far. E.g. SW2 = 0.16 for a 312 mil row pitch on 300 mil holes (6 mil a row).
+    bend: dict[str, float] = field(default_factory=dict)
+    # Parts not on the stripboard (hand-wired, panel-mounted): no snap, no strips for their pads,
+    # listed as "wired off-board" on the build sheet. offboard_refs is the older name; both work.
+    skip: list[str] = field(default_factory=list)
+    # Non-fatal config problems found while loading (e.g. a very large [bend]); shown as warnings.
+    warnings: list[str] = field(default_factory=list)
 
     def slot_max_for(self, ref: str) -> float | None:
         """Slot allowance in mm for ``ref``, or None if the part is not slotted."""
@@ -128,9 +170,17 @@ def from_dict(data: dict) -> BoardConfig:
     if unknown:
         raise ValueError(f"unknown stripboard config key(s): {', '.join(unknown)}")
     data = dict(data)
+    if "warnings" in data:
+        raise ValueError("unknown stripboard config key(s): warnings")
     drc = drc_from_dict(data.pop("drc", {}))
+    bend, bend_warns = bend_from_dict(data.pop("bend", {}))
     cfg = BoardConfig(**data)
     cfg.drc = drc
+    cfg.bend = bend
+    cfg.warnings = bend_warns
+    if not isinstance(cfg.skip, list) or not all(isinstance(r, str) and r for r in cfg.skip):
+        raise ValueError('skip must be a list of references, e.g. skip = ["SW3"]')
+    cfg.skip = [str(r) for r in cfg.skip]
     if cfg.origin_mm is not None:
         if len(cfg.origin_mm) != 2:
             raise ValueError("origin_mm must be [x, y]")
@@ -142,7 +192,9 @@ def from_dict(data: dict) -> BoardConfig:
             raise ValueError(f"{name} must be a positive integer")
     if cfg.pitch_mm <= 0 or cfg.snap_tol_mm < 0:
         raise ValueError("pitch_mm must be > 0 and snap_tol_mm >= 0")
-    cfg.offboard_refs = list(cfg.offboard_refs)
+    # skip and offboard_refs mean the same; the rest of the code reads offboard_refs
+    cfg.offboard_refs = list(dict.fromkeys([*cfg.offboard_refs, *cfg.skip]))
+    cfg.skip = list(cfg.offboard_refs)  # the user's list (the writer adds W links to offboard_refs only)
     cfg.slotted = [str(r) for r in cfg.slotted]
     cfg.slot_max_mm_by_ref = {str(k): float(v) for k, v in dict(cfg.slot_max_mm_by_ref).items()}
     for ref, v in [("slot_max_mm", cfg.slot_max_mm), *cfg.slot_max_mm_by_ref.items()]:

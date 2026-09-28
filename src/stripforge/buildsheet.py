@@ -45,7 +45,7 @@ from . import __version__
 from . import links as links_mod
 from .board import Board, Footprint, load_board, rotate_nm
 from .config import BoardConfig
-from .grid import Node, hole_label, row_label
+from .grid import Node, bend_text, hole_label, row_label
 from .sexpr import atom, find, find_all, head, mm_to_nm
 from .splitter import Cut
 from .writer import Prepared, prepare
@@ -81,6 +81,7 @@ class PartRow:
     group_name: str
     pins: list[tuple[str, str, str]]  # (pad number, hole label, net)
     slotted: bool = False
+    bend: str = ""  # "bend legs up to 0.152 mm (6.0 mil) ..." for a [bend] part (Beckham tolerance)
 
 
 @dataclass
@@ -257,9 +258,13 @@ def _part_rows(prep: Prepared) -> list[PartRow]:
             key=lambda t: _natural(t[0]),
         )
         g = part_group(s.ref, fp.lib_id)
-        rows.append(
-            PartRow(s.ref, _value(fp), fp.lib_id.split(":")[-1], g, GROUPS[g], pins, slotted=bool(s.slots))
-        )
+        bend = ""
+        if s.bends:
+            worst = max(s.bends, key=lambda b: b.bend_nm)
+            bend = f"bend legs up to {bend_text(worst.bend_nm)} {worst.direction} to fit the holes"
+        row = PartRow(s.ref, _value(fp), fp.lib_id.split(":")[-1], g, GROUPS[g], pins, slotted=bool(s.slots))
+        row.bend = bend
+        rows.append(row)
     return sorted(rows, key=lambda r: (r.group, _natural(r.ref)))
 
 
@@ -1028,12 +1033,34 @@ def _part_list(model: SheetModel) -> list[str]:
             )
         pins = " ".join(f"{_e(n)}:<b>{_e(h)}</b>" for n, h, _ in r.pins)
         note = " <i>(slotted: file its holes first)</i>" if r.slotted else ""
+        if r.bend:
+            note += f" <i>({_e(r.bend)})</i>"
         out.append(
             f'<tr class="item" data-kind="part" data-ref="{_e(r.ref)}"><td>{_box()}</td><td class="mono">{_e(r.ref)}</td>'
             f'<td>{_e(r.value)}</td><td class="mono">{_e(r.footprint)}</td><td class="mono">{pins}{note}</td></tr>'
         )
     if group is not None:
         out.append("</table>")
+    out += _offboard_list(model)
+    return out
+
+
+def _offboard_list(model: SheetModel) -> list[str]:
+    """Parts the config skips: not on the stripboard, so their connections are hand-wired."""
+    a = model.a
+    fps = {fp.ref: fp for fp in a.board.footprints}
+    refs = a.skipped
+    if not refs:
+        return []
+    out = [f"<h4>Wired off-board ({len(refs)})</h4>", '<ul class="check one">']
+    for r in refs:
+        nets = sorted({p.net for p in fps[r].pads if p.net and not p.net.startswith("unconnected-")})
+        out.append(
+            f'<li class="item" data-kind="offboard" data-ref="{_e(r)}">{_box()}<b>{_e(r)}</b> '
+            f"({_e(_value(fps[r]))}): wired off-board, not on the stripboard; hand-wire it to "
+            f"{_e(', '.join(nets)) if nets else 'nothing (no nets)'}</li>"
+        )
+    out.append("</ul>")
     return out
 
 

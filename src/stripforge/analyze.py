@@ -13,7 +13,7 @@ from pathlib import Path
 from . import netlist as netlist_mod
 from .board import Board, load_board
 from .config import BoardConfig
-from .grid import ON_GRID_NM, Grid, Node, SlotJob, SnapResult, snap_board
+from .grid import ON_GRID_NM, Grid, Node, SlotJob, SnapResult, bend_text, snap_board
 from .hints import Hint, placement_hints
 from .hints import summary as hints_summary
 from .sexpr import mm_to_nm
@@ -36,6 +36,7 @@ class Analysis:
     netlist_summary: dict | None = None
     netlist_warnings: list[str] = field(default_factory=list)
     grid_warnings: list[str] = field(default_factory=list)
+    config_ref_warnings: list[str] = field(default_factory=list)
     hints: list[Hint] = field(default_factory=list)
 
     @property
@@ -57,7 +58,18 @@ class Analysis:
 
     @property
     def off_pitch(self) -> list[SnapResult]:
-        return [s for s in self.snapped if s.max_dev_nm > ON_GRID_NM and not s.slots]
+        return [s for s in self.snapped if s.max_dev_nm > ON_GRID_NM and not s.slots and not s.bends]
+
+    @property
+    def leg_bends(self) -> list:
+        """Legs to bend onto their holes ([bend] parts, the Beckham tolerance)."""
+        return [b for s in self.snapped for b in s.bends]
+
+    @property
+    def skipped(self) -> list[str]:
+        """References on the board that the config skips (wired off-board)."""
+        refs = {fp.ref for fp in self.board.footprints}
+        return [r for r in self.config.skip if r in refs]
 
     @property
     def slot_jobs(self) -> list[SlotJob]:
@@ -71,7 +83,9 @@ class Analysis:
     @property
     def warnings(self) -> list[str]:
         out = (
-            list(self.grid_warnings)
+            list(self.config.warnings)
+            + list(self.config_ref_warnings)
+            + list(self.grid_warnings)
             + list(self.holes.warnings)
             + list(self.split.warnings)
             + list(self.netlist_warnings)
@@ -83,6 +97,19 @@ class Analysis:
                 out.append(f"{s.ref}: {s.reason}")
             if s.accepted and s.lopsided:
                 out.append(s.lopsided)
+            if s.accepted and s.bends:
+                worst = max(b.bend_nm for b in s.bends)
+                out.append(
+                    f"{s.ref}: accepted with its [bend] tolerance ({s.bend_nm / 1e6:g} mm): bend "
+                    f"{len(s.bends)} leg(s) up to {bend_text(worst)} onto their holes"
+                )
+        for ref in self.skipped:
+            fp = next(f for f in self.board.footprints if f.ref == ref)
+            nets = sorted({p.net for p in fp.pads if p.net and not p.net.startswith("unconnected-")})
+            out.append(
+                f"{ref}: skipped (wired off-board): its pads get no strips, so hand-wire its "
+                f"connection(s) to {', '.join(nets) if nets else 'nothing (no nets)'}"
+            )
         return out
 
 
@@ -166,6 +193,21 @@ def _check_netlist(board: Board, path: str) -> tuple[dict, list[str]]:
     return summary, warns
 
 
+def _config_ref_warnings(board: Board, cfg: BoardConfig) -> list[str]:
+    """Config entries naming parts that aren't on the board, or a part both skipped and fitted."""
+    refs = {fp.ref for fp in board.footprints}
+    out = []
+    for what, listed in (("slotted", cfg.slotted), ("[bend]", list(cfg.bend)), ("skip", cfg.skip)):
+        for r in listed:
+            if r not in refs:
+                out.append(f"config: {r} is listed in {what} but is not on the board (typo or renamed?)")
+    for r in cfg.skip:
+        both = [w for w, lst in (("slotted", cfg.slotted), ("[bend]", cfg.bend)) if r in lst]
+        if r in refs and both:
+            out.append(f"config: {r} is in skip and in {' and '.join(both)}; skip wins (it is not placed)")
+    return out
+
+
 def analyze(board_path: str | Path, cfg: BoardConfig | None = None, netlist: str | None = None) -> Analysis:
     return analyze_board(load_board(board_path), cfg, netlist)
 
@@ -175,8 +217,14 @@ def analyze_board(board: Board, cfg: BoardConfig | None = None, netlist: str | N
     cfg = cfg or BoardConfig()
     grid, source = make_grid(board, cfg)
     slot_max = {ref: mm_to_nm(cfg.slot_max_for(ref)) for ref in cfg.slotted}
+    bend = {ref: mm_to_nm(mm) for ref, mm in cfg.bend.items()}  # the Beckham tolerance
     snaps = snap_board(
-        board, grid, mm_to_nm(cfg.snap_tol_mm), skip_refs=cfg.offboard_refs, slot_max_nm=slot_max
+        board,
+        grid,
+        mm_to_nm(cfg.snap_tol_mm),
+        skip_refs=cfg.offboard_refs,
+        slot_max_nm=slot_max,
+        bend_nm=bend,
     )
     holes = assign_holes(snaps)
     strips = build_strips(grid)
@@ -192,6 +240,7 @@ def analyze_board(board: Board, cfg: BoardConfig | None = None, netlist: str | N
         split=result,
         validation=validate(result, holes, strips),
         grid_warnings=_grid_warnings(board, grid, source),
+        config_ref_warnings=_config_ref_warnings(board, cfg),
         hints=placement_hints(board, snaps, grid, mm_to_nm(cfg.snap_tol_mm), cfg.cut_style, result.cuts),
     )
     if netlist:
@@ -204,9 +253,14 @@ def best_fit_moves(a: Analysis) -> dict[str, tuple[int, int]]:
 
     The shift centres the footprint's pad offsets on their holes (it minimises the worst per-axis
     offset), so on-pitch parts land exactly on their holes and a 2.50 mm part splits its error
-    between its pads. Slotted parts and rejected parts are never moved; rotations are out of scope.
+    between its pads. Slotted parts, [bend] parts (placed off the holes on purpose) and rejected
+    parts are never moved; rotations are out of scope.
     """
-    return {s.ref: s.shift_nm for s in a.snaps if s.accepted and not s.slotted and s.shift_nm != (0, 0)}
+    return {
+        s.ref: s.shift_nm
+        for s in a.snaps
+        if s.accepted and not s.slotted and s.bend_nm is None and s.shift_nm != (0, 0)
+    }
 
 
 def apply_best_fit(a: Analysis) -> tuple[Analysis, dict[str, tuple[int, int]]]:
@@ -253,11 +307,22 @@ def to_dict(a: Analysis) -> dict:
         "nets": len(a.board.nets),
         "skipped_refs": list(a.config.offboard_refs),
         "slotted_refs": list(a.config.slotted),
+        "bend_mm": dict(a.config.bend),
         "snaps": [
             {
                 "ref": s.ref,
                 "accepted": s.accepted,
                 "slotted": s.slotted,
+                "bend_tol_mm": s.bend_nm / 1e6 if s.bend_nm is not None else None,
+                "leg_bends": [
+                    {
+                        "pad": b.pad,
+                        "hole_label": b.hole.label,
+                        "bend_mm": b.bend_nm / 1e6,
+                        "direction": b.direction,
+                    }
+                    for b in s.bends
+                ],
                 "max_dev_mm": s.max_dev_nm / 1e6,
                 "reason": s.reason,
                 "suggested_shift_mm": _xy(s.shift_nm),
@@ -389,7 +454,7 @@ def format_text(a: Analysis) -> str:
         verdict = "matches the board" if ns["matches_board"] else "DIFFERS from the board (see warnings)"
         add(f"Netlist: {ns['components']} components, {ns['nets']} nets; {verdict}")
     if a.config.offboard_refs:
-        add(f"Skipped (off-board): {', '.join(a.config.offboard_refs)}")
+        add(f"Skipped (wired off-board): {', '.join(a.config.offboard_refs)}")
     add("")
     tol = a.config.snap_tol_mm
     add(
@@ -409,6 +474,9 @@ def format_text(a: Analysis) -> str:
         if s.slots:
             jobs = "; ".join(f"pad {j.pad}: {j.text}" for j in s.slots)
             add(f"  slotted:   {s.ref:<5} max {_mm(s.max_dev_nm)} mm  [{jobs}]")
+        if s.bends:  # the Beckham tolerance: accepted because its legs can be bent onto the holes
+            legs = "; ".join(b.text for b in s.bends)
+            add(f"  bend legs: {s.ref:<5} [bend] {s.bend_nm / 1e6:g} mm  [{legs}]")
     for s in a.off_board:
         pads = ", ".join(f"{p.number}@{p.where}" for p in s.pads)
         add(

@@ -136,3 +136,18 @@ def test_lopsided_slotted_part_is_warned(tmp_path):
         "BT1 slot offsets 0.000/0.635 mm; shift -0.318 mm along the strip (toward lower hole numbers) "
         "to centre it, so every end hole is filed the same amount"
     ]
+
+
+def test_outboard_slots_say_half_a_pitch_off(tmp_path):
+    # Kevin's 01:47 placement: origin between two holes, so both pads sit outboard of their holes
+    half = fp(
+        "BT1",
+        "2.54 3.81",
+        pad("1", "0.3175 0", "VBAT", drill="oval 1.635 1"),
+        pad("2", "32.7025 0", "GND", drill="oval 1.635 1"),
+    )
+    a = _run(tmp_path, half, slotted=["BT1"])
+    assert [j.inward for j in a.slot_jobs] == [False, False]
+    assert any(
+        "point away from the part centre" in w and "move it 1.270 mm along the strip" in w for w in a.warnings
+    )
