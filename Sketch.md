@@ -230,6 +230,10 @@ Notes:
   column where both pieces have free holes, with a length of k × 2.54 mm chosen from Mildrew's link
   family (for example `Link_P5.08 … Link_P25.40`). Each proposal records row A, row B, column, the
   link footprint, and the net.
+  *Update (2026-09-28, Kevin):* links now start and end at any free grid hole: along a strip, on
+  diagonals (rotated `Link_P*` for whole-pitch lengths, off-pitch `Link_D*` otherwise) and as two
+  links meeting on a bare bus strip, within `max_link_mm`, never crossing another link or passing
+  over a pin. A proposal also records the end column, kind, rotation and bus strip.
 - **Schematic sync (Kevin's decision).** Links are 0 Ω jumper *symbols* (ref prefix `W`) whose two
   pins sit on the **same net**, with the footprint taken from the link family. KiCad 10 has no
   schematic IPC, so v0 is **two-pass**:

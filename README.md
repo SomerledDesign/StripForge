@@ -149,6 +149,11 @@ input. It snaps the parts (as `snap` does), splits the strips by net and writes 
   removes the track between two holes) plus a `StripForge:CUT_Hole` / `StripForge:CUT_Knife`
   marker footprint on `User.1` (refs `CUT1`…, board-only, not in the BOM or position files). The
   markers are embedded in the board, so it loads and DRCs without the StripForge library configured;
+- **holes**: every free stripboard hole is drawn (one board-only `SF_HOLES_<strip>` footprint per
+  strip with a plated pad per hole, on that strip's net, on `B.Cu` only), so the built board looks
+  like the real board in pcbnew and the 3D viewer. Hole cuts are drawn as bare (non-plated) holes;
+  holes under part pins and link pads take the part's pad instead. `draw_holes = false` turns this
+  off, `hole_drill_mm` (default 1.0) sets the drill;
 - **links**: see below;
 - next to `<out>`: `<out>.kicad_dru` (a copy of `rules/stripforge.kicad_dru`, which `kicad-cli`
   and pcbnew pick up automatically) and the link proposal as `<out>.links.json`, `.links.csv` and
@@ -159,25 +164,43 @@ again from a StripForge output removes its own strips and cut markers first and 
 output is deterministic (same input, same bytes). Parts outside the Edge.Cuts outline are reported,
 and copper is only written for holes inside the outline.
 
-**Pass 1.** For every net split over several strip pieces, StripForge proposes straight wire links
-along a column (across strips), 1–32 pitches long (`StripForge:Link_P2.54` … `Link_P81.28`), like a
-minimum spanning tree: fewest and shortest links, no two links in one hole, no overlapping links in
-one column where it can be avoided, avoiding part courtyards, and only on free holes (never a cut or
-a pad). A cut may slide within its gap to free a landing hole. The report lists each link:
+**Pass 1.** For every net split over several strip pieces, StripForge proposes wire links like a
+minimum spanning tree: fewest and shortest links, from **any free hole** of one piece to any free
+hole of another (every grid hole counts, not only footprint holes; never a cut, a pad or another
+link's hole). In order of preference a link runs:
+
+1. straight down a column (`StripForge:Link_P2.54` … `Link_P81.28`, 1–32 pitches); a cut may slide
+   within its gap to free a landing hole;
+2. along a strip, bridging a cut (rare: two pieces of one net on one strip are only split when a
+   different-net pin sits between them, and a wire can't run over that pin);
+3. on a diagonal (`diagonal_links`, default on), rotated: a `Link_P*` when the length is a whole
+   number of pitches (3-4-5 and friends), otherwise an off-pitch `Link_D<mm>` (`Link_D3.59` for a
+   1x1 offset … `Link_D81.16`; 305 footprints in the library; `off_pitch_links = false` keeps to
+   whole-pitch diagonals);
+4. as two links meeting on a **bus strip** (`bus_strips`, default on): a piece of unused bare strip
+   that the net takes over; hole cuts isolate it from the rest of that strip where that leaves a
+   useful remainder (the report says "hole cut at R5 isolates a bus strip").
+
+Rules for every link: no longer than `max_link_mm` (default 81.28 mm = 32 pitches); never crossing
+or touching another link; never passing over (within 0.9 mm of) a part pin or another link's end,
+since bare wire would short to it; part courtyards avoided where possible (a wire may run under a
+part, reported). The report lists each link, with the rotation for diagonals:
 
 ```
 W4    D12 -> J12  StripForge:Link_P15.24   GND
+W19   J18 -> T16  StripForge:Link_D25.90   +5V_T  (diagonal, rotated 348.69 deg)  (to bus strip T)
 ```
 
 Add them to the schematic: one 2-pin jumper per line (`Jumper:Jumper_2_Bridged` or a 0 Ω
 resistor), Reference `W4`, Footprint `StripForge:Link_P15.24`, both pins wired to the net (`GND`).
 Then press F8 (Update PCB from Schematic). `<out>.links.txt` has the full list and these steps. A
-net that can't be joined with vertical links is an error in the report: move or rotate a part so its
-pieces share a column with free holes.
+net that still can't be joined is an error in the report, naming its pieces: move or rotate a part
+so they come closer, or free some holes.
 
 **Pass 2.** Build again from the board that now has the `W` footprints (anywhere on the board): each
 `W` is matched by reference and net to the proposal and placed on its two holes (pad 1 on the upper
-hole; the link footprints are vertical at 0°). Missing, extra, wrong-footprint or wrong-net `W`
+hole; a straight-down link at 0°, a diagonal or along-the-strip link rotated so pad 2 lands on
+its hole). Missing, extra, wrong-footprint or wrong-net `W`
 parts are reported. The `W` parts are not treated as components, so the strips and cuts don't
 change.
 
@@ -205,7 +228,8 @@ view SVGs and `<out>.cuts.csv` are always written. The sheet has:
 3. **Checklists in build order** with checkboxes:
    - cuts grouped by strip;
    - slot jobs ("file U16 0.025" (0.635 mm) toward U17 (toward the part centre)");
-   - wire links (ref, from, to, length in holes, footprint);
+   - wire links (ref, from, to, length in holes, footprint, and "diagonal, 4 across and 3 down",
+     "along the strip" or "to bus strip R"); both views draw every link at its real angle;
    - parts, low-profile first, with every pin's hole.
 4. **Net check:** every net and every hole it must touch, for a continuity meter.
 5. **Warnings:** knife cuts, courtyard overlaps, unlinkable nets, links still to add, and a banner
@@ -221,8 +245,10 @@ Large boards are split across pages.
 
 - **real problems** (exit 1): shorts, clearance, unconnected items, schematic parity, violations of
   a StripForge (`SF …`) rule, and any other error;
-- **filtered, counted** (expected on stripboard): `track_dangling` (dead strip ends) and the
-  "footprint library not configured" warning (the footprints are embedded);
+- **filtered, counted** (expected on stripboard): `track_dangling` (dead strip ends), the
+  "footprint library not configured" warning (the footprints are embedded), and courtyard/library
+  items of the drawn `SF_HOLES_*` hole footprints ("N stripboard-hole item(s)": the holes under
+  parts are real holes);
 - **reported, not failing**: a `W` link over a part courtyard (a wire can run under a part), and
   other warnings (silk), summarised by type.
 

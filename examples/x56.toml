@@ -34,6 +34,17 @@ slot_max_mm = 1.0
 # [bend]
 # SW2 = 0.16   # DPDT slide switch: 312 mil rows on 300 mil holes, 6 mil off per row
 
+# Wire links: the longest link the planner may propose (mm; default 81.28 = 32 pitches). Links run
+# from any free hole: down a column, along a strip, on a diagonal (a rotated Link_P* when the
+# length is whole pitches, else an off-pitch Link_D*), or two links meeting on a bare bus strip.
+# max_link_mm = 81.28
+# diagonal_links = true
+# off_pitch_links = true      # false: diagonals only when the length is a whole number of pitches
+# bus_strips = true
+# Build draws every free stripboard hole (plated, on its strip's net; hole cuts bare).
+# draw_holes = true
+# hole_drill_mm = 1.0
+
 # DRC filters for `stripforge drc` and the plugin's Run DRC. Everything filtered is still counted
 # in the report ("filtered (config): ..."). Keep this table last in the file (TOML tables end the
 # top-level keys). Type names are KiCad 10's DRC "type" values, e.g. silk_overlap, silk_over_copper,

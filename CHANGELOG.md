@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Build draws every stripboard hole: a board-only `SF_HOLES_<strip>` footprint per strip with a
+  plated `B.Cu` pad per free hole on the strip's net (hole cuts as bare holes), so pcbnew and the
+  3D viewer show the real board. `draw_holes`, `hole_drill_mm`. `stripforge drc` counts the hole
+  footprints' courtyard/library items as "stripboard-hole item(s)" instead of failing on them.
+- Wire links from any free hole to any free hole: along a strip, on a diagonal (rotated `Link_P*`
+  for whole-pitch lengths, else the new off-pitch `Link_D*` family: 305 footprints, `Link_D3.59`
+  … `Link_D81.16`), or two links meeting on a bare **bus strip** isolated by hole cuts. Options
+  `max_link_mm`, `diagonal_links`, `off_pitch_links`, `bus_strips`. Pass 2 places rotated links;
+  the report, links CSV/JSON (`kind`, `rotation`, `bus`) and build sheet show them.
+- Links never cross or touch another link and never pass over a part pin or another link's end
+  (a bare wire would short); the planner retries unlinkable nets first for up to 4 rounds.
+
 - `[bend]` table, the "Beckham tolerance": per-part snap tolerance in mm (e.g. `SW2 = 0.16` for a
   312 mil row pitch on 300 mil holes), in any direction, across the strip for slotted parts.
   Analyze lists each leg to bend (mm and mil), the build sheet says "bend legs up to ...", and
