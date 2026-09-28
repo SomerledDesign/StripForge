@@ -2,6 +2,8 @@
 # Copyright (C) 2026 Somerled Design
 """StripForge command line: analyze, snap, build and drc (plan and sheet are stubs; Sketch.md §7)."""
 
+from __future__ import annotations
+
 import argparse
 import json
 import sys

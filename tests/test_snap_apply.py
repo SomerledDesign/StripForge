@@ -49,7 +49,8 @@ def test_cli_snap_writes_only_the_moves(tpi_board_path, tmp_path, capsys):
     assert "C1    moved (+0.020, +0.000) mm; worst pad offset 0.040 -> 0.020 mm [L3, L4]" in text
     src = tpi_board_path.read_text().splitlines()
     new = out.read_text().splitlines()
-    changed = [(a, b) for a, b in zip(src, new, strict=True) if a != b]
+    assert len(src) == len(new)
+    changed = [(a, b) for a, b in zip(src, new) if a != b]
     assert changed == [
         ("\t\t(at 63.97 102.07)", "\t\t(at 63.99 102.07)"),
         ("\t\t(at 53.81 102.07)", "\t\t(at 53.83 102.07)"),

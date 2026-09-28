@@ -7,7 +7,7 @@ name = "stripforge"
 version = "0.0.1"
 description = "StripForge: stripboard (Veroboard) copper, cuts and links as a normal KiCad .kicad_pcb (pre-alpha)"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.9"  # 3.9: KiCad 10's bundled Python on macOS runs the plugin
 license = "GPL-3.0-or-later"
 license-files = ["LICENSE"]
 authors = [{ name = "Somerled Design" }]
@@ -15,11 +15,12 @@ keywords = ["kicad", "stripboard", "veroboard", "pcb", "electronics", "prototypi
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Electronic Design Automation (EDA)",
 ]
-dependencies = []
+dependencies = ["tomli>=1.1; python_version < '3.11'"]
 
 [project.optional-dependencies]
 ipc = ["kicad-python>=0.8.0,<0.9"]   # live-board backend (KiCad 10.0.1+; see Sketch.md §3)
@@ -38,7 +39,7 @@ where = ["src"]
 
 [tool.ruff]
 line-length = 110
-target-version = "py311"
+target-version = "py39"  # the KiCad plugin runs on KiCad's bundled Python (3.9 on macOS)
 src = ["src", "tests"]
 
 [tool.ruff.lint]

@@ -1,5 +1,7 @@
 """Tiny builders for synthetic KiCad S-expression text used by the unit tests."""
 
+from __future__ import annotations
+
 
 def pcb(*footprints: str, outline: tuple[float, float, float, float] | None = (0, 0, 25.4, 12.7)) -> str:
     """A minimal .kicad_pcb text. Default outline: 10 cols x 5 rows, hole (0,0) at (1.27, 1.27)."""

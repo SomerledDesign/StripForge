@@ -24,7 +24,7 @@ from .board import Board, rotate_nm
 from .config import CutStyle
 from .grid import Grid, Node, PadSnap, SnapResult, hole_label, row_label
 from .splitter import split
-from .strips import assign_holes, build_strips
+from .strips import assign_holes, build_strips, pairs
 
 
 @dataclass
@@ -94,7 +94,7 @@ def forced_cuts(snap: SnapResult) -> dict[int, int]:
     out: dict[int, int] = {}
     for row, pads in by_row.items():
         pads.sort()
-        n = sum(1 for (_, a), (_, b) in zip(pads, pads[1:], strict=False) if a and b and a != b)
+        n = sum(1 for (_, a), (_, b) in pairs(pads) if a and b and a != b)
         if n:
             out[row] = n
     return out

@@ -16,6 +16,11 @@ from dataclasses import dataclass, field
 from .grid import Grid, Node, SnapResult, hole_label, row_label
 
 
+def pairs(items: list) -> list[tuple]:
+    """Consecutive pairs of ``items`` (``itertools.pairwise`` needs Python 3.10; KiCad's is 3.9)."""
+    return [(items[i], items[i + 1]) for i in range(len(items) - 1)]
+
+
 @dataclass
 class Strip:
     row: int

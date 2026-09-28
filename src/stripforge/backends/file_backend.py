@@ -6,6 +6,8 @@ Reads a board, moves footprints (M2 part A) and writes it back byte-exactly exce
 edited nodes. Strips, cuts and links are M2 part B.
 """
 
+from __future__ import annotations
+
 from pathlib import Path
 
 from ..board import Board, Footprint, load_board, save_board

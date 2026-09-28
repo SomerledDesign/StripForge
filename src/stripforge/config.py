@@ -4,16 +4,25 @@
 
 from __future__ import annotations
 
-import tomllib
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python < 3.11 (KiCad 10's bundled Python is 3.9)
+    import tomli as tomllib
 from dataclasses import dataclass, field, fields
-from enum import StrEnum
+from enum import Enum
 from pathlib import Path
 
 
-class CutStyle(StrEnum):
+class CutStyle(str, Enum):  # a StrEnum, written so it also runs on Python 3.9 (KiCad's)
     HOLE = "hole"  # spot-face cut at a free hole (default)
     KNIFE = "knife"  # score between two adjacent holes
     AUTO = "auto"  # hole when possible, else knife (+ warning)
+
+    def __str__(self) -> str:
+        return self.value
+
+    def __format__(self, spec: str) -> str:
+        return format(self.value, spec)
 
 
 @dataclass

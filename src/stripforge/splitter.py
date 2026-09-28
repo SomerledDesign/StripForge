@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 
 from .config import CutStyle
 from .grid import Node, hole_label
-from .strips import HoleMap, Piece, Strip
+from .strips import HoleMap, Piece, Strip, pairs
 
 
 @dataclass
@@ -89,7 +89,7 @@ def place_cuts(strips: list[Strip], holes: HoleMap, style: CutStyle | str) -> tu
     warnings: list[str] = []
     for strip in strips:
         pads = _row_pads(holes, strip.row)
-        for (ca, na, la), (cb, nb, lb) in zip(pads, pads[1:], strict=False):
+        for (ca, na, la), (cb, nb, lb) in pairs(pads):
             if na == nb:
                 continue
             cut_id = f"X{len(cuts) + 1}"

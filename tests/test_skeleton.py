@@ -1,4 +1,3 @@
-import tomllib
 from pathlib import Path
 
 import pytest
@@ -6,6 +5,7 @@ import pytest
 import stripforge
 from stripforge import PITCH_NM
 from stripforge.cli import main
+from stripforge.config import tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
 

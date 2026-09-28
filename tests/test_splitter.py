@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from stripforge.config import CutStyle
 from stripforge.grid import Grid, Node, PadSnap, SnapResult
 from stripforge.splitter import SplitResult, assign_nets, split
