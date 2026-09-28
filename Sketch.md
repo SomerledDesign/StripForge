@@ -341,8 +341,8 @@ We make KiCad's **built-in** electrical checks do the work rather than inventing
   - **Existing copper (decision):** a track, arc or via StripForge did not write is refused (the
     input must be the placement board); StripForge's own strips (known uuid5s) and `CUT` markers are
     removed and rewritten, so the pass-2 build can start from the pass-1 output.
-  - The configured grid is clipped to the Edge.Cuts outline with a warning (the fixture's outline is
-    30 holes wide while X56 is 56).
+  - The configured grid is clipped to the Edge.Cuts outline with a warning (the fixture's outline
+    was 30 holes wide while X56 is 56, until Mildrew widened it).
   - The rules are copied to `<out>.kicad_dru`; the output never overwrites the input.
   - UUIDs are uuid5, so rebuilding unchanged input is byte-identical. Instead of a `stripforge:*`
     group, StripForge recognises its output by uuid (tracks) and footprint (`StripForge:CUT_*`).

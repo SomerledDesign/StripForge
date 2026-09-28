@@ -82,7 +82,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - `examples/tpi-fixture/` is now Mildrew's real-parts board (22 footprints, 41 nets, BT1
-  slotted); the M1 board is frozen in `tests/fixtures/tpi-m1/` for the M1/M2A tests.
+  slotted, Edge.Cuts widened to the X56 board, 56 × 24 holes); the M1 board is frozen in
+  `tests/fixtures/tpi-m1/` for the M1/M2A tests.
 - Strip width confirmed at 1.8 mm (caliper-measured on the X56 board); the `.kicad_dru` must be
   regenerated with `rules/gen_dru.py` whenever it changes.
 - Library nickname `StripForge` everywhere (`StripForge:Link_P10.16`, `StripForge:CUT_Hole`, …).

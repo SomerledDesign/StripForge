@@ -96,7 +96,7 @@ def _fp(name: str, x: float, y: float, ref: str, layer: str = "F.Cu") -> str:
     return t.replace('(footprint "', '(footprint "StripForge:', 1).replace('"REF**"', f'"{ref}"')
 
 
-# Empty spots on the fixture board (outline (50,50)-(126.2,113.5), first hole at 51.27).
+# Empty spots on the fixture board (first hole at 51.27, 51.27).
 CLEAN_ITEMS = [
     # a legal row-0 strip piece, 1.8 mm wide, touching the top edge region
     lambda: f'(segment (start 51.27 51.27) (end 53.81 51.27) (width 1.8) (layer "B.Cu") (uuid "{U()}"))',

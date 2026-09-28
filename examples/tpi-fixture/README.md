@@ -14,8 +14,9 @@ Files:
   (J1), two SS12D00G slide switches (SW2, SW3, 2.50 mm pitch), a push button (SW4), the MPD
   BH23APC battery holder (BT1, slotted) and a Littelfuse 395 fuse (F1). Project-library
   footprints are embedded in the board, so the `.pretty` library is not needed here.
-- The Edge.Cuts outline is still (50, 50)–(126.2, 113.5) mm: 30 × 25 holes, the first hole half a
-  pitch in, at (51.27, 51.27) mm.
+- The Edge.Cuts outline is (50, 50)–(192.24, 110.96) mm, Kevin's X56 board: 56 × 24 holes
+  (`A1`–`X56`), the first hole half a pitch in, at (51.27, 51.27) mm. The parts sit in the left
+  30 columns.
 
 Use it with Kevin's X56 config ([../x56.toml](../x56.toml)), which lists `BT1` as slotted:
 
@@ -24,10 +25,9 @@ stripforge analyze examples/tpi-fixture/ATtiny10_TPI_Fixture.kicad_pcb \
     --netlist examples/tpi-fixture/ATtiny10_TPI_Fixture.net --config examples/x56.toml
 ```
 
-All 22 parts snap (BT1 as two slot jobs), with 0 conflicts. The X56 grid is 56 holes wide but the
-outline is only 30, so `analyze` warns that the grid extends past Edge.Cuts; that is expected
-until the outline is widened. `stripforge build` writes copper only for the holes inside the
-outline.
+All 22 parts snap (BT1 as two slot jobs on strip U), with 0 conflicts, and the X56 grid matches
+the outline. `stripforge build` on it gives 59 cuts and proposes 25 wire links of the 39 needed;
+13 nets can't be joined by vertical links with this placement (see the build report).
 
 The earlier M1 version of this fixture (25 footprints, 36 nets) is frozen in
 [tests/fixtures/tpi-m1](../../tests/fixtures/tpi-m1) for the M1 tests.

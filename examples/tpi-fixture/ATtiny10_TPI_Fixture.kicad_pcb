@@ -4500,7 +4500,7 @@
 	(footprint "ATtiny10_TPI_Fixture:BatteryHolder_MPD_BH23APC_1x23A_Stripboard_H0-H13"
 		(layer "F.Cu")
 		(uuid "c4851939-58bb-410c-9a7e-8a4689b970e8")
-		(at 89.37 104.61)
+		(at 89.37 102.07)
 		(descr "MPD BH23APC 23A battery holder with PC pins (flat tabs 0.50x1.00 mm, true spacing 31.70 mm), stripboard build: pins on ONE strip at grid holes 0 and 13 (33.02 mm), each end hole filed 0.635 mm (0.025in) inward -> pin centres 31.75 mm. Oval slots start at the grid hole and extend 0.635 mm inboard. CUT THE STRIP BETWEEN THE PINS. Pad 1 = + (end away from the spring). Centre mounting hole omitted. Source: MPD drawing BH23APC rev F 2/09/18.")
 		(tags "battery holder 23A A23 MPD BH23APC stripboard")
 		(property "Reference" "BT1"
@@ -6025,7 +6025,7 @@
 	)
 	(gr_rect
 		(start 50 50)
-		(end 126.2 113.5)
+		(end 192.24 110.96)
 		(stroke
 			(width 0.1)
 			(type default)

@@ -160,7 +160,8 @@ def test_real_fixture_build(tmp_path, real_board_path, real_netlist_path):
     assert len(res.analysis.snapped) == 22 and not res.analysis.rejected
     assert res.cut_markers == len(res.analysis.split.cuts) == 59
     assert res.segments == len(segments(out))
-    assert any("Edge.Cuts" in w for w in res.warnings)  # the outline is 30 holes wide
+    assert not any("Edge.Cuts" in w for w in res.warnings)  # the outline is the X56 board
+    assert res.segments == 1226 and res.segments_no_net == 165
     # pass 2 on a copy: every proposed link is placed
     links = json.loads((tmp_path / "b.links.json").read_text())["links"]
     shutil.copy(real_board_path, tmp_path / "in.kicad_pcb")
