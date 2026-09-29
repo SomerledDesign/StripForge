@@ -665,6 +665,22 @@ real-parts board: 22 footprints, 41 nets, 86 pads, with BT1 slotted.*
   PySide6/Qt and Python 3.12+, while a KiCad 10 plugin has wxPython and Python 3.9, so ideas and
   pure-Python parts port more easily than UI code. GPL-compatible KiCad plugins are fine too.
 
+**Post-M3 backlog: pre-existing mounting holes (Kevin, 2026-09-29; not in M3).**
+- A `stripboard.toml` option for mounting holes already drilled in the stripboard, given either
+  by hole label plus diameter (e.g. `C3`, `C65`, `X3`, `X65`, 3.2 mm) or by board coordinates in
+  inches (e.g. `(0.3, 0.3)`, `(6.5, 0.3)`, `(0.3, 2.4)`, `(6.5, 2.4)`). The origin for inch
+  coordinates has to be defined first (board corner / Edge.Cuts top-left, or hole A1).
+- Effort: about 1–2 days. What it touches:
+  - **Planning:** the holes (and any hole whose copper the drill removes) are excluded like slot
+    holes: no pin, link end or hole cut may use them; a part over one is rejected with a hint.
+  - **Cuts:** a drilled hole cuts its strip there, so the splitter treats it as a fixed cut (no
+    extra cut needed, and nets on each side stay apart). A hole wider than the strip gap (3.2 mm on
+    2.54 mm strips) also nicks the neighbouring strips: warn, or treat them as narrowed there.
+  - **DRC:** write NPTH mounting-hole footprints (e.g. `MountingHole_3.2mm`) at those spots so
+    KiCad checks clearance to strips, pads and links.
+  - **Build sheet:** draw the holes on both views and list them (they are drilled, not cut: keep
+    them out of the cut list and the cut count).
+
 ## 8. Jarvis / Mildrew split
 
 | Area | Jarvis | Mildrew |
