@@ -63,7 +63,7 @@ LINK_DRILL = 1.0  # stripboard holes are 0.94-1.02 mm (BusBoard 0.94, Vero 1.02,
 # Round pad; kept <= strip width (1.8 mm, measured on the X56 board) so it never reaches the next strip.
 LINK_PAD = 1.7
 LINK_WIRE = 0.6  # ~23 AWG tinned copper wire, drawn on F.Fab
-CRT_MARGIN = 0.25  # courtyard clearance beyond pad copper
+CRT_MARGIN = 0.25  # courtyard clearance beyond pad copper, and beyond the wire between the pads
 # Straight links (Link_P*) only: an unfilled ring on a user marker layer around each pad, so
 # placed links stand out (Kevin colours User.4 yellow). Radius = pad half-size + 0.25 mm.
 LINK_RING_LAYER = "User.4"
@@ -115,6 +115,13 @@ class FP:
             f'(stroke (width {fmt(w)}) (type solid)) (fill {f}) (layer "{layer}") (uuid "{self.uid()}"))'
         )
 
+    def poly(self, pts, layer, w):
+        xy = " ".join(f"(xy {fmt(x)} {fmt(y)})" for x, y in pts)
+        self.add(
+            f"  (fp_poly (pts {xy}) "
+            f'(stroke (width {fmt(w)}) (type solid)) (fill no) (layer "{layer}") (uuid "{self.uid()}"))'
+        )
+
     def circle(self, cx, cy, r, layer, w):
         self.add(
             f"  (fp_circle (center {fmt(cx)} {fmt(cy)}) (end {fmt(cx + r)} {fmt(cy)}) "
@@ -147,6 +154,20 @@ def link_name(k: int) -> str:
 
 def diagonal_name(n: int) -> str:
     return f"Link_D{math.sqrt(n) * PITCH:.2f}"
+
+
+def link_courtyard(length: float) -> list[tuple[float, float]]:
+    """Dumbbell outline for a link of ``length`` mm (pad 1 at 0, pad 2 at +Y): a square of pad
+    radius + margin round each pad, joined by a neck of wire radius + margin."""
+    c = round(LINK_PAD / 2 + CRT_MARGIN, 4)
+    w = round(LINK_WIRE / 2 + CRT_MARGIN, 4)
+    top, bot = c, round(length - c, 4)
+    if bot <= top:  # pads' squares touch or overlap: one rectangle
+        return [(-c, -c), (c, -c), (c, length + c), (-c, length + c)]
+    return [
+        (-c, -c), (c, -c), (c, top), (w, top), (w, bot), (c, bot),
+        (c, length + c), (-c, length + c), (-c, bot), (-w, bot), (-w, top), (-c, top),
+    ]  # fmt: skip
 
 
 def make_link(k: int, n: int | None = None) -> tuple[str, str]:
@@ -183,8 +204,9 @@ def make_link(k: int, n: int | None = None) -> tuple[str, str]:
     y0, y1 = LINK_PAD / 2 + 0.2, length - LINK_PAD / 2 - 0.2
     if y1 - y0 >= 0.3:
         fp.line(0, y0, 0, y1, "F.SilkS", 0.12)
-    c = LINK_PAD / 2 + CRT_MARGIN
-    fp.rect(-c, -c, c, length + c, "F.CrtYd", 0.05)
+    # Courtyard: a pad-sized square round each pad and, between them, only the wire (0.6 mm) plus
+    # the margin, so a link is as narrow as a real wire link and not a pad-wide block.
+    fp.poly(link_courtyard(length), "F.CrtYd", 0.05)
     fp.pad("1", 0, 0, LINK_PAD, LINK_DRILL)
     fp.pad("2", 0, length, LINK_PAD, LINK_DRILL, exact=n is not None)
     if n is None:  # straight links only; drawn after the pads so existing uuids are unchanged

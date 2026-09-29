@@ -70,6 +70,31 @@ def test_link_geometry():
         assert "(attr through_hole)" in t
 
 
+def _courtyard(t):
+    (pts,) = re.findall(r'\(fp_poly \(pts ((?:\(xy [-\d.]+ [-\d.]+\) ?)+)\).*?\(layer "F.CrtYd"\)', t)
+    return [(float(x), float(y)) for x, y in re.findall(r"\(xy ([-\d.]+) ([-\d.]+)\)", pts)]
+
+
+def test_link_courtyard_is_wire_width_between_the_pads():
+    """Kevin: the link courtyard looked ~87 mil wide end to end. Now a square round each pad (pad
+    radius + 0.25) and a neck of wire radius + 0.25 (1.1 mm across); the visible wire stays 0.6 mm."""
+    for name in ("Link_P2.54", "Link_P5.08", "Link_P25.40", "Link_D3.59", "Link_D81.16"):
+        t = (LIB / f"{name}.kicad_mod").read_text()
+        assert "fp_rect" not in t.split('(layer "F.CrtYd")')[0].rsplit("\n", 1)[-1]
+        pts = _courtyard(t)
+        length = float(re.findall(r'\(pad "2" thru_hole circle \(at 0 ([-\d.]+)\)', t)[0])
+        xs = sorted({abs(x) for x, _ in pts})
+        assert xs == [0.55, 1.1], name
+        neck = [y for x, y in pts if abs(x) == 0.55]
+        assert min(neck) == 1.1 and abs(max(neck) - (length - 1.1)) < 1e-3, name
+        assert min(y for _, y in pts) == -1.1 and abs(max(y for _, y in pts) - (length + 1.1)) < 1e-3
+        assert re.search(
+            r"\(fp_line \(start 0 0\) \(end 0 [-\d.]+\) "
+            r'\(stroke \(width 0.6\) \(type solid\)\) \(layer "F.Fab"\)',
+            t,
+        )
+
+
 def test_off_pitch_link_geometry():
     for n in gen_fp.diagonal_squares():
         name = gen_fp.diagonal_name(n)

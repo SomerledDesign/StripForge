@@ -143,6 +143,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Link footprints' courtyard is a dumbbell: 0.25 mm around each pad and 0.25 mm either side of the
+  0.6 mm wire, instead of a pad-wide rectangle, so a link is about as wide as a real wire. Update
+  footprints on existing boards (Tools > Update Footprints from Library) to get the new outline.
 - The plugin no longer fails with a kipy `ApiError` traceback when KiCad is busy (an active
   tool or a dialog). Saving, reading the board and project, finding kicad-cli, and reloading the
   built board are retried for up to 10 s. If KiCad is still busy, a short message says to press

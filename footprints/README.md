@@ -48,7 +48,7 @@ the nanometre) and rotated on the board by the build. The description lists the 
 | Placement | Anchor on hole (col, row_a) at rotation 0 puts pad 2 on (col, row_a + k). Rotation 90 puts pad 2 at +X (col + k), 270 at −X (checked with a `kicad-cli` drill export) |
 | F.Fab | wire centre line pad to pad, 0.6 mm wide (≈ 23 AWG); `${REFERENCE}` and Value along the wire |
 | F.SilkS | wire between the pads, 0.12 mm, kept 0.2 mm off pad copper; Reference beside the wire (rotated 90°) |
-| F.CrtYd | rectangle 0.25 mm outside the pads (±1.1 mm × −1.1 … L + 1.1 mm) |
+| F.CrtYd | dumbbell: a square 0.25 mm outside each pad (±1.1 mm) joined by a neck 0.25 mm outside the 0.6 mm wire (±0.55 mm), so a link is about as wide as a real wire link |
 | Attributes | `through_hole` (normal part: in schematic, BOM and position files) |
 | Jumper | `(jumper_pad_groups ("1" "2"))`: the wire joins the pads, so KiCad's connectivity treats them as one node. Without it a placed link joins nothing and DRC keeps reporting the net as unconnected (found in the M2 part B pass-2 check, KiCad 10.0.4) |
 

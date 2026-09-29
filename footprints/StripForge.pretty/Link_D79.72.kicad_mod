@@ -11,7 +11,7 @@
   (fp_line (start 0 0) (end 0 79.7172) (stroke (width 0.6) (type solid)) (layer "F.Fab") (uuid "07f8313c-f5ea-50d7-9c30-a57bc10b6055"))
   (fp_text user "${REFERENCE}" (at 1.5 39.8586 90) (layer "F.Fab") (uuid "aa3e5827-2db6-56e6-a336-27ec22a40ec9") (effects (font (size 0.6 0.6) (thickness 0.09))))
   (fp_line (start 0 1.05) (end 0 78.6672) (stroke (width 0.12) (type solid)) (layer "F.SilkS") (uuid "915c2166-6abb-5383-9434-955e791fd524"))
-  (fp_rect (start -1.1 -1.1) (end 1.1 80.8172) (stroke (width 0.05) (type solid)) (fill no) (layer "F.CrtYd") (uuid "c1795ff8-d0a8-539c-9052-292e0a049454"))
+  (fp_poly (pts (xy -1.1 -1.1) (xy 1.1 -1.1) (xy 1.1 1.1) (xy 0.55 1.1) (xy 0.55 78.6172) (xy 1.1 78.6172) (xy 1.1 80.8172) (xy -1.1 80.8172) (xy -1.1 78.6172) (xy -0.55 78.6172) (xy -0.55 1.1) (xy -1.1 1.1)) (stroke (width 0.05) (type solid)) (fill no) (layer "F.CrtYd") (uuid "c1795ff8-d0a8-539c-9052-292e0a049454"))
   (pad "1" thru_hole circle (at 0 0) (size 1.7 1.7) (drill 1) (layers "*.Cu" "*.Mask") (remove_unused_layers no) (uuid "427ee25f-44ad-5fcb-877d-c556fc958f76"))
   (pad "2" thru_hole circle (at 0 79.717163) (size 1.7 1.7) (drill 1) (layers "*.Cu" "*.Mask") (remove_unused_layers no) (uuid "e120a84c-004d-5d58-aee0-4335a2a83a8b"))
   (embedded_fonts no)
