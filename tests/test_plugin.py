@@ -338,3 +338,99 @@ def test_add_links_to_schematic(sfp, project, monkeypatch):
 
     assert sfp.run("links") == 0  # again: nothing to add, nothing rotated
     assert "Nothing to add" in shown[-1][1] and not (src / "sub-pre-links-1.kicad_sch").exists()
+
+
+class BusyError(Exception):
+    """Like kipy's ApiError for AS_BUSY."""
+
+    def __init__(self):
+        super().__init__("KiCad is busy and cannot respond to API requests right now")
+        self.code = "AS_BUSY"
+
+
+def test_busy_retry_backs_off_then_gives_up(sfp):
+    naps = []
+    calls = iter([BusyError(), BusyError(), "ok"])
+
+    def call():
+        v = next(calls)
+        if isinstance(v, Exception):
+            raise v
+        return v
+
+    assert sfp.busy_retry(call, "saving", sleep=naps.append) == "ok" and naps == [0.25, 0.5]
+
+    def always():
+        raise BusyError()
+
+    naps.clear()
+    with pytest.raises(sfp.KiCadBusy, match="saving"):
+        sfp.busy_retry(always, "saving", wait_s=10, sleep=naps.append)
+    assert sum(naps) >= 10 and max(naps) == 2.0
+
+    def other():
+        raise ValueError("no board")
+
+    with pytest.raises(ValueError):  # not busy: raised at once, no retry
+        sfp.busy_retry(other, "x", sleep=lambda s: pytest.fail("slept"))
+
+
+def test_build_waits_while_kicad_is_busy_saving(sfp, project, monkeypatch):
+    """Kevin 2026-09-29: board_doc.save() raised 'KiCad is busy' right after the OK dialog."""
+    tmp, board, shown = project
+    monkeypatch.setattr(sfp.time, "sleep", lambda s: None)
+    monkeypatch.setattr(sfp.Ui, "ask_save", lambda self, b, required=False: True)
+    busy = {"save": 2, "revert": 1}
+
+    def save():
+        if busy["save"]:
+            busy["save"] -= 1
+            raise BusyError()
+        board.saved += 1
+
+    def revert():
+        if busy["revert"]:
+            busy["revert"] -= 1
+            raise BusyError()
+        board.reverted = getattr(board, "reverted", 0) + 1
+
+    monkeypatch.setattr(board, "save", save)
+    monkeypatch.setattr(board, "revert", revert)
+    assert sfp.run("build") == 0
+    text = shown[-1][1]
+    assert board.saved == 1 and board.reverted == 1 and "Reloaded the built board" in text
+    assert "Traceback" not in text
+
+
+def test_build_reports_busy_kicad_plainly_and_builds_nothing(sfp, project, monkeypatch):
+    tmp, board, shown = project
+    monkeypatch.setattr(sfp.time, "sleep", lambda s: None)
+    monkeypatch.setattr(sfp.Ui, "ask_save", lambda self, b, required=False: True)
+    before = (tmp / "fix.kicad_pcb").read_bytes()
+
+    def save():
+        raise BusyError()
+
+    monkeypatch.setattr(board, "save", save)
+    assert sfp.run("build") == 1
+    title, text, _ = shown[-1]
+    assert title == "StripForge: Build strips" and "Traceback" not in text
+    assert "KiCad is busy" in text and "saving the board" in text
+    assert "Press Esc" in text and "Cmd+S" in text and "click StripForge: Build strips again" in text
+    assert (tmp / "fix.kicad_pcb").read_bytes() == before
+    assert not (tmp / "fix-pre-stripbuild.kicad_pcb").exists()
+
+
+def test_busy_reload_after_the_build_says_revert_without_saving(sfp, project, monkeypatch):
+    tmp, board, shown = project
+    monkeypatch.setattr(sfp.time, "sleep", lambda s: None)
+    monkeypatch.setattr(sfp.Ui, "ask_save", lambda self, b, required=False: True)
+
+    def revert():
+        raise BusyError()
+
+    monkeypatch.setattr(board, "revert", revert)
+    assert sfp.run("build") == 0
+    text = shown[-1][1]
+    assert "Could not reload it (KiCad was busy): use File > Revert now" in text
+    assert "don't save the board before that" in text

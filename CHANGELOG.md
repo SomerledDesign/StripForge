@@ -143,6 +143,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The plugin no longer fails with a kipy `ApiError` traceback when KiCad is busy (an active
+  tool or a dialog). Saving, reading the board and project, finding kicad-cli, and reloading the
+  built board are retried for up to 10 s. If KiCad is still busy, a short message says to press
+  Esc, save with Cmd+S (Ctrl+S) and click the action again; nothing is built. If only the reload
+  after an in-place build fails, the report says to use File > Revert before saving.
+
 - Moving a cut is just moving its `CUT` marker (issue #2): Build strips regenerates the strip
   tracks from the markers, and a strip track re-drawn by hand along a strip row (dragged, split or
   routed in pcbnew, so it lost StripForge's uuid) is now replaced with a warning instead of making

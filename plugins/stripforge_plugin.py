@@ -34,6 +34,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 import traceback
 import webbrowser
 from pathlib import Path
@@ -315,6 +316,49 @@ class Ui:
         dlg.Destroy()
 
 
+BUSY_WAIT_S = 10.0  # how long to keep retrying while KiCad says it is busy
+BUSY_NOTE = (
+    "KiCad is busy and can't take requests from StripForge right now ({what}).\n\n"
+    "Press Esc (maybe twice) to end any active tool (routing, moving, a dialog), save the board "
+    "with Cmd+S (Ctrl+S), and click {title} again."
+)
+
+
+class KiCadBusy(RuntimeError):
+    """KiCad kept answering 'busy' (an interactive tool or a dialog is active)."""
+
+    def __init__(self, what: str) -> None:
+        super().__init__(f"KiCad is busy ({what})")
+        self.what = what
+
+
+def is_busy(exc: BaseException) -> bool:
+    """kipy's ApiError for AS_BUSY: 'KiCad is busy and cannot respond to API requests right now'."""
+    code = getattr(exc, "code", None)
+    return "AS_BUSY" in str(code) or "busy" in str(exc).lower()
+
+
+def busy_retry(call, what: str, wait_s: float | None = None, sleep=None):
+    """``call()``, retried with a short backoff (0.25 s doubling to 2 s) for up to ``wait_s``
+    seconds while KiCad is busy; then :class:`KiCadBusy`. Any other error is raised at once."""
+    wait_s = BUSY_WAIT_S if wait_s is None else wait_s
+    sleep = sleep or time.sleep
+    delay, waited = 0.25, 0.0
+    while True:
+        try:
+            return call()
+        except KiCadBusy:
+            raise
+        except Exception as exc:
+            if not is_busy(exc):
+                raise
+            if waited >= wait_s:
+                raise KiCadBusy(what) from exc
+            sleep(delay)
+            waited += delay
+            delay = min(delay * 2, 2.0)
+
+
 def connect():
     """The KiCad connection and the open board (raises with a readable message)."""
     try:
@@ -326,7 +370,9 @@ def connect():
         ) from exc
     kicad = KiCad(timeout_ms=15000)
     try:
-        board = kicad.get_board()
+        board = busy_retry(kicad.get_board, "getting the open board")
+    except KiCadBusy:
+        raise
     except Exception as exc:  # kipy raises ApiError when no board is open
         raise RuntimeError(f"No board is open in the PCB editor ({exc})") from exc
     return kicad, board
@@ -336,7 +382,7 @@ def _kicad_cli(kicad) -> str | None:
     from stripforge.drc import find_kicad_cli
 
     try:
-        p = kicad.get_kicad_binary_path("kicad-cli")
+        p = busy_retry(lambda: kicad.get_kicad_binary_path("kicad-cli"), "finding kicad-cli", 2.0)
         if p and Path(p).exists():
             return p
     except Exception:
@@ -352,7 +398,7 @@ def run(action: str) -> int:
         if bootstrap() is None:
             raise RuntimeError(f"the stripforge package is missing next to {HERE}")
         kicad, board_doc = connect()
-        project = board_doc.get_project()
+        project = busy_retry(board_doc.get_project, "reading the project")
         board = board_path(project.path, board_doc.name)
         if board is None:
             ui.report(title, "Save the board to a .kicad_pcb file first, then run the action again.")
@@ -365,20 +411,29 @@ def run(action: str) -> int:
         if choice is None:
             return 0
         if choice:
-            board_doc.save()
+            busy_retry(board_doc.save, "saving the board")
         if not board.is_file():
             ui.report(title, f"Board file not found: {board}\nSave the board first.")
             return 0
         before = board.stat().st_mtime_ns
         text, shown = _run_action(action, board, project.name, _kicad_cli(kicad))
         if in_place and board.stat().st_mtime_ns != before:
-            try:
-                board_doc.revert()  # reload the rewritten file into the editor (RevertDocument)
+            try:  # reload the rewritten file into the editor (RevertDocument)
+                busy_retry(board_doc.revert, "reloading the built board")
                 text = text.replace(RELOAD_HINT, "Reloaded the built board in the PCB editor.")
             except Exception as exc:
-                text = text.replace(RELOAD_HINT, f"Could not reload it ({exc}): use File > Revert.")
+                why = "KiCad was busy" if isinstance(exc, KiCadBusy) else str(exc)
+                text = text.replace(
+                    RELOAD_HINT,
+                    f"Could not reload it ({why}): use File > Revert now, and don't save the board "
+                    "before that (saving would overwrite the build with the old board).",
+                )
         ui.report(title, text, shown)
         return 0
+    except KiCadBusy as exc:  # nothing was built: a plain message, not a traceback
+        print(f"StripForge: {exc}", file=sys.stderr)
+        ui.report(title, BUSY_NOTE.format(what=exc.what, title=title))
+        return 1
     except Exception as exc:  # show every failure to the user instead of a silent status-bar line
         detail = traceback.format_exc()
         print(detail, file=sys.stderr)
