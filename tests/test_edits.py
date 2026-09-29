@@ -161,6 +161,56 @@ def test_moved_link_and_cut_are_kept(tmp_path):
     assert p2.read_text() == before
 
 
+def _hand_track(path, a, b, uid, layer="B.Cu", net="A"):
+    """A track drawn in pcbnew: its own random uuid, so not one of StripForge's."""
+    seg = (
+        f"(segment (start {a[0]} {a[1]}) (end {b[0]} {b[1]}) (width 1.8) "
+        f'(layer "{layer}") (net "{net}") (uuid "{uid}"))'
+    )
+    text = path.read_text().rstrip()
+    path.write_text(text[:-1] + " " + seg + ")\n")
+
+
+def test_moved_cut_marker_regenerates_hand_edited_strip_copper(tmp_path):
+    """Issue #2: move only the CUT marker; the strip tracks follow on the next build, and strip
+    copper re-drawn by hand (it lost StripForge's uuid) is replaced instead of refusing the build."""
+    from sfbuild import segments, xy
+
+    p2 = pass2(tmp_path)
+    edit(p2, "CUT1", "A6")  # the hole cut moves from A4 to A6
+    _hand_track(p2, xy(2, 0), xy(4, 0), "11111111-1111-4111-8111-111111111111")  # bridges the old cut
+    _hand_track(p2, xy(4, 0), xy(6, 0), "22222222-2222-4222-8222-222222222222", net="B")  # over the new one
+    res = rebuild(p2)
+    assert res.ok
+    (c,) = res.analysis.split.cuts
+    assert (c.style, c.col) == ("hole", 5) and "in the board" in c.user
+    assert any(w.startswith("replaced 2 hand-drawn strip track segment(s) on row(s) A") for w in res.warnings)
+    segs = segments(p2)
+    row_a = sorted((s for s in segs if s[0][1] == xy(0, 0)[1]), key=lambda s: s[0][0])
+    assert not any(xy(5, 0) in (s[0], s[1]) for s in row_a)  # no copper into the moved hole cut
+    assert [s[3] for s in row_a] == ["A"] * 4 + ["B"] * 3  # A1-A5 on A, A7-A10 on B
+    text = p2.read_text()
+    assert "11111111-1111" not in text and "22222222-2222" not in text
+    before = text
+    rebuild(p2)
+    assert p2.read_text() == before
+
+
+@pytest.mark.parametrize(
+    "a, b, layer",
+    [
+        ((1.27, 1.27), (3.81, 3.81), "B.Cu"),
+        ((1.27, 1.27), (3.81, 1.27), "F.Cu"),
+        ((1.27, 1.27), (1.27, 3.81), "B.Cu"),
+    ],
+)
+def test_other_hand_copper_on_a_built_board_is_still_refused(tmp_path, a, b, layer):
+    p2 = pass2(tmp_path)
+    _hand_track(p2, a, b, "33333333-3333-4333-8333-333333333333", layer=layer)
+    with pytest.raises(writer.BuildError, match="did not write"):
+        rebuild(p2)
+
+
 def test_deleted_cut_that_would_short_is_put_back(tmp_path):
     p2 = pass2(tmp_path, parts=TWO)
     edit(p2, "CUT1", "", delete=True)  # the A/B cut on row A; CUT2 stays

@@ -205,8 +205,9 @@ toml for one run; `-o <board> --in-place` is the same as the default. A `-stripf
 `output = "separate"`) is always rebuilt in place, with no backup.
 
 The input must be the placement board: a track or via StripForge did not write is refused. Building
-again from a StripForge output removes its own strips and cut markers first and rewrites them; the
-output is deterministic (same input, same bytes). Parts outside the Edge.Cuts outline are reported,
+again from a StripForge output removes its own strips and cut markers first and rewrites them (a
+strip track re-drawn by hand along a strip row, which lost StripForge's uuid, is replaced too, with a
+warning; any other track, a via or F.Cu copper is still refused); the output is deterministic (same input, same bytes). Parts outside the Edge.Cuts outline are reported,
 and copper is only written for holes inside the outline.
 
 **Pass 1.** For every net split over several strip pieces, StripForge proposes wire links like a
@@ -369,7 +370,11 @@ you did ("locked") and only fills in what is still unjoined. Two ways:
 1. Open the built board (`<name>.kicad_pcb` after an in-place build). Cut markers are the `CUT…` footprints on `User.1`; links are the `W…`
    footprints (after pass 2).
 2. Move a cut: drag its `CUT…` marker onto another hole (a `CUT_Hole`) or between two holes (a
-   `CUT_Knife`). Add a cut: place a `StripForge:CUT_Hole` or `CUT_Knife` footprint (any ref, e.g.
+   `CUT_Knife`). **Only move the marker; leave the strip copper alone.** The strip tracks are
+   regenerated from the markers on every build, so after **Build strips** the gap is where the
+   marker is and the old gap is filled. Don't delete, drag or route strip tracks by hand: the
+   interactive router won't join copper of two different nets (the old gap has one net either
+   side), and any strip track you do draw is thrown away and redrawn on the next build. Add a cut: place a `StripForge:CUT_Hole` or `CUT_Knife` footprint (any ref, e.g.
    `CUT99`). Remove a cut: delete its marker (if that would short two nets, StripForge puts the cut
    back and says so).
 3. Move a link: drag the `W` footprint so both pads sit on holes (grid 2.54 mm; rotate with R for

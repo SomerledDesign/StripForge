@@ -27,8 +27,9 @@ Starting from the placement board (after F8), the build:
 
 Existing copper: a track, arc or via that StripForge did not write is refused (the build expects the
 placement board); StripForge's own strips and cut markers from an earlier build are removed and
-rewritten, so a board can be rebuilt after F8. UUIDs are deterministic (uuid5), so rebuilding an
-unchanged board gives a byte-identical file.
+rewritten, so a board can be rebuilt after F8. On a built board a strip track re-drawn by hand along
+a strip row is replaced too (the cut markers decide where the strips are cut). UUIDs are
+deterministic (uuid5), so rebuilding an unchanged board gives a byte-identical file.
 
 Output (``output`` in the config): ``"in_place"`` (default) writes into the board itself, the
 project's own ``<name>.kicad_pcb``, after saving it as it is to ``<name>-pre-stripbuild.kicad_pcb``
@@ -571,20 +572,47 @@ def _prop(name: str, value: str, key: str) -> list:
 # --- build -----------------------------------------------------------------------------------
 
 
-def _existing_output(board: Board, grid: Grid) -> tuple[list[list], list[Footprint], list[str]]:
-    """StripForge's own tracks and cut markers, and descriptions of foreign copper."""
+def _on_strip(node: list, grid: Grid) -> bool:
+    """Is this B.Cu segment strip copper, lying along one strip row inside the grid? (A strip track
+    re-drawn by hand in pcbnew: dragged, split or routed anew, so it lost StripForge's uuid.)"""
+    if atom(find(node, "layer"), 1) != "B.Cu":
+        return False
+    s, e = find(node, "start"), find(node, "end")
+    if s is None or e is None or len(s) < 3 or len(e) < 3:
+        return False
+    x0, y0, x1, y1 = (mm_to_nm(v) for v in (s[1], s[2], e[1], e[2]))
+    p, tol = grid.pitch_nm, grid.pitch_nm // 4
+    row = round((y0 - grid.origin_y_nm) / p)
+    y = grid.origin_y_nm + row * p
+    lo, hi = grid.origin_x_nm - p // 2, grid.origin_x_nm + (grid.cols - 1) * p + p // 2
+    return (
+        0 <= row < grid.rows
+        and abs(y0 - y) <= tol
+        and abs(y1 - y) <= tol
+        and lo <= min(x0, x1)
+        and max(x0, x1) <= hi
+    )
+
+
+def _existing_output(board: Board, grid: Grid) -> tuple[list[list], list[Footprint], list[str], list[list]]:
+    """StripForge's own tracks and cut markers, descriptions of foreign copper, and (on a built
+    board) strip tracks re-drawn by hand, which the build replaces like its own: the strips are
+    regenerated from the cut markers, so moving a marker is all it takes to move a cut."""
     root = board.doc.root
     ours = strip_uuids(grid)
-    own_tracks, foreign = [], []
-    for node in root:
-        if head(node) in TRACK_HEADS:
-            if head(node) == "segment" and atom(find(node, "uuid"), 1) in ours:
-                own_tracks.append(node)
-            else:
-                layer = atom(find(node, "layer"), 1) or "?"
-                foreign.append(f"{head(node)} on {layer}")
+    tracks = [n for n in root if head(n) in TRACK_HEADS]
     cuts = [fp for fp in board.footprints if fp.lib_id.startswith(CUT_LIB)]
-    return own_tracks, cuts, foreign
+    built = bool(cuts) or any(head(n) == "segment" and atom(find(n, "uuid"), 1) in ours for n in tracks)
+    own_tracks, foreign, redrawn = [], [], []
+    for node in tracks:
+        if head(node) == "segment" and atom(find(node, "uuid"), 1) in ours:
+            own_tracks.append(node)
+        elif built and head(node) == "segment" and _on_strip(node, grid):
+            redrawn.append(node)
+        else:
+            layer = atom(find(node, "layer"), 1) or "?"
+            foreign.append(f"{head(node)} on {layer}")
+    return own_tracks, cuts, foreign, redrawn
 
 
 @dataclass
@@ -611,9 +639,9 @@ def prepare(board: Board, cfg: BoardConfig, netlist: str | None = None) -> Prepa
     are left out of the analysis. Raises BuildError if the board has conflicts.
     """
     grid, _ = make_grid(board, cfg)
-    own_tracks, old_cuts, foreign = _existing_output(board, grid)
+    own_tracks, old_cuts, foreign, redrawn = _existing_output(board, grid)
     root = board.doc.root
-    for node in own_tracks:
+    for node in own_tracks + redrawn:
         root.remove(node)
     for fp in old_cuts:
         root.remove(fp.node)
@@ -628,6 +656,16 @@ def prepare(board: Board, cfg: BoardConfig, netlist: str | None = None) -> Prepa
     a, moves = apply_best_fit(a)
     plan = links_mod.propose(a, mine.links)
     warnings = list(clip_warnings)
+    if redrawn:
+        rows = [
+            row_label(r)
+            for r in sorted({grid.nearest(0, mm_to_nm(find(n, "start")[2])).row for n in redrawn})
+        ]
+        warnings.append(
+            f"replaced {len(redrawn)} hand-drawn strip track segment(s) on row(s) {', '.join(rows)}: "
+            "the strips are regenerated from the cut markers on every build "
+            "(to move a cut, move its CUT marker)"
+        )
     if cfg.respect_edits and not a.conflicts:
         theirs = edits_mod.from_board(board, a.grid, old_cuts, link_fps, mm_to_nm(cfg.snap_tol_mm))
         if theirs and _edited(a, plan, theirs):
@@ -647,7 +685,9 @@ def prepare(board: Board, cfg: BoardConfig, netlist: str | None = None) -> Prepa
     if a.conflicts:
         raise BuildError("the board has conflicts; fix them first:\n  " + "\n  ".join(a.conflicts))
     stretches = stretch_mod.suggest(a, plan, cfg) if plan.links or plan.unlinkable else []
-    return Prepared(a, plan, moves, cfg, link_fps, own_tracks, old_cuts, foreign, warnings, stretches)
+    return Prepared(
+        a, plan, moves, cfg, link_fps, own_tracks + redrawn, old_cuts, foreign, warnings, stretches
+    )
 
 
 def _edited(a, plan: links_mod.LinkPlan, theirs) -> bool:
@@ -681,11 +721,12 @@ def build(
     rules = resources.rules_file(rules)
     board = load_board(board_path)
     grid, _ = make_grid(board, cfg)
-    _, _, foreign = _existing_output(board, grid)
+    _, _, foreign, _ = _existing_output(board, grid)
     if foreign:
         raise BuildError(
             f"the input board already has {len(foreign)} track/via item(s) that StripForge did not write "
-            f"({', '.join(sorted(set(foreign)))}); build expects the placement board with no copper tracks"
+            f"({', '.join(sorted(set(foreign)))}); build expects the placement board with no copper tracks "
+            "(on a built board, hand-drawn tracks along a strip are replaced; anything else must go)"
         )
     prep = prepare(board, cfg, netlist)
     a, plan, moves, cfg, link_fps = prep.analysis, prep.plan, prep.moves, prep.config, prep.link_fps

@@ -346,6 +346,10 @@ We make KiCad's **built-in** electrical checks do the work rather than inventing
   - **Existing copper (decision):** a track, arc or via StripForge did not write is refused (the
     input must be the placement board); StripForge's own strips (known uuid5s) and `CUT` markers are
     removed and rewritten, so the pass-2 build can start from the pass-1 output.
+    On a built board (it has StripForge strips or `CUT` markers), a B.Cu segment lying along one
+    strip row inside the grid is strip copper re-drawn by hand and is replaced like StripForge's
+    own, with a warning (issue #2, M3: the markers are the authority for cuts, so moving a cut is
+    moving its marker). Anything else hand-drawn is still refused.
   - The configured grid is clipped to the Edge.Cuts outline with a warning (the fixture's outline
     was 30 holes wide while X56 is 56, until Mildrew widened it).
   - The rules are copied to `<out>.kicad_dru`; the output never overwrites the input.

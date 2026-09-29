@@ -138,6 +138,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Moving a cut is just moving its `CUT` marker (issue #2): Build strips regenerates the strip
+  tracks from the markers, and a strip track re-drawn by hand along a strip row (dragged, split or
+  routed in pcbnew, so it lost StripForge's uuid) is now replaced with a warning instead of making
+  the build refuse the board ("track/via item(s) that StripForge did not write"). Other hand-drawn
+  copper (diagonal or vertical tracks, F.Cu, vias) is still refused.
 - Rotated (diagonal) link footprints are written with 4-decimal angles, so rebuilding a board
   with placed links gives the same bytes. Before, a 6-significant-digit angle was re-rotated by
   0.0005° on each rebuild.

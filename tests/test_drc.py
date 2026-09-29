@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import pytest
 
 from stripforge import config, drc, writer
@@ -72,7 +74,8 @@ needs_kicad = pytest.mark.skipif(drc.find_kicad_cli() is None, reason="kicad-cli
 
 @needs_kicad
 def test_real_fixture_pass1_drc(tmp_path, real_board_path, real_netlist_path):
-    cfg = config.load(real_board_path.parents[1] / "x56.toml")
+    # pass 1 of the two-pass flow: links proposed, not placed (place_links is on by default now)
+    cfg = replace(config.load(real_board_path.parents[1] / "x56.toml"), place_links=False)
     out = tmp_path / "b.kicad_pcb"
     res = writer.build(real_board_path, cfg, out, netlist=str(real_netlist_path))
     d = drc.run_drc(out, parity=False)
