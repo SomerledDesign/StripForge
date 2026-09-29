@@ -380,8 +380,15 @@ you did ("locked") and only fills in what is still unjoined. Two ways:
 3. Move a link: drag the `W` footprint so both pads sit on holes (grid 2.54 mm; rotate with R for
    an along-the-strip or diagonal link). A link has a fixed length: to make it longer or shorter,
    change its footprint to the right `StripForge:Link_P<mm>` (Link_P2.54 per pitch; `Link_D*` for
-   off-pitch diagonals), or change it in the schematic and press F8. Delete a link you don't want
-   (and remove it from the schematic).
+   off-pitch diagonals), or change it in the schematic and press F8. A link dropped in from the
+   library (reference `REF**`) gets the next free `W` number and its net on the next build. If a
+   link end lands on a hole-cut marker, the link wins: the marker is dropped with a warning, and
+   the strip is cut elsewhere only where two nets would otherwise short. A link the build can't use
+   (a pin in its hole, two nets shorted) keeps its name and is reported as not used, not placed.
+   To remove a link, delete its `W` footprint and build again. A link that no longer joins anything
+   (one end on bare strip no other link reaches, e.g. the second leg of an old bus strip) is
+   removed by the build itself. Then **Add links to schematic** takes stale W symbols out of the
+   schematic (backed up first), so F8 doesn't bring the footprint back.
 4. Click **Build strips** with that board open: it is saved, rebuilt **in place** (same file),
    keeping your markers and links where they are, and reloaded (backed up first, like every build).
    The report lists your links as "(yours, kept)", the new ones to add, and any problem.

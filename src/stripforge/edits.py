@@ -65,6 +65,7 @@ class LinkSpec:
     ref: str = ""  # the W reference, for a link placed in the board
     footprint: str = ""  # its footprint (lib id), for a link placed in the board
     net: str | None = None  # its pads' net (from the schematic), for a link placed in the board
+    why: str = ""  # why it can't be used (set when it is rejected)
 
     @property
     def label(self) -> str:
@@ -80,6 +81,7 @@ class Edits:
     # cut the user removed, which would short two nets
     complete: bool = False
     warnings: list[str] = field(default_factory=list)
+    won: list = field(default_factory=list)  # (link name, dropped cut) from links_win
 
     def __bool__(self) -> bool:
         return bool(self.cuts or self.no_cut or self.links)
@@ -197,6 +199,29 @@ def from_board(board, grid: Grid, markers: list, link_fps: list, tol_nm: int) ->
                 a, b, f"{fp.ref} in the board", fp.ref, fp.lib_id, nets.pop() if len(nets) == 1 else None
             )
         )
+    return ed
+
+
+def links_win(ed: Edits) -> Edits:
+    """A hole cut under an end of one of your links: the link wins. The cut is dropped (with a
+    warning) and that hole is kept uncut; StripForge cuts the strip elsewhere only where two nets
+    would otherwise short (``complete``)."""
+    ends = {(n.row, n.col): lk for lk in ed.links for n in (lk.n1, lk.n2)}
+    ed.won = []
+    keep = []
+    for c in ed.cuts:
+        lk = ends.get((c.row, int(c.col))) if c.style == "hole" else None
+        if lk is None:
+            keep.append(c)
+            continue
+        name = lk.ref or lk.label
+        ed.warnings.append(
+            f"{c.source}: hole cut at {c.label} is under an end of your link {name} ({lk.label}); the link "
+            "wins, so the cut is dropped (StripForge cuts this strip elsewhere only if two nets would short)"
+        )
+        ed.no_cut.append(CutSpec(c.row, c.col, "hole", f"end of your link {name}"))
+        ed.won.append((name, c))
+    ed.cuts = keep
     return ed
 
 

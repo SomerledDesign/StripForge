@@ -143,6 +143,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Your links and cut markers (Kevin's DAT1 link that kept coming back):
+  - a hole-cut marker under an end of your link no longer makes every build reject the link: the
+    link wins, the marker is dropped with a warning, and the strip is cut elsewhere only where two
+    nets would short (if the cut is needed exactly there, it is kept and the report says so);
+  - a link the build can't use keeps its name and is reported as REJECTED (not "placed"); its
+    name goes to a new link only when that one has the same footprint (so it can really move);
+  - a link that no longer joins anything (an end on bare strip no other link reaches, like the
+    second leg of an old bus strip) is removed from the board on rebuild, with a warning;
+  - a link footprint placed by hand as `REF**` gets the next free W number, its pads' net, Value
+    `Link` and a schematic path, so Add links to schematic and F8 handle it like the others.
 - Nets left unjoined after the first link pass get a second chance: the pieces are trimmed to
   their used holes and the planner tries again, so a strip freed by the trim can become their
   bus strip (Kevin's DAT1 on strip S). On the example board 3 more nets are joined (7 unlinkable

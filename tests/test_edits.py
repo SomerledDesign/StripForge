@@ -255,3 +255,82 @@ def test_build_sheet_marks_your_cuts_and_links(tmp_path):
         buildsheet.sheet_model(p2, BoardConfig(trim_pieces=False), date="2026-09-28")
     )
     assert html.count("<b>(yours)</b>") == 2
+
+
+def _add_link(path, ref, name, hole, nets=None):
+    """A link footprint dropped on the board by hand (no nets until F8), pad 1 on ``hole``."""
+    from stripforge.analyze import make_grid
+    from stripforge.board import _parse_footprint
+    from stripforge.writer import embed_footprint
+
+    b = load_board(path)
+    node = embed_footprint(name, ref, 0, 0, f"hand/{ref}", nets)
+    root = b.doc.root
+    last = max(i for i, n in enumerate(root) if isinstance(n, list) and n and str(n[0]) == "footprint")
+    root.insert(last + 1, node)
+    g, _ = make_grid(b, BoardConfig(trim_pieces=False))
+    x, y = g.hole_xy(parse_hole(hole))
+    place_at(_parse_footprint(node), x, y, 0)
+    save_board(b, path)
+
+
+def _fp(path, ref):
+    return next((f for f in load_board(path).footprints if f.ref == ref), None)
+
+
+def test_cut_marker_under_a_link_end_is_dropped_and_needed_cut_put_back(tmp_path):
+    """Kevin 2026-09-29: a hole cut under his link's end made every build reject the link."""
+    p2 = pass2(tmp_path)
+    edit(p2, "CUT1", "A2")  # onto W1's pad 1 (W1 runs A2-C2)
+    res = rebuild(p2)
+    ws = res.analysis.split.warnings + res.warnings
+    assert any("under an end of your link W1" in w and "the link wins" in w for w in ws)
+    assert links(res) == [("A2", "C2")] and res.plan.links[0].origin == "board"
+    (c,) = res.analysis.split.cuts  # A1 [A] and A7 [B] still need a cut: put back, not at A2
+    assert c.row == 0 and int(c.col) != 1 and any("would short" in w for w in ws)
+    assert [(p.ref, p.status) for p in res.placements] == [("W1", "placed")] and res.ok
+
+
+def test_cut_under_a_link_end_that_is_needed_there_is_kept(tmp_path):
+    p2 = pass2(tmp_path)
+    edit(p2, "W1", "A6")  # W1 now A6-C6: A6 is on B's side of any cut in the middle
+    edit(p2, "CUT1", "A6")
+    res = rebuild(p2)
+    ws = res.analysis.split.warnings + res.warnings
+    assert any("is under an end of your link W1 but is needed there" in w for w in ws)
+    assert ("A6", "C6") not in links(res) and res.plan.ok
+
+
+def test_leftover_link_on_bare_strip_is_removed_on_rebuild(tmp_path):
+    """The second leg of an old bus strip (Kevin's S14-T14) joins nothing once the first leg moved."""
+    p2 = pass2(tmp_path)
+    _add_link(p2, "W2", "Link_P2.54", "C3", {"1": "A", "2": "A"})  # C3 (net A) to bare D3
+    res = rebuild(p2)
+    assert links(res) == [("A2", "C2")]
+    assert [(p.ref, p.status) for p in res.placements] == [("W1", "placed"), ("W2", "removed")]
+    assert "not needed any more" in res.placements[1].detail and res.ok
+    assert _fp(p2, "W2") is None and _fp(p2, "W1") is not None
+    assert any("W2" in w and "bare strip" in w for w in res.analysis.split.warnings)
+
+
+def test_hand_placed_ref_link_gets_a_w_name_nets_and_path(tmp_path):
+    p2 = pass2(tmp_path)
+    edit(p2, "W1", "", delete=True)
+    _add_link(p2, "REF**", "Link_P5.08", "A3")  # A3-C3, no nets, no reference
+    res = rebuild(p2)
+    assert any("REF**" in w and "is now W1" in w for w in res.warnings)
+    assert links(res) == [("A3", "C3")] and res.plan.links[0].ref_hint == "W1" and res.ok
+    fp = _fp(p2, "W1")
+    assert {p.net for p in fp.pads} == {"A"} and "(path " in p2.read_text()
+    assert any(w.startswith("links: W1 (A3-C3): set pads on A") for w in res.warnings)
+
+
+def test_rejected_link_with_another_footprint_keeps_its_name_and_is_not_placed(tmp_path):
+    p2 = pass2(tmp_path)
+    edit(p2, "W1", "", delete=True)
+    _add_link(p2, "W1", "Link_P2.54", "A1", {"1": "A", "2": "A"})  # A1 has P1's pin in it
+    res = rebuild(p2)
+    st = {p.ref: p.status for p in res.placements}
+    assert st["W1"] == "rejected" and "pin" in next(p.detail for p in res.placements if p.ref == "W1")
+    assert [lk.ref_hint for lk in res.plan.links] == ["W2"] and st["W2"] == "placed"
+    assert res.plan.ok and not res.ok  # the rejected W1 is still a problem to fix

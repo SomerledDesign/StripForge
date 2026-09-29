@@ -202,7 +202,7 @@ class BuildError(ValueError):
 @dataclass
 class LinkPlacement:
     ref: str
-    status: str  # placed | missing | extra | wrong-footprint | wrong-net | back-side
+    status: str  # placed | removed | rejected | missing | extra | wrong-footprint | wrong-net | back-side
     detail: str = ""
 
 
@@ -230,7 +230,11 @@ class BuildResult:
 
     @property
     def link_problems(self) -> list[LinkPlacement]:
-        return [p for p in self.placements if p.status != "placed"]
+        return [p for p in self.placements if p.status not in ("placed", "removed")]
+
+    @property
+    def removed(self) -> list[LinkPlacement]:
+        return [p for p in self.placements if p.status == "removed"]
 
     @property
     def pass2(self) -> bool:
@@ -648,6 +652,7 @@ def prepare(board: Board, cfg: BoardConfig, netlist: str | None = None) -> Prepa
         board.footprints.remove(fp)
     root[:] = [n for n in root if not (head(n) == "footprint" and atom(n, 1) == HOLES_LIB_ID)]
     link_fps = [fp for fp in board.footprints if is_link(fp)]
+    named = name_links(link_fps)
     cfg = replace(cfg, offboard_refs=sorted(set(cfg.offboard_refs) | {fp.ref for fp in link_fps}))
     cfg, clip_warnings = clip_to_outline(board, cfg, grid)
 
@@ -655,7 +660,7 @@ def prepare(board: Board, cfg: BoardConfig, netlist: str | None = None) -> Prepa
     a = analyze_board(board, cfg, netlist, mine)
     a, moves = apply_best_fit(a)
     plan = links_mod.propose(a, mine.links)
-    warnings = list(clip_warnings)
+    warnings = list(clip_warnings) + named
     if redrawn:
         rows = [
             row_label(r)
@@ -670,24 +675,101 @@ def prepare(board: Board, cfg: BoardConfig, netlist: str | None = None) -> Prepa
         theirs = edits_mod.from_board(board, a.grid, old_cuts, link_fps, mm_to_nm(cfg.snap_tol_mm))
         if theirs and _edited(a, plan, theirs):
             # the board's cuts or placed links differ from StripForge's own plan: keep them all
-            both = mine.merged(theirs)
-            a = analyze_board(board, cfg, netlist, both)
-            a, more = apply_best_fit(a)
+            both = edits_mod.links_win(mine.merged(theirs))
+            a, more, plan = _plan_edits(board, cfg, netlist, both, link_fps)
+            lost = [
+                (name, c) for name, c in both.won
+                if any(w.startswith(f"your link {name} (") and "is not used" in w for w in a.split.warnings)
+            ]  # fmt: skip
+            if lost:
+                # the cut under the link end is needed after all (the link would short two nets
+                # without it): keep the cut, and the link is not used
+                both = mine.merged(theirs)
+                a, more, plan = _plan_edits(board, cfg, netlist, both, link_fps)
+                for name, c in lost:
+                    both.warnings.append(
+                        f"{c.source}: hole cut at {c.label} is under an end of your link {name} but is "
+                        "needed there (without it two nets short); move the link or the cut"
+                    )
             moves.update(more)
-            plan = links_mod.propose(a, both.links, [fp.ref for fp in link_fps])
             yours = sum(1 for c in a.split.cuts if c.user.endswith("in the board"))
             kept = sum(1 for lk in plan.links if lk.origin == "board")
             warnings.append(
                 f"edits: kept your {yours} cut(s) and {kept} placed link(s) from the board as they are; "
                 "StripForge only filled in what they leave open (respect_edits = false plans from scratch)"
             )
-            warnings += theirs.warnings
+            warnings += both.warnings
     if a.conflicts:
         raise BuildError("the board has conflicts; fix them first:\n  " + "\n  ".join(a.conflicts))
     stretches = stretch_mod.suggest(a, plan, cfg) if plan.links or plan.unlinkable else []
     return Prepared(
         a, plan, moves, cfg, link_fps, own_tracks + redrawn, old_cuts, foreign, warnings, stretches
     )
+
+
+def _plan_edits(board: Board, cfg: BoardConfig, netlist, edits, link_fps):
+    a = analyze_board(board, cfg, netlist, edits)
+    a, more = apply_best_fit(a)
+    plan = links_mod.propose(a, edits.links, [fp.ref for fp in link_fps])
+    return a, more, plan
+
+
+def _set_ref(fp: Footprint, ref: str) -> None:
+    for prop in find_all(fp.node, "property"):
+        if atom(prop, 1) == "Reference":
+            prop[2] = ref
+    fp.ref = ref
+
+
+def name_links(link_fps: list[Footprint]) -> list[str]:
+    """Give a link footprint placed by hand without a ``W`` reference (``REF**`` from the footprint
+    library) the next free W number, so the planner, Add links to schematic and F8 can track it."""
+    taken = [edits_mod.ref_number(fp.ref) for fp in link_fps]
+    n = max(taken, default=0)
+    notes = []
+    for fp in link_fps:
+        if LINK_REF.match(fp.ref) or fp.node is None:
+            continue
+        n += 1
+        old = fp.ref
+        _set_ref(fp, f"W{n}")
+        where = ", ".join(sorted({p.number for p in fp.pads}))
+        notes.append(f"your link footprint {old} ({fp.lib_id}, pads {where}) is now W{n}")
+    return notes
+
+
+def adopt_link(board: Board, fp: Footprint, net: str) -> list[str]:
+    """Make one of your placed links a proper W link: both pads on ``net`` (a hand-placed link has
+    none until F8), Value ``Link``, and the schematic path Add links to schematic gives its symbol
+    when it has none (so F8 matches the two). Returns what changed."""
+    changed = []
+    pads_n = find_all(fp.node, "pad")
+    if {p.net for p in fp.pads} != {net}:
+        for pad in pads_n:
+            old = find(pad, "net")
+            if old is not None:
+                pad[pad.index(old)] = [Sym("net"), net]
+            else:
+                at_uuid = next((i for i, c in enumerate(pad) if head(c) == "uuid"), len(pad))
+                pad.insert(at_uuid, [Sym("net"), net])
+        fp.pads = [replace(p, net=net) for p in fp.pads]
+        changed.append(f"pads on {net}")
+    for prop in find_all(fp.node, "property"):
+        if atom(prop, 1) == "Value" and prop[2] != LINK_VALUE:
+            prop[2] = LINK_VALUE
+            changed.append("Value Link")
+    if find(fp.node, "path") is None:
+        sheet = link_sheet(board, net)
+        prefix, sheetname, sheetfile = sheet if sheet else ("", "", "")
+        extra = [[Sym("path"), f"{prefix}/{link_symbol_uuid(fp.ref)}"]]
+        if sheetname:
+            extra.append([Sym("sheetname"), sheetname])
+        if sheetfile:
+            extra.append([Sym("sheetfile"), sheetfile])
+        last_prop = max(i for i, c in enumerate(fp.node) if head(c) == "property")
+        fp.node[last_prop + 1 : last_prop + 1] = extra
+        changed.append("schematic path")
+    return changed
 
 
 def _edited(a, plan: links_mod.LinkPlan, theirs) -> bool:
@@ -741,10 +823,42 @@ def build(
 
     # pass 2: place the W footprints that F8 brought in
     by_ref = {lk.ref_hint: lk for lk in plan.links}
+    dropped = {lk.ref_hint: lk for lk in plan.dropped}
     for fp in sorted(link_fps, key=lambda f: (len(f.ref), f.ref)):
         lk = by_ref.get(fp.ref)
         if lk is not None and lk.origin == "board":
+            changed = adopt_link(board, fp, lk.net) if fp.node is not None else []
+            if changed:
+                res.warnings.append(f"links: {fp.ref} ({lk.start}-{lk.end}): set {', '.join(changed)}")
             res.placements.append(LinkPlacement(fp.ref, "placed", f"{lk.start} -> {lk.end} (yours, kept)"))
+            continue
+        if lk is None and fp.ref in plan.rejected:
+            res.placements.append(
+                LinkPlacement(fp.ref, "rejected", f"not used: {plan.rejected[fp.ref]}; move it or delete it")
+            )
+            continue
+        if lk is None and fp.ref in dropped:
+            old = dropped[fp.ref]
+            if cfg.place_links and fp.node is not None:
+                root.remove(fp.node)
+                board.footprints.remove(fp)
+                link_fps.remove(fp)
+                res.placements.append(
+                    LinkPlacement(
+                        fp.ref,
+                        "removed",
+                        f"{old.start} -> {old.end} is not needed any more; removed from the board "
+                        "(Add links to schematic removes its W symbol)",
+                    )
+                )
+            else:
+                res.placements.append(
+                    LinkPlacement(
+                        fp.ref,
+                        "extra",
+                        f"{old.start} -> {old.end} is not needed any more; delete it and its W symbol",
+                    )
+                )
             continue
         if lk is None:
             res.placements.append(LinkPlacement(fp.ref, "extra", "not in the link proposal; remove it"))

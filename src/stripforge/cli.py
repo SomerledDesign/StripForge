@@ -165,7 +165,7 @@ def _build(args: argparse.Namespace) -> int:
         sys.stdout.write(stretch_text(res.stretches))
     if a.config.place_links and plan.links:
         print(f"Links: {len(res.placed)} of {len(plan.links)} placed on their holes (place_links)")
-        for p in res.link_problems:
+        for p in res.removed + res.link_problems:
             print(f"  {p.status.upper()}: {p.ref} {p.detail}")
         print(
             "Next: click 'StripForge: Add links to schematic' in KiCad (or run 'stripforge link-symbols "

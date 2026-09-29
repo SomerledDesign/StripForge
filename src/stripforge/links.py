@@ -330,6 +330,8 @@ class LinkPlan:
     needed: int = 0  # sum over split nets of (pieces - 1)
     bus_cuts: list[Cut] = field(default_factory=list)  # cuts added to isolate bus strips
     trim_cuts: list[Cut] = field(default_factory=list)  # cuts ending net pieces at their last used hole
+    rejected: dict[str, str] = field(default_factory=dict)  # your W links that can't be used: ref -> why
+    dropped: list[LinkProposal] = field(default_factory=list)  # your links no longer needed (leftovers)
 
     @property
     def ok(self) -> bool:
@@ -1254,6 +1256,7 @@ def lock_links(a, specs) -> tuple[list[LinkProposal], list[str], list]:
                 bad = "neither end is on a strip that carries a net"
         if bad is not None:
             warns.append(f"your link {name} ({spec.source}, {spec.label}) is not used: {bad}")
+            spec.why = bad
             rejected.append(spec)
             continue
         net = nets[0] if nets else spec.net
@@ -1282,6 +1285,43 @@ def lock_links(a, specs) -> tuple[list[LinkProposal], list[str], list]:
     return out, warns, rejected
 
 
+def drop_leftovers(a, links: list[LinkProposal]) -> tuple[list[LinkProposal], list[str]]:
+    """Take your placed links that are no longer needed out of ``links`` (in place): a link with an
+    end on bare strip (no pin, no net) that no other link lands on joins nothing (e.g. the second
+    leg of an old bus strip after the first leg moved). Repeated, since dropping one can leave
+    another. Links from ``[manual]`` are kept. Returns (dropped, warnings)."""
+    pieces = a.split.pieces
+    piece_at = {Node(p.row, c): i for i, p in enumerate(pieces) for c in range(p.col_start, p.col_end + 1)}
+    dropped: list[LinkProposal] = []
+    warns: list[str] = []
+    while True:
+        on: dict[int, int] = {}
+        for lk in links:
+            for n in lk.nodes:
+                if (i := piece_at.get(n)) is not None:
+                    on[i] = on.get(i, 0) + 1
+        stub = None
+        for lk in links:
+            if lk.origin != "board":
+                continue
+            for n in lk.nodes:
+                i = piece_at.get(n)
+                if i is not None and not pieces[i].nets and not pieces[i].pads and on[i] == 1:
+                    stub = (lk, n, pieces[i])
+                    break
+            if stub:
+                break
+        if stub is None:
+            return dropped, warns
+        lk, n, piece = stub
+        links.remove(lk)
+        dropped.append(lk)
+        warns.append(
+            f"your link {lk.ref_hint} ({lk.start}-{lk.end}) is not needed any more: its end "
+            f"{hole_label(n.row, n.col)} is on bare strip {piece.label} with no pin and no other link"
+        )
+
+
 def propose(a, locked=(), taken_refs=()) -> LinkPlan:
     """Propose links for every split net of analysis ``a`` (pass 1).
 
@@ -1297,6 +1337,8 @@ def propose(a, locked=(), taken_refs=()) -> LinkPlan:
     # unjoined, plan again from scratch with those nets first (up to a few rounds) and keep the
     # best attempt: fewest unlinkable nets, then fewest links, then fewest extra cuts.
     keep, lock_warns, rejected = lock_links(a, locked)
+    dropped, drop_warns = drop_leftovers(a, keep)
+    lock_warns += drop_warns
     start = (a.strips, a.split.cuts, a.split.pieces)
     best = None
     priority: tuple[str, ...] = ()
@@ -1328,12 +1370,15 @@ def propose(a, locked=(), taken_refs=()) -> LinkPlan:
             best = (score, plan, (a.strips, a.split.cuts, a.split.pieces))
     _, plan, (a.strips, a.split.cuts, a.split.pieces) = best
     # a W you placed that could not be kept: give its ref to the new link on the same holes, else to
-    # a new link of its net (pass 2 then moves that W onto the new link's holes)
+    # a new link of its net, but only one with the same footprint (pass 2 then moves that W onto the
+    # new link's holes). Otherwise the W keeps its name and is reported as not used.
     free = [spec for spec in rejected if spec.ref]
     for same_holes in (True, False):
         for spec in list(free):
             for lk in plan.links:
                 if lk.origin or lk.ref_hint in {s.ref for s in rejected}:
+                    continue
+                if spec.footprint and spec.footprint.split(":")[-1] != lk.footprint.split(":")[-1]:
                     continue
                 if same_holes and lk.nodes == (spec.n1, spec.n2) and spec.net in (None, lk.net):
                     pass
@@ -1342,6 +1387,8 @@ def propose(a, locked=(), taken_refs=()) -> LinkPlan:
                 lk.ref_hint = spec.ref
                 free.remove(spec)
                 break
+    plan.rejected = {spec.ref: spec.why for spec in free}
+    plan.dropped = dropped
     a.validation = validate(a.split, a.holes, a.strips)
     a.split.warnings += lock_warns
     stuck = {u.net for u in plan.unlinkable}
