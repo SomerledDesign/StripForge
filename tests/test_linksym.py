@@ -313,3 +313,73 @@ def test_link_symbols_completes_existing_w_symbols_without_nets(tmp_path):
     # again: nothing more to do, the conflict is still reported
     again = add_link_symbols(src / "demo.kicad_sch", board, in_place=True)
     assert not again.added and not again.completed and not again.backups and len(again.conflicts) == 1
+
+
+def test_stale_link_symbols_are_removed_and_description_updated(tmp_path):
+    """A link the build removed (Kevin's leftover S14-T14) must not stay in the schematic, or F8
+    brings its footprint back."""
+    src, board = _project(tmp_path)
+    add_link_symbols(src / "demo.kicad_sch", board, in_place=True)
+    assert sum(1 for g in _labels(src / "sub.kicad_sch", "global_label") if g[0] == "GND") == 2
+    cut = '(footprint "StripForge:CUT_Hole" (layer "F.Cu") (at 30 30) (property "Reference" "CUT1" (at 0 0 0) (layer "F.SilkS")))'  # noqa: E501
+    text = pcb(
+        _with_path(fp("R1", "20 20", pad("1", "0 0", "/Sub/N"), pad("2", "0 7.62", "Net-(R1-Pad2)")), "r1"),
+        _link("W1", "/Sub/N", "10 10", "w1uuid").replace(
+            '(property "Reference" "W1"',
+            '(property "Description" "wire, 1 pitch") (property "Reference" "W1"',
+        ),
+        _link("W2", "Net-(R1-Pad2)", "12 10", None),
+        cut,
+    )  # W3 is gone from the built board
+    board.write_text(text, encoding="utf-8")
+    plan = board.with_name("demo-built-stripforge.links.json")
+    plan.write_text('{"links": [{"ref": "W1"}, {"ref": "W2"}]}', encoding="utf-8")
+    res = add_link_symbols(src / "demo.kicad_sch", board, in_place=True)
+    assert res.removed == ["W3 [sub.kicad_sch]"] and "W3" not in _symbols(src / "sub.kicad_sch")
+    assert not any(g[0] == "GND" for g in _labels(src / "sub.kicad_sch", "global_label"))
+    assert "Description updated from the footprint" in res.completed["W1"]
+    assert _symbols(src / "sub.kicad_sch")["W1"][1]["Description"] == "wire, 1 pitch"
+    assert "removed 1 stale StripForge:Link symbol(s)" in format_text(res) and res.backups
+    # a board that isn't built (no cut markers) removes nothing: its links may not be placed yet
+    board.write_text(text.replace(cut, ""), encoding="utf-8")
+    shutil.copyfile(res.backups[0], src / "sub.kicad_sch")
+    again = add_link_symbols(src / "demo.kicad_sch", board, in_place=True)
+    assert not again.removed and "W3" in _symbols(src / "sub.kicad_sch")
+
+
+def test_w_symbols_follow_a_replanned_board(tmp_path):
+    """The board is rebuilt from a backup and W3 now names a link on another net: the labels
+    link-symbols put on its pins move to the new net (else every re-used ref is a parity error).
+    A pin with a wire on it is the user's: that symbol is a conflict, left unchanged."""
+    from stripforge.linksym import _n
+    from stripforge.sexpr import Sym
+
+    src, board = _project(tmp_path)
+    add_link_symbols(src / "demo.kicad_sch", board, in_place=True)
+    sub = load_hierarchy(src / "demo.kicad_sch")[1]
+    syms = {ref: node for node, ref in _placed_symbols(sub)}
+    x, y = pin_points(sub, syms["W1"])["1"]
+    sub.doc.root.append(
+        [Sym("wire"), [Sym("pts"), [Sym("xy"), _n(x), _n(y)], [Sym("xy"), _n(x - 5.08), _n(y)]]]
+    )
+    sub.doc.save(sub.file)
+    text = board.read_text(encoding="utf-8")
+    text = text.replace('"GND"', '"/Sub/N"')  # W3: GND -> /Sub/N
+    w1 = _link("W1", "/Sub/N", "10 10", "w1uuid")
+    board.write_text(text.replace(w1, _link("W1", "GND", "10 10", "w1uuid")), encoding="utf-8")
+
+    res = add_link_symbols(src / "demo.kicad_sch", board, in_place=True)
+    assert not res.added
+    assert res.completed["W3"] == ["relabelled GND -> N (the board link's net)"]
+    (conflict,) = res.conflicts
+    assert conflict.startswith("W1: pin 1 is wired to N")
+    sub = load_hierarchy(src / "demo.kicad_sch")[1]
+    placed = {ref: node for node, ref in _placed_symbols(sub)}
+    local = {(x, y): n for n, x, y in _labels(src / "sub.kicad_sch", "label")}
+    glob = {(x, y) for _n2, x, y in _labels(src / "sub.kicad_sch", "global_label")}
+    for x, y in pin_points(sub, placed["W3"]).values():
+        assert local[(round(x, 2), y)] == "N" and (round(x, 2), y) not in glob
+    for x, y in pin_points(sub, placed["W1"]).values():
+        assert local[(round(x, 2), y)] == "N"  # left as it was
+    again = add_link_symbols(src / "demo.kicad_sch", board, in_place=True)
+    assert not again.completed and len(again.conflicts) == 1

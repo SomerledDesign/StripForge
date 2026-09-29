@@ -541,7 +541,12 @@ def _add_links(board: Path, project_name: str, config: Path | None, notes: list)
         res = add_link_symbols(schematic, board, in_place=True, backup_keep=keep)
     except (LinkSymbolError, OSError, ValueError) as exc:
         return "\n".join([*notes, "Result: refused (nothing written)", "", str(exc)]), None
-    if res.added or res.completed:
+    if res.added or res.completed or res.removed:
+        if res.removed:
+            notes.append(
+                f"Removed {len(res.removed)} stale StripForge:Link symbol(s), no longer on the board or in "
+                f"the link plan: {', '.join(res.removed)} (so F8 won't bring them back)."
+            )
         if res.added:
             sheets = ", ".join(sorted({a.sheet for a in res.added}))
             notes.append(

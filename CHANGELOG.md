@@ -153,6 +153,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     second leg of an old bus strip) is removed from the board on rebuild, with a warning;
   - a link footprint placed by hand as `REF**` gets the next free W number, its pads' net, Value
     `Link` and a schematic path, so Add links to schematic and F8 handle it like the others.
+- Add links to schematic removes stale StripForge:Link W symbols (not on the built board and not
+  in its link plan) with their labels, after backing the sheet up, so F8 doesn't re-add a removed
+  link. It also updates a W symbol's Description from its footprint, and when the board was
+  re-planned (e.g. rebuilt from a backup) so a W ref now names a link on another net, it moves
+  the labels it put on that symbol's pins to the new net instead of leaving parity errors (a pin
+  with a wire of yours stays a conflict).
 - Nets left unjoined after the first link pass get a second chance: the pieces are trimmed to
   their used holes and the planner tries again, so a strip freed by the trim can become their
   bus strip (Kevin's DAT1 on strip S). On the example board 3 more nets are joined (7 unlinkable

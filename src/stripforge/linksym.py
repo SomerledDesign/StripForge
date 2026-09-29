@@ -116,6 +116,8 @@ class LinkSymbolResult:
     completed: dict[str, list[str]] = field(default_factory=dict)
     # W symbols whose pins are already wired to another net: left unchanged
     conflicts: list[str] = field(default_factory=list)
+    # stale W symbols taken out: not on the board and not in the link plan any more ("W34 [sheet]")
+    removed: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     outputs: list[str] = field(default_factory=list)
     backups: list[str] = field(default_factory=list)
@@ -489,8 +491,104 @@ def _relink(lk: BoardLink, sheet: Sheet, node: list, res: LinkSymbolResult) -> N
         old = atom(fp, 2, "")
         fp[2] = lk.footprint
         done.append(f"Footprint {old or '(empty)'} -> {lk.footprint}")
+    desc = next((p for p in find_all(node, "property") if atom(p, 1) == "Description"), None)
+    if desc is not None and lk.description and atom(desc, 2, "") != lk.description:
+        desc[2] = lk.description
+        done.append("Description updated from the footprint")
     if not done:
         del res.completed[lk.ref]
+
+
+def _relabel(
+    lk: BoardLink, sheet: Sheet, node: list, pts: dict, kind: str, name: str, res: LinkSymbolResult
+) -> bool:
+    """An existing W symbol whose pins carry nothing but a label each, sitting right on the pin
+    (as link-symbols writes them), on a net other than its board link's: the board was re-planned
+    (e.g. rebuilt from a backup) and the ref now names another link. Move those labels to the
+    link's net. Anything else on a pin (a wire, a second label, another pin) is left for the user:
+    returns False and the caller reports a conflict."""
+    root = sheet.doc.root
+    others = _connection_points(sheet, node)
+    found = []
+    for n, xy in sorted(pts.items()):
+        labs = [
+            lab
+            for k in ("label", "global_label", "hierarchical_label")
+            for lab in find_all(root, k)
+            if find(lab, "at") is not None
+            and _near(xy, (float(find(lab, "at")[1]), float(find(lab, "at")[2])))
+        ]
+        if len(labs) != 1 or head(labs[0]) == "hierarchical_label":
+            return False
+        if sum(1 for q in others if _near(q, xy)) != 1:  # a wire, junction or pin there too
+            return False
+        found.append((n, xy, labs[0]))
+    cx, cy = float(find(node, "at")[1]), float(find(node, "at")[2])
+    uid = atom(find(node, "uuid"), 1) or _u(f"link-symbol/{lk.ref}")
+    old = sorted({atom(lab, 1) for _n, _xy, lab in found})
+    for n, (x, y), lab in found:
+        root.remove(lab)
+        _insert(root, [_label(kind, name, x, y, x < cx or (x == cx and y < cy), f"{uid}/relabel{n}/{name}")])
+    sheet.changed = True
+    res.completed.setdefault(lk.ref, []).append(
+        f"relabelled {', '.join(old)} -> {name} (the board link's net)"
+    )
+    return True
+
+
+def _planned_refs(board_path: Path) -> set[str] | None:
+    """The W refs in the board's latest link plan (``<name>-stripforge.links.json``), or None."""
+    import json
+
+    from .writer import link_file
+
+    path = link_file(board_path, ".json")
+    try:
+        return {d["ref"] for d in json.loads(path.read_text(encoding="utf-8"))["links"]}
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def remove_stale(sheets: list[Sheet], footprints: list, board_path: Path, res: LinkSymbolResult) -> None:
+    """Take out ``StripForge:Link`` W symbols whose link is gone: not on the (built) board and not in
+    its link plan, e.g. a leftover link the build removed. Their labels go too where nothing else
+    connects; wires to their pins are left and reported."""
+    if not any(fp.lib_id.startswith(f"{resources.LIB_NICKNAME}:CUT_") for fp in footprints):
+        return  # not a built board: its links may simply not be placed yet
+    planned = _planned_refs(Path(board_path))
+    if planned is None:
+        return
+    on_board = {fp.ref for fp in footprints}
+    for sh in sheets:
+        for node, ref in list(_placed_symbols(sh)):
+            if atom(find(node, "lib_id"), 1) != LINK_LIB_ID or not ref or not LINK_RE.match(ref):
+                continue
+            if ref in on_board or ref in planned:
+                continue
+            pins = list(pin_points(sh, node).values())
+            points = _connection_points(sh, node)
+            root = sh.doc.root
+            wired = False
+            for xy in pins:
+                for w in find_all(root, "wire"):
+                    if any(
+                        _near(xy, (float(p[1]), float(p[2]))) for p in find_all(find(w, "pts") or [], "xy")
+                    ):
+                        wired = True
+                for kind in ("label", "global_label"):
+                    for lab in list(find_all(root, kind)):
+                        at = find(lab, "at")
+                        if at is None or not _near(xy, (float(at[1]), float(at[2]))):
+                            continue
+                        if sum(1 for q in points if _near(q, xy)) == 1:  # only the label itself
+                            root.remove(lab)
+            root.remove(node)
+            sh.changed = True
+            res.removed.append(f"{ref} [{sh.file.name}]")
+            if wired:
+                res.warnings.append(
+                    f"{ref}: removed from {sh.file.name}; wires to its pins are left: delete them"
+                )
 
 
 def add_link_symbols(
@@ -514,6 +612,7 @@ def add_link_symbols(
     links, footprints, warns = board_links(board_path)
     res = LinkSymbolResult(warnings=warns)
     project = _project_name(sheets)
+    remove_stale(sheets, footprints, Path(board_path), res)
 
     existing: dict[str, Sheet] = {}
     existing_node: dict[str, list] = {}
@@ -552,6 +651,8 @@ def add_link_symbols(
                 other = sorted(x for x in _pin_nets(sh, xy) if x != name)
                 if other and kind is not None:
                     clash[n] = other
+            if clash and _relabel(lk, sh, node, pts, kind, name, res):
+                clash = {}
             if clash:
                 res.conflicts.append(
                     f"{lk.ref}: "
@@ -774,6 +875,11 @@ def format_text(res: LinkSymbolResult) -> str:
             out.append(f"  {a.ref:<4} {a.footprint:<24} {a.net}  [{a.sheet}, {how}{extra}]")
     else:
         out.append("no symbols added")
+    if res.removed:
+        out.append(
+            f"removed {len(res.removed)} stale StripForge:Link symbol(s) (not on the board, not in the link "
+            f"plan): {', '.join(res.removed)}"
+        )
     if res.already:
         out.append(f"already in the schematic: {', '.join(res.already)}")
     for ref, what in res.completed.items():
