@@ -283,3 +283,26 @@ def test_chrome_that_fails_raises(tmp_path):
     html_path.write_text("<p>x</p>")
     with pytest.raises(subprocess.CalledProcessError):
         buildsheet.html_to_pdf(html_path, tmp_path / "s.pdf", str(fake))
+
+
+def test_sheet_keeps_the_previous_one_only_when_it_changes(tmp_path):
+    """Kevin 2026-09-29: Build sheet overwrote the last sheet silently."""
+    cfg = BoardConfig(trim_pieces=False)
+    board = tmp_path / "b.kicad_pcb"
+    writer.build(one_pad_board(tmp_path, [("P1", 0, 0, "A"), ("P2", 6, 0, "B")]), cfg, board)
+    out = tmp_path / "b-stripforge.sheet.html"
+    res = buildsheet.write_sheet(board, cfg, out, pdf=False, date="2026-09-28")
+    assert not res.backups
+    (tmp_path / "b-stripforge.sheet.pdf").write_text("old pdf")  # as if Chrome had printed one
+    res = buildsheet.write_sheet(board, cfg, out, pdf=False, date="2026-09-28")
+    assert not res.backups  # same sheet: nothing to keep
+    first = out.read_text()
+    res = buildsheet.write_sheet(board, cfg, out, pdf=False, date="2026-09-29")
+    prev = tmp_path / "b-stripforge.sheet-prev.html"
+    assert res.backups == [str(prev), str(tmp_path / "b-stripforge.sheet-prev.pdf")]
+    assert prev.read_text() == first and (tmp_path / "b-stripforge.sheet-prev.pdf").read_text() == "old pdf"
+    buildsheet.write_sheet(board, cfg, out, pdf=False, date="2026-09-30")
+    assert (tmp_path / "b-stripforge.sheet-prev-1.html").read_text() == first
+    keep1 = BoardConfig(trim_pieces=False, backup_keep=1)
+    buildsheet.write_sheet(board, keep1, out, pdf=False, date="2026-10-01")
+    assert not (tmp_path / "b-stripforge.sheet-prev-1.html").exists()  # backup_keep = 1: just -prev

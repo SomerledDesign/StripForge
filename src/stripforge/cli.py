@@ -277,6 +277,8 @@ def _sheet(args: argparse.Namespace) -> int:
         print(f"NOTE: {m.warnings[0]}")
     for n in res.notes:
         print(f"note: {n}")
+    for b in res.backups:
+        print(f"Backup: {b} (the previous sheet; older ones move up to -1, -2, ...)")
     print("Wrote: " + ", ".join(res.outputs))
     return 0
 

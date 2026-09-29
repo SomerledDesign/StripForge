@@ -1361,6 +1361,27 @@ class SheetResult:
     model: SheetModel
     outputs: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    backups: list[str] = field(default_factory=list)  # the previous sheet (HTML, PDF), when it changed
+
+
+SHEET_BACKUP_SUFFIX = "-prev"  # <name>-stripforge.sheet-prev.html, -prev-1.html, ... (like the boards)
+
+
+def _keep_previous(out_path: Path, html: str, keep: int, res: SheetResult) -> None:
+    """Back the previous sheet up before it is overwritten, rotating older copies like the board
+    backups, but only when the new sheet differs from it (the HTML and, when there is one, its PDF)."""
+    from .writer import rotate_backups
+
+    try:
+        if not out_path.is_file() or out_path.read_text(encoding="utf-8") == html:
+            return
+    except (OSError, UnicodeDecodeError):
+        return
+    for p in (out_path, out_path.with_suffix(".pdf")):
+        if p.is_file():
+            rot = rotate_backups(p, keep, SHEET_BACKUP_SUFFIX)
+            res.backups.append(str(rot.backup))
+            res.notes += rot.warnings
 
 
 def write_sheet(
@@ -1380,7 +1401,9 @@ def write_sheet(
     model = sheet_model(board_path, cfg, netlist, date)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     res = SheetResult(model)
-    out_path.write_text(render_html(model), encoding="utf-8")
+    html = render_html(model)
+    _keep_previous(out_path, html, cfg.backup_keep, res)
+    out_path.write_text(html, encoding="utf-8")
     res.outputs.append(str(out_path))
     svgs = {
         "copper": copper_svg(model, views(model, True)[0]),

@@ -416,7 +416,9 @@ them. `respect_edits = false` ignores the board's markers and links and plans fr
 writes one self-contained, printable HTML file (Letter landscape, light background, works offline).
 When Chrome/Chromium is found (`--chrome`, `$STRIPFORGE_CHROME`, `PATH`, or the macOS app) it
 also writes `<out>.pdf`. `--png` adds `<out>.copper.png` / `<out>.component.png` previews. The two
-view SVGs and `<out>.cuts.csv` are always written. The sheet has:
+view SVGs and `<out>.cuts.csv` are always written. When the new sheet differs from the one already
+there, the old HTML and PDF are kept as `<out>-prev.html` / `.pdf` first (older ones rotate to
+`-prev-1`, `-prev-2`, ..., limited by `backup_keep`); an unchanged sheet makes no backup. The sheet has:
 
 1. **Copper side (bottom), MIRRORED:** as seen with the board flipped over to cut (hole 1 on the
    right). It shows cuts (hole ✕, knife bar), solder points, link ends and slot jobs, with strip

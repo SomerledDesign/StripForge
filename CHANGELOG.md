@@ -159,6 +159,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   re-planned (e.g. rebuilt from a backup) so a W ref now names a link on another net, it moves
   the labels it put on that symbol's pins to the new net instead of leaving parity errors (a pin
   with a wire of yours stays a conflict).
+- Build sheet keeps the previous sheet: when the new HTML differs, the old HTML and PDF are backed
+  up as `<name>-stripforge.sheet-prev.html` / `.pdf` (rotating to `-prev-1`, ..., `backup_keep`).
 - Nets left unjoined after the first link pass get a second chance: the pieces are trimmed to
   their used holes and the planner tries again, so a strip freed by the trim can become their
   bus strip (Kevin's DAT1 on strip S). On the example board 3 more nets are joined (7 unlinkable
