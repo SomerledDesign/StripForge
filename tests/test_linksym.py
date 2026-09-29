@@ -183,7 +183,8 @@ def test_link_symbols_to_a_copy(tmp_path):
     assert atom(inst, 1) == f"/{ROOT_UUID}/{SHEET}"
     x, y = float(find(node, "at")[1]), float(find(node, "at")[2])
     labels = _labels(out / "sub.kicad_sch", "label")
-    assert ("N", round(x - 5.08, 2), y) in labels and ("N", round(x + 5.08, 2), y) in labels
+    # on the pins' connection points (the Link symbol has zero-length pins 1.27 mm either side)
+    assert ("N", round(x - 1.27, 2), y) in labels and ("N", round(x + 1.27, 2), y) in labels
     glob = _labels(out / "sub.kicad_sch", "global_label")
     assert ("Net-(R1-Pad2)", 100.0, 103.81) in glob  # names the unnamed net on R1 pin 2
     assert sum(1 for g in glob if g[0] == "GND") == 2

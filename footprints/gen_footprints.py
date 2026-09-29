@@ -9,6 +9,7 @@ Families:
 
 * ``Link_P<L>``: zero-ohm wire link (ref prefix W, same net on both pins), two THT pads
   k x 2.54 mm apart, pad 2 straight *below* pad 1 (+Y), anchor on pad 1.
+  Each pad is ringed by an unfilled circle on User.4 (marker layer; Link_D* have no ring).
 * ``Link_D<L>``: the same wire link for an off-pitch diagonal, pads sqrt(dx^2 + dy^2) x 2.54 mm
   apart for whole-hole offsets (dx, dy) that are not a whole number of pitches (1x1 = 3.59 mm,
   1x2 = 5.68 mm, ... up to 32 pitches). The planner rotates it so both pads land on holes.
@@ -63,6 +64,11 @@ LINK_DRILL = 1.0  # stripboard holes are 0.94-1.02 mm (BusBoard 0.94, Vero 1.02,
 LINK_PAD = 1.7
 LINK_WIRE = 0.6  # ~23 AWG tinned copper wire, drawn on F.Fab
 CRT_MARGIN = 0.25  # courtyard clearance beyond pad copper
+# Straight links (Link_P*) only: an unfilled ring on a user marker layer around each pad, so
+# placed links stand out (Kevin colours User.4 yellow). Radius = pad half-size + 0.25 mm.
+LINK_RING_LAYER = "User.4"
+LINK_RING_GAP = 0.25
+LINK_RING_W = 0.15
 
 
 def fmt(v: float) -> str:
@@ -181,6 +187,10 @@ def make_link(k: int, n: int | None = None) -> tuple[str, str]:
     fp.rect(-c, -c, c, length + c, "F.CrtYd", 0.05)
     fp.pad("1", 0, 0, LINK_PAD, LINK_DRILL)
     fp.pad("2", 0, length, LINK_PAD, LINK_DRILL, exact=n is not None)
+    if n is None:  # straight links only; drawn after the pads so existing uuids are unchanged
+        r = LINK_PAD / 2 + LINK_RING_GAP
+        fp.circle(0, 0, r, LINK_RING_LAYER, LINK_RING_W)
+        fp.circle(0, length, r, LINK_RING_LAYER, LINK_RING_W)
     tags = f"StripForge stripboard wire link jumper zero ohm 0R W {tag}"
     # The wire joins pads 1 and 2: a jumper pad group tells KiCad's connectivity (ratsnest, DRC
     # unconnected items) that they are one node. Without it a placed link connects nothing.

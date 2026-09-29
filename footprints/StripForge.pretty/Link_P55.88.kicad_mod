@@ -14,5 +14,7 @@
   (fp_rect (start -1.1 -1.1) (end 1.1 56.98) (stroke (width 0.05) (type solid)) (fill no) (layer "F.CrtYd") (uuid "bf7549c7-b5a8-5427-9ed7-c4bd83e0f4a1"))
   (pad "1" thru_hole circle (at 0 0) (size 1.7 1.7) (drill 1) (layers "*.Cu" "*.Mask") (remove_unused_layers no) (uuid "00abc21f-1214-5db2-94d9-ae8fa5344593"))
   (pad "2" thru_hole circle (at 0 55.88) (size 1.7 1.7) (drill 1) (layers "*.Cu" "*.Mask") (remove_unused_layers no) (uuid "6183a0b4-5e29-5087-977c-8f5051496a41"))
+  (fp_circle (center 0 0) (end 1.1 0) (stroke (width 0.15) (type solid)) (fill no) (layer "User.4") (uuid "eedb94ab-a3e8-5002-904c-b762b84a1c2f"))
+  (fp_circle (center 0 55.88) (end 1.1 55.88) (stroke (width 0.15) (type solid)) (fill no) (layer "User.4") (uuid "88b8b0bc-b80e-5c6d-9915-b72f365bb409"))
   (embedded_fonts no)
 )

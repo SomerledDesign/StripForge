@@ -234,6 +234,20 @@ def pin_points(sheet: Sheet, sym: list) -> dict[str, tuple[float, float]]:
     return out
 
 
+def _pin_offsets(lib: list) -> dict[str, tuple[float, float]]:
+    """Connection point of each pin of an unrotated Link symbol, relative to its anchor (schematic
+    mm, y down). Read from the definition, so a redrawn symbol (shorter pins) still gets its labels
+    on the pins."""
+    out = {}
+    for sub in find_all(lib, "symbol"):
+        for pin in find_all(sub, "pin"):
+            pat = find(pin, "at")
+            out[atom(find(pin, "number"), 1) or ""] = (round(float(pat[1]), 4), round(-float(pat[2]), 4))
+    if not {"1", "2"} <= set(out):
+        raise LinkSymbolError(f"the {LINK_LIB_ID} symbol needs pins 1 and 2")
+    return out
+
+
 def _extent(sheet: Sheet) -> tuple[float, float, float, float]:
     """Bounding box (mm) of every coordinate on a sheet (title block and libraries left out)."""
     xs, ys = [], []
@@ -609,8 +623,11 @@ def add_link_symbols(
         if libs is None:
             libs = [Sym("lib_symbols")]
             _insert(root, [libs])
-        if not any(atom(s, 1) == LINK_LIB_ID for s in find_all(libs, "symbol")):
+        embedded = next((s for s in find_all(libs, "symbol") if atom(s, 1) == LINK_LIB_ID), None)
+        if embedded is None:
             libs.append(definition)
+            embedded = definition
+        pins = _pin_offsets(embedded)  # labels go on the pins of the definition the sheet uses
         x_min, y_min, x_max, y_max = _extent(sh)
         longest = max(_text_width(g[3]) for g in group)
         dx = _snap(max(33.02, 10.16 + 2 * longest + 7.62))
@@ -654,8 +671,9 @@ def add_link_symbols(
             x = x0 + (i % cols) * dx
             y = y0 + (i // cols) * dy  # row by row, cols across
             nodes.append(_symbol(lk, sym_uuid, x, y, project, sh.inst_path))
-            nodes.append(_label(kind, label_name, x - 5.08, y, True, f"{sym_uuid}/label1"))
-            nodes.append(_label(kind, label_name, x + 5.08, y, False, f"{sym_uuid}/label2"))
+            (x1, y1), (x2, y2) = pins["1"], pins["2"]
+            nodes.append(_label(kind, label_name, x + x1, y + y1, x1 <= x2, f"{sym_uuid}/label1"))
+            nodes.append(_label(kind, label_name, x + x2, y + y2, x1 > x2, f"{sym_uuid}/label2"))
             anchor = anchors.get(lk.net)
             how = "local" if kind == "label" else "global"
             res.added.append(

@@ -78,6 +78,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Placed links are easier to see (Kevin and Mildrew): every straight `Link_P*` footprint has an
+  unfilled ring on `User.4` around each pad (colour User.4 yellow in KiCad to make them stand out;
+  `Link_D*` have none). The `StripForge:Link` symbol is redrawn as a small wire bridge with
+  zero-length pins 1.27 mm either side; link-symbols puts its net labels on the pins of whichever
+  Link definition the sheet embeds.
 - `place_links = true` is now the default: the first build places the W link footprints, and
   **Add links to schematic** carries them into the schematic. KiCad's Update Schematic from PCB
   can't create symbols. `build --no-place-links` / `place_links = false` gives the old two-pass
