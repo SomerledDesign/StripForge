@@ -61,8 +61,8 @@ def test_counts_match_the_board(real):
         len(cut_ids) == len(m.a.split.cuts) == len(m.prep.old_cuts) == 97
     )  # incl. the bus-strip and trim cuts
     assert sorted(cut_ids) == sorted(f"X{fp.ref[3:]}" for fp in m.prep.old_cuts)
-    assert len(re.findall(r'data-style="knife"', h)) == 26
-    assert len(items(h, "link")) == 35 and [r.status for r in m.links] == ["placed"] * 35
+    assert len(re.findall(r'data-style="knife"', h)) == 28
+    assert len(items(h, "link")) == 40 and [r.status for r in m.links] == ["placed"] * 40
     assert len(items(h, "part")) == 22
     assert len(items(h, "slot")) == 2
 
@@ -128,17 +128,17 @@ def test_net_table_lists_every_hole_including_link_ends(real):
 
 def test_warnings_cover_knife_cuts_overlaps_and_unlinkable_nets(real):
     m, h = real["m2"], real["h2"]
-    assert len(m.knife_cuts) == 26 and len(m.unlinkable) == 10
-    assert len(re.findall(r'<li data-kind="knife">', h)) == 26
-    assert len(re.findall(r'<li data-kind="unlinkable">', h)) == 10
+    assert len(m.knife_cuts) == 28 and len(m.unlinkable) == 7
+    assert len(re.findall(r'<li data-kind="knife">', h)) == 28
+    assert len(re.findall(r'<li data-kind="unlinkable">', h)) == 7
     assert any("W7 (B18-U18) runs under BT1, J2" in o for o in m.overlaps)
 
 
 def test_pass1_sheet_draws_links_dashed_and_says_so(real):
     m, h = real["m1"], real["h1"]
-    assert [r.status for r in m.links] == ["to-add"] * 35
-    assert h.count('class="wire proposed"') == 35
-    assert any("35 wire link(s) are not placed" in w for w in m.warnings)
+    assert [r.status for r in m.links] == ["to-add"] * 40
+    assert h.count('class="wire proposed"') == 40
+    assert any("40 wire link(s) are not placed" in w for w in m.warnings)
 
 
 def test_copper_view_is_mirrored_and_labelled_on_both_edges(real):
@@ -215,7 +215,7 @@ def test_cli_sheet_writes_html_svg_and_csv(real, tmp_path, capsys):
     code = main(["sheet", str(real["p2"]), "--config", str(real["board"].parents[1] / "x56.toml"),
                  "-o", str(out), "--no-pdf", "--date", DATE])  # fmt: skip
     text = capsys.readouterr().out
-    assert code == 0 and "Cuts: 97, slot jobs: 2, wire links: 35 (35 placed)" in text
+    assert code == 0 and "Cuts: 97, slot jobs: 2, wire links: 40 (40 placed)" in text
     for suffix in (".html", ".copper.svg", ".component.svg", ".cuts.csv"):
         assert out.with_suffix(suffix).exists()
     rows = out.with_suffix(".cuts.csv").read_text().splitlines()

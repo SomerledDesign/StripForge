@@ -45,6 +45,7 @@ import csv
 import io
 import json
 import math
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 
 from .board import rotate_nm
@@ -300,15 +301,24 @@ class Unlinkable:
     net: str
     groups: list[list[str]]  # piece labels, one list per group that could not be joined
     max_link_mm: float = LINK_MAX_PITCHES * PITCH_MM
+    diagonal: bool = True  # diagonal_links: were diagonals tried?
+    bus: bool = True  # bus_strips: were bus strips tried?
 
     @property
     def text(self) -> str:
         groups = " | ".join(", ".join(g) for g in self.groups)
+        tried = ["down a column", "along a strip"]
+        tried += ["on a diagonal"] if self.diagonal else []
+        tried += ["via a bare bus strip"] if self.bus else []
+        ways = ", ".join(tried[:-1]) + " or " + tried[-1]
+        off = [k for k, on in (("diagonal_links", self.diagonal), ("bus_strips", self.bus)) if not on]
+        if off:
+            ways += f"; {' and '.join(off)} {'is' if len(off) == 1 else 'are'} off"
         return (
             f"net {self.net!r} can't be fully linked: {len(self.groups)} groups of pieces [{groups}] have "
-            f"no pair of free holes a link of up to {self.max_link_mm:g} mm can join (down a column, along "
-            "a strip, on a diagonal or via a bare bus strip) without crossing another link; "
-            "move or rotate a part so the pieces come closer, or free some holes"
+            f"no pair of free holes a link of up to {self.max_link_mm:g} mm can join ({ways}) "
+            "without crossing another link; move or rotate a part so the pieces come closer, or free "
+            "some holes"
         )
 
 
@@ -972,6 +982,40 @@ class _Planner:
         # a retry for nets left unjoined: trim the pieces to their pins first, so the freed strip
         # is there for buses (the pieces then lose the landing holes beyond their last pin)
         early = self._trim() if self.pre_trim else []
+        self._lay()
+        late: list[Cut] = []
+        if self.groups() and getattr(self.a.config, "trim_pieces", True):
+            # nets still unjoined: trim the pieces to their used holes now (the landing holes the
+            # links above needed are kept) and try again, since the freed strip may be the bus they
+            # need. The cached "no candidate" answers assumed options only shrink; trimming adds some.
+            late = self._trim()
+            if late:
+                self.no_bus.clear()
+                self.no_offset.clear()
+                self.bus_best.clear()
+                self.offset_best.clear()
+                self._lay()
+        self.links.sort(key=lambda lk: (lk.row_a, lk.col, lk.row_b, lk.end_col))
+        # your placed links keep their references; the rest are numbered after them
+        yours = [lk for lk in self.links if lk.origin == "board"]
+        start = max((ref_number(r) for r in [*(lk.ref_hint for lk in yours), *self.taken_refs]), default=0)
+        for n, lk in enumerate((lk for lk in self.links if lk.origin != "board"), start=start + 1):
+            lk.ref_hint = f"W{n}"
+        unl = [
+            Unlinkable(
+                net,
+                [[self.pieces[i].label for i in ids] for ids in comps],
+                self.max_link_mm,
+                bool(getattr(self.a.config, "diagonal_links", True)),
+                self.use_bus,
+            )
+            for net, comps in self.groups().items()
+        ]
+        trims = early + late + (self._trim() if getattr(self.a.config, "trim_pieces", True) else [])
+        return LinkPlan(self.links, unl, merge_moves(self.moves), needed, self.bus_cuts, trims)
+
+    def _lay(self) -> None:
+        """Lay the cheapest join, again and again, until every net is joined or nothing fits."""
         while True:
             groups = self.groups()
             if not groups:
@@ -1032,18 +1076,6 @@ class _Planner:
                             if n.row == bus[0]:
                                 self.bus_nodes[n] = net
             self._refresh()
-        self.links.sort(key=lambda lk: (lk.row_a, lk.col, lk.row_b, lk.end_col))
-        # your placed links keep their references; the rest are numbered after them
-        yours = [lk for lk in self.links if lk.origin == "board"]
-        start = max((ref_number(r) for r in [*(lk.ref_hint for lk in yours), *self.taken_refs]), default=0)
-        for n, lk in enumerate((lk for lk in self.links if lk.origin != "board"), start=start + 1):
-            lk.ref_hint = f"W{n}"
-        unl = [
-            Unlinkable(net, [[self.pieces[i].label for i in ids] for ids in comps], self.max_link_mm)
-            for net, comps in self.groups().items()
-        ]
-        trims = early + (self._trim() if getattr(self.a.config, "trim_pieces", True) else [])
-        return LinkPlan(self.links, unl, merge_moves(self.moves), needed, self.bus_cuts, trims)
 
     def _trim(self) -> list[Cut]:
         """Cut every net piece back to its outermost used hole (a pin, a link end, a slot's hole), so
@@ -1363,7 +1395,7 @@ def refs_to_add(plan: LinkPlan) -> str:
     return ", ".join(refs)
 
 
-def format_text(plan: LinkPlan, allowance_in: float = 0.0) -> str:
+def format_text(plan: LinkPlan, allowance_in: float = 0.0, placed: Iterable[str] = ()) -> str:
     """The link report plus step-by-step instructions for adding the links to the schematic."""
     out = [f"Links: {len(plan.links)} proposed for {plan.needed} needed"]
     if plan.joins != len(plan.links):
@@ -1392,7 +1424,15 @@ def format_text(plan: LinkPlan, allowance_in: float = 0.0) -> str:
         out.append(f"Unlinkable nets: {len(plan.unlinkable)}")
         out += [f"  ERROR: {u.text}" for u in plan.unlinkable]
     out += format_cut_list(plan.links, allowance_in)
-    to_add = [lk for lk in plan.links if lk.origin != "board"]
+    placed = set(placed)  # W refs the build placed on the board itself (place_links)
+    to_add = [lk for lk in plan.links if lk.origin != "board" and lk.ref_hint not in placed]
+    if placed:
+        out += [
+            "",
+            f"The build placed {len(placed)} W link footprint(s) on the board. To put them in the "
+            "schematic: click 'StripForge: Add links to schematic'",
+            "(or run 'stripforge link-symbols <board> --in-place'); F8 then matches them by path.",
+        ]
     if to_add:
         out += [
             "",

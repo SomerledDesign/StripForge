@@ -109,10 +109,10 @@ def test_real_fixture_plan(tmp_path, real_board_path, real_netlist_path):
     res = writer.build(real_board_path, cfg, out, netlist=str(real_netlist_path))
     plan = res.plan
     assert plan.needed == 39
-    assert len(plan.links) == 35 and plan.joins == 29  # six joins go via a bus strip
-    assert len(plan.unlinkable) == 10
+    assert len(plan.links) == 40 and plan.joins == 32  # eight joins go via a bus strip
+    assert len(plan.unlinkable) == 7
     assert sum(len(u.groups) - 1 for u in plan.unlinkable) == plan.needed - plan.joins
-    assert [lk.ref_hint for lk in plan.links] == [f"W{i}" for i in range(1, 36)]
+    assert [lk.ref_hint for lk in plan.links] == [f"W{i}" for i in range(1, 41)]
     assert all(1 <= lk.pitches <= LINK_MAX_PITCHES for lk in plan.links)
     nodes = [n for lk in plan.links for n in lk.nodes]
     assert len(nodes) == len(set(nodes))

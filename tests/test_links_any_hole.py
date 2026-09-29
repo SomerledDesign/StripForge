@@ -57,7 +57,9 @@ def test_diagonal_links_can_be_turned_off(tmp_path):
     cfg = BoardConfig(trim_pieces=False, diagonal_links=False, bus_strips=False)
     res = build(tmp_path, DIAGONAL, cfg)
     assert not res.plan.ok and res.plan.links == []
-    assert "on a diagonal" in res.plan.unlinkable[0].text
+    text = res.plan.unlinkable[0].text
+    assert "on a diagonal" not in text and "bus strip" not in text.split(";")[0]
+    assert "(down a column or along a strip; diagonal_links and bus_strips are off)" in text
 
 
 def test_pass2_places_a_diagonal_link_rotated_onto_its_holes(tmp_path):
@@ -281,3 +283,42 @@ def test_straight_links_on_a_bus_beat_a_diagonal(tmp_path):
     assert res.plan.ok and res.plan.joins == 1
     assert [lk.kind for lk in res.plan.links] == ["vertical", "vertical"]
     assert len({lk.bus for lk in res.plan.links}) == 1 and res.plan.links[0].bus
+
+
+def test_unjoined_net_gets_a_bus_the_final_trim_frees(tmp_path):
+    """Kevin's DAT1 (2026-09-29): the only bus for a net was strip that another net's piece ran
+    over until the end-of-plan trim. The planner now trims and tries again before giving up."""
+    from stripforge import links as links_mod
+    from stripforge.analyze import analyze_board
+    from stripforge.board import load_board
+    from stripforge.config import BoardConfig
+
+    # N at A1 and C9: row A is cut after A1-A2 (B at A3), row C before C6 (D at C5), so no column
+    # joins them; rows B, D and E each carry a one-pin net at their far end until trimmed
+    parts = [("P1", 0, 0, "N"), ("P2", 2, 0, "B"), ("P3", 4, 2, "D"), ("P4", 8, 2, "N")]
+    parts += [("Q1", 9, 1, "Q1"), ("Q3", 9, 3, "Q3"), ("Q4", 9, 4, "Q4")]
+    a = analyze_board(load_board(one_pad_board(tmp_path, parts)), BoardConfig(diagonal_links=False))
+    plan = links_mod._Planner(a).run()  # one greedy round, no pre-trim retry
+    assert not plan.unlinkable
+    assert [(lk.start, lk.end, lk.net, lk.bus) for lk in plan.links] == [
+        ("A2", "B2", "N", "B"),
+        ("B8", "C8", "N", "B"),
+    ]
+
+
+def test_unlinkable_text_and_placed_links_note_follow_the_config(tmp_path):
+    from stripforge.links import Unlinkable, format_text
+
+    u = Unlinkable("N", [["A1-A2"], ["C6-C10"]], 81.28, diagonal=False)
+    assert "on a diagonal" not in u.text and "diagonal_links is off" in u.text
+    assert "on a diagonal" in Unlinkable("N", [["A1"], ["C6"]]).text
+    res = writer.build(
+        one_pad_board(tmp_path, [("P1", 0, 0, "A"), ("P2", 6, 0, "B"), ("P3", 0, 2, "A")]),
+        BoardConfig(trim_pieces=False),  # place_links is on by default
+        tmp_path / "out.kicad_pcb",
+    )
+    txt = (tmp_path / "out-stripforge.links.txt").read_text()
+    assert [p.status for p in res.placements] == ["placed"]
+    assert "The build placed 1 W link footprint(s)" in txt and "Add links to schematic" in txt
+    assert "To add the links to the schematic (pass 2)" not in txt  # nothing left to place by hand
+    assert "To add the links to the schematic (pass 2)" in format_text(res.plan)

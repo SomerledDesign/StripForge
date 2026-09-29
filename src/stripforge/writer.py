@@ -845,7 +845,8 @@ def build(
     res.outputs.append(str(out_path))
     shutil.copyfile(rules, dru)
     res.outputs.append(str(dru))
-    res.outputs += write_link_files(plan, out_path, res.stretches, cfg.link_lead_allowance_in)
+    placed = [p.ref for p in res.placements if p.status == "placed" and p.detail.endswith("(new)")]
+    res.outputs += write_link_files(plan, out_path, res.stretches, cfg.link_lead_allowance_in, placed)
 
     # re-read what was written: it must parse and carry exactly the tracks we meant to write
     check = load_board(out_path)
@@ -868,14 +869,14 @@ def link_file(out_path: str | Path, suffix: str) -> Path:
 
 
 def write_link_files(
-    plan: links_mod.LinkPlan, out_path: str | Path, stretches=(), allowance_in: float = 0.0
+    plan: links_mod.LinkPlan, out_path: str | Path, stretches=(), allowance_in: float = 0.0, placed=()
 ) -> list[str]:
     """Write the link proposal (JSON, CSV, and a text report with schematic instructions), with
     any lead-stretch suggestions in the JSON and the text report."""
     import json
 
     data = json.loads(links_mod.to_json(plan, Path(out_path).name))
-    text = links_mod.format_text(plan, allowance_in)
+    text = links_mod.format_text(plan, allowance_in, placed)
     if stretches:
         data["lead_stretches"] = [s.to_dict() for s in stretches]
         text += "\n" + stretch_mod.format_text(stretches)

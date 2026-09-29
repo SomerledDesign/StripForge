@@ -143,6 +143,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Nets left unjoined after the first link pass get a second chance: the pieces are trimmed to
+  their used holes and the planner tries again, so a strip freed by the trim can become their
+  bus strip (Kevin's DAT1 on strip S). On the example board 3 more nets are joined (7 unlinkable
+  instead of 10). The unlinkable message now lists only the ways that were tried (`diagonal_links`
+  and `bus_strips` off say so), and the link report says to use Add links to schematic for links
+  the build placed itself.
 - Link footprints' courtyard is a dumbbell: 0.25 mm around each pad and 0.25 mm either side of the
   0.6 mm wire, instead of a pad-wide rectangle, so a link is about as wide as a real wire. Update
   footprints on existing boards (Tools > Update Footprints from Library) to get the new outline.

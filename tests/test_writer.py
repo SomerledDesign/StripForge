@@ -165,7 +165,7 @@ def test_real_fixture_build(tmp_path, real_board_path, real_netlist_path):
     )  # 30 of them trim pieces back to their last used hole
     assert res.segments == len(segments(out))
     assert not any("Edge.Cuts" in w for w in res.warnings)  # the outline is the X56 board
-    assert res.segments == 1152 and res.segments_no_net == 712
+    assert res.segments == 1154 and res.segments_no_net == 718
     assert res.holes_drawn == 1256  # every free grid hole (pass 1: link holes still empty)
     # pass 2 on a copy: every proposed link is placed
     links = json.loads((tmp_path / "b-stripforge.links.json").read_text())["links"]
@@ -176,11 +176,11 @@ def test_real_fixture_build(tmp_path, real_board_path, real_netlist_path):
     assert res2.holes_drawn == res.holes_drawn - 2 * len(links)  # the W pads take their holes
     assert [lk.to_dict() for lk in res2.plan.links] == [lk.to_dict() for lk in res.plan.links]
     ws = footprints(tmp_path / "p2.kicad_pcb", "W")
-    assert len(ws) == 35
+    assert len(ws) == 40
     angles = {fp.ref: float(atom(find(fp.node, "at"), 3) or 0) for fp in ws}
     # diagonals only where nothing straight fits (last resort)
-    assert {r: a for r, a in angles.items() if a} == {"W5": 331.3895, "W20": 8.1301, "W29": 21.8014}
-    assert next(lk for lk in res.plan.links if lk.ref_hint == "W20").footprint == "StripForge:Link_D17.96"
+    assert {r: a for r, a in angles.items() if a} == {"W5": 348.6901, "W24": 344.0546}
+    assert next(lk for lk in res.plan.links if lk.ref_hint == "W24").footprint == "StripForge:Link_D18.49"
 
 
 # --- rotating backups (output = "in_place") --------------------------------------------------
