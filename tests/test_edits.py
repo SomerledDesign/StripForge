@@ -382,8 +382,8 @@ def test_build_sheet_calls_only_moved_or_added_cuts_yours(tmp_path, legacy):
     (other,) = set(before) - {row_a}
     assert by_ref[other].user and by_ref[other].auto
     assert any(
-        w.startswith("edits: kept your 1 cut(s) and 2 placed link(s)")
-        and "StripForge's other 1 cut marker(s)" in w
+        w.startswith("edits: kept your 1 cut(s) and 1 placed link(s)")
+        and "StripForge's other 1 cut marker(s) and 1 link(s)" in w
         for w in res.warnings
     ), res.warnings
     for _ in range(2):  # and it stays that way on a second rebuild
@@ -407,3 +407,43 @@ def _cut_label(path, ref):
     knife = fp.lib_id == CUT_KNIFE_ID
     row, col, _ = _snap(g, fp.x_nm, fp.y_nm, knife)
     return CutSpec(row, float(col), "knife" if knife else "hole", "").label
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_only_moved_links_are_yours(tmp_path, legacy):
+    """Kevin's Build strips report said "(yours, kept)" on all 34 links of a rebuilt board. Only a
+    link you moved (or added) is yours; one still where StripForge put it is just "(kept)". The
+    saved link plan records which is which (``legacy``: a plan saved before 0.2.0 without it)."""
+    from stripforge import buildsheet
+
+    p2 = pass2(tmp_path, parts=TWO)
+    lj = tmp_path / "p2-stripforge.links.json"
+    data = json.loads(lj.read_text())
+    assert [d["yours"] for d in data["links"]] == [False, False]
+    if legacy:
+        for d in data["links"]:
+            del d["yours"]
+        lj.write_text(json.dumps(data))
+    row_a = next(r for r in ("CUT1", "CUT2") if _cut_label(p2, r).startswith("A"))
+    edit(p2, "W1", "A5")  # W1 now runs A5-C5, so the row A cut moves from A4 to A6
+    edit(p2, row_a, "A6")
+    for _ in range(2):  # the rebuild, then a second one: W1 stays yours, W2 stays StripForge's
+        res = rebuild(p2)
+        by_ref = {lk.ref_hint: lk for lk in res.plan.links}
+        assert by_ref["W1"].origin == by_ref["W2"].origin == "board"
+        assert by_ref["W1"].yours and not by_ref["W2"].yours
+        detail = {p.ref: p.detail for p in res.placements}
+        assert detail["W1"].endswith("(yours, kept)") and detail["W2"].endswith("(kept)")
+        assert "(yours" not in detail["W2"]
+        text = (tmp_path / "p2-stripforge.links.txt").read_text()
+        (w1,) = [ln for ln in text.splitlines() if ln.strip().startswith("W1 ")]
+        (w2,) = [ln for ln in text.splitlines() if ln.strip().startswith("W2 ")]
+        assert "(yours, kept)" in w1 and "(kept)" in w2 and "yours" not in w2
+        saved = {d["ref"]: d["yours"] for d in json.loads(lj.read_text())["links"]}
+        assert saved == {"W1": True, "W2": False}
+        html = buildsheet.render_html(
+            buildsheet.sheet_model(p2, BoardConfig(trim_pieces=False), date="2026-09-29")
+        )
+        rows = re.findall(r'<tr class="item" data-kind="link" data-link="(W\d+)"(.*?)</tr>', html, re.S)
+        assert [r for r, _ in rows] == ["W1", "W2"]
+        assert [r for r, body in rows if "(yours)" in body] == ["W1"]

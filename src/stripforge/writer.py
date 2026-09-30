@@ -677,6 +677,7 @@ def prepare(board: Board, cfg: BoardConfig, netlist: str | None = None) -> Prepa
             # a marker from before 0.2.0 doesn't record where StripForge put it: it counts as
             # StripForge's own if StripForge's plan cuts there too
             own = {(c.row, c.col, c.style) for c in a.split.cuts}
+            own_plan = plan
             for c in theirs.cuts:
                 if c.placed == "unknown":
                     c.placed = "stripforge" if c.key in own else "you"
@@ -698,10 +699,13 @@ def prepare(board: Board, cfg: BoardConfig, netlist: str | None = None) -> Prepa
                         "needed there (without it two nets short); move the link or the cut"
                     )
             moves.update(more)
+            _mark_own_links(plan, board.path, own_plan)
             yours = sum(1 for c in a.split.cuts if c.user and not c.auto)
-            kept = sum(1 for lk in plan.links if lk.origin == "board")
+            kept = sum(1 for lk in plan.links if lk.origin == "board" and lk.yours)
             others = sum(1 for c in a.split.cuts if c.auto)
-            also = f" (and StripForge's other {others} cut marker(s) where they were)" if others else ""
+            others_w = sum(1 for lk in plan.links if lk.origin == "board" and not lk.yours)
+            also = [f"{others} cut marker(s)"] * bool(others) + [f"{others_w} link(s)"] * bool(others_w)
+            also = f" (and StripForge's other {' and '.join(also)} where they were)" if also else ""
             warnings.append(
                 f"edits: kept your {yours} cut(s) and {kept} placed link(s) from the board as they "
                 f"are{also}; "
@@ -714,6 +718,34 @@ def prepare(board: Board, cfg: BoardConfig, netlist: str | None = None) -> Prepa
     return Prepared(
         a, plan, moves, cfg, link_fps, own_tracks + redrawn, old_cuts, foreign, warnings, stretches
     )
+
+
+def _mark_own_links(plan: links_mod.LinkPlan, board_path, own_plan: links_mod.LinkPlan) -> None:
+    """Which of the board's kept links are still where StripForge put them (not "yours"): the
+    saved link plan of the last build (``<name>-stripforge.links.json``) has the link at the same
+    holes and didn't call it yours. A plan saved before 0.2.0 has no "yours": there the link must
+    also be one StripForge's own plan makes (same holes)."""
+    import json
+
+    if not board_path:
+        return
+    path = link_file(board_path, ".json")
+    try:
+        saved = {d["ref"]: d for d in json.loads(path.read_text(encoding="utf-8"))["links"]}
+    except (OSError, ValueError, KeyError, TypeError):
+        return
+    own = {frozenset((lk.start, lk.end)) for lk in own_plan.links}
+    for lk in plan.links:
+        d = saved.get(lk.ref_hint)
+        if lk.origin != "board" or not isinstance(d, dict):
+            continue
+        holes = frozenset((lk.start, lk.end))
+        if frozenset((d.get("from"), d.get("to"))) != holes:
+            continue  # moved since the last build
+        if "yours" in d:
+            lk.yours = bool(d["yours"])
+        else:
+            lk.yours = holes not in own
 
 
 def _plan_edits(board: Board, cfg: BoardConfig, netlist, edits, link_fps):
@@ -839,7 +871,8 @@ def build(
             changed = adopt_link(board, fp, lk.net) if fp.node is not None else []
             if changed:
                 res.warnings.append(f"links: {fp.ref} ({lk.start}-{lk.end}): set {', '.join(changed)}")
-            res.placements.append(LinkPlacement(fp.ref, "placed", f"{lk.start} -> {lk.end} (yours, kept)"))
+            kept = "(yours, kept)" if lk.yours else "(kept)"
+            res.placements.append(LinkPlacement(fp.ref, "placed", f"{lk.start} -> {lk.end} {kept}"))
             continue
         if lk is None and fp.ref in plan.rejected:
             res.placements.append(

@@ -1056,8 +1056,10 @@ def _link_list(model: SheetModel) -> list[str]:
     for r in model.links:
         lk = r.link
         status = "placed" if r.status == "placed" else f"<b>{_e(r.detail)}</b>"
-        if lk.origin:
-            status += " <b>(yours)</b>" if lk.origin == "board" else " <b>([manual])</b>"
+        if lk.origin == "config":
+            status += " <b>([manual])</b>"
+        elif lk.is_yours:
+            status += " <b>(yours)</b>"
         out.append(
             f'<tr class="item" data-kind="link" data-link="{lk.ref_hint}"><td>{_box()}</td><td class="mono">{lk.ref_hint}</td>'
             f"<td><b>{lk.start}</b></td><td><b>{lk.end}</b></td><td><b>{_e(lk.inches)}</b> ({lk.pitches} holes, {_f(lk.length_mm)} mm){_link_how(lk)}</td>"

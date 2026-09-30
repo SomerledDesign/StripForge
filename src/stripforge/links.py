@@ -140,6 +140,13 @@ class LinkProposal:
     col_b: int | None = None  # column of pad 2 (None: the same column, a straight-down link)
     bus: str = ""  # "R" when this is one of a pair of links meeting on bus strip R
     origin: str = ""  # "board" (a W you placed), "config" ([manual] links): kept as it is
+    # a "board" link you moved or added by hand; False: still where StripForge put it (kept all
+    # the same, but not called yours)
+    yours: bool = True
+
+    @property
+    def is_yours(self) -> bool:
+        return self.origin == "config" or (self.origin == "board" and self.yours)
 
     @property
     def end_col(self) -> int:
@@ -223,6 +230,7 @@ class LinkProposal:
             "rotation": self.rotation,
             "bus": self.bus,
             "locked": self.origin,
+            "yours": self.is_yours,
             "pitches": self.pitches,
             "length_mm": self.length_mm,
             "length_in": self.length_in,
@@ -1456,7 +1464,7 @@ def format_text(plan: LinkPlan, allowance_in: float = 0.0, placed: Iterable[str]
         if lk.bus:
             how += f"  (to bus strip {lk.bus})"
         if lk.origin == "board":
-            how += "  (yours, kept)"
+            how += "  (yours, kept)" if lk.yours else "  (kept)"
         elif lk.origin == "config":
             how += "  ([manual] links)"
         inch = f"({lk.inches})"
