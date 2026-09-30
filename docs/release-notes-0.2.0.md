@@ -63,4 +63,4 @@ Footprints from Library on boards you built before, to get the new link outline.
 Issues and ideas are welcome at <https://github.com/SomerledDesign/StripForge/issues>. A screenshot
 of the report or the board (or the `.kicad_pcb` itself, if you can share it) helps a lot.
 
-**sha256** of `StripForge-0.2.0-pcm.zip`: `00e4724eeb2995b25d4112249be46b41a55e57514ccf3a0a38bdb8c4ff618514`
+**sha256** of `StripForge-0.2.0-pcm.zip`: `6c7f5510696473aebd01faa5645ed491e0a1ba0824cc161897bcbeabcdbd34f3`
