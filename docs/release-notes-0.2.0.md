@@ -30,7 +30,10 @@ like to hear about them.
 1. KiCad 10 > Preferences > Plugins: tick **Enable KiCad API**.
 2. Download `StripForge-0.2.0-pcm.zip` below. In KiCad's Plugin and Content Manager, click
    **Install from File…** and pick it.
-3. Restart KiCad. Five StripForge buttons appear in the PCB editor's toolbar.
+3. Restart KiCad. Five StripForge buttons appear in the PCB editor's toolbar:
+
+   <img src="https://raw.githubusercontent.com/SomerledDesign/StripForge/main/docs/images/plugin-toolbar-buttons.png" alt="The five StripForge toolbar buttons" width="511">
+
 4. Add the footprint library once (Preferences > Manage Footprint Libraries), nickname
    `StripForge`, path
    `${KICAD10_3RD_PARTY}/plugins/com.github.somerleddesign.stripforge/footprints/StripForge.pretty`.
@@ -38,6 +41,12 @@ like to hear about them.
 Then follow **Using it** in the [README](https://github.com/SomerledDesign/StripForge#using-it): save, Build strips, Update
 Footprints from Library, Add links to schematic, close and reopen the schematic, F8, Run DRC,
 Build sheet.
+
+| Build strips report | Run DRC: clean |
+|---|---|
+| ![The Build strips report, listing every wire link](https://raw.githubusercontent.com/SomerledDesign/StripForge/main/docs/images/plugin-build-strips-report.png) | ![The Run DRC report: shorts 0, unconnected 0, Result: clean](https://raw.githubusercontent.com/SomerledDesign/StripForge/main/docs/images/plugin-drc-report.png) |
+
+![A built board up close: strips, CUT markers and wire links](https://raw.githubusercontent.com/SomerledDesign/StripForge/main/docs/images/board-zoomed-links-cuts.png)
 
 Updating from 0.1.0: install the new zip the same way, restart KiCad, and run Tools > Update
 Footprints from Library on boards you built before, to get the new link outline.
@@ -54,4 +63,4 @@ Footprints from Library on boards you built before, to get the new link outline.
 Issues and ideas are welcome at <https://github.com/SomerledDesign/StripForge/issues>. A screenshot
 of the report or the board (or the `.kicad_pcb` itself, if you can share it) helps a lot.
 
-**sha256** of `StripForge-0.2.0-pcm.zip`: `c8d78d77a0cf57d1524853ec2b52667f2c4c616d4ab5eba519d1cf56a319e4e0`
+**sha256** of `StripForge-0.2.0-pcm.zip`: `00e4724eeb2995b25d4112249be46b41a55e57514ccf3a0a38bdb8c4ff618514`

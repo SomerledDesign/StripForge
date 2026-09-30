@@ -66,6 +66,9 @@ StripForge is a KiCad 10 **IPC plugin**. It is not in KiCad's official Plugin an
    environment, which takes a minute. Five StripForge buttons then appear in the PCB editor's
    toolbar: **Analyze**, **Build strips**, **Add links to schematic**, **Run DRC** and
    **Build sheet**.
+
+   <img src="docs/images/plugin-toolbar-buttons.png" alt="The PCB editor toolbar with the five StripForge buttons at the right: Analyze (A), Build strips (B), Run DRC (D), Add links to schematic (L) and Build sheet (S)" width="511">
+
 4. **Add the StripForge footprint library** (once): Preferences > Manage Footprint Libraries >
    Global Libraries, add a library with nickname `StripForge` and path
    `${KICAD10_3RD_PARTY}/plugins/com.github.somerleddesign.stripforge/footprints/StripForge.pretty`.
@@ -89,18 +92,26 @@ StripForge's job.
    writes the strip copper, the cuts and the wire links into it, and reloads it. The report lists
    every link, anything it couldn't do, and the backup it made. If KiCad says it is busy, press Esc,
    save and click again.
+
+   <img src="docs/images/plugin-build-strips-confirm.png" alt="Build strips asks before writing: it names the board file, saves it first and backs it up as ATtiny10_TPI_Fixture-pre-stripbuild.kicad_pcb" width="530">
+
+   <img src="docs/images/plugin-build-strips-report.png" alt="The Build strips report: parts snapped, strips, cuts and holes, then every W link with its holes, length, footprint and net" width="720">
 2. **Tools > Update Footprints from Library** (select all footprints, or just the `W` links). This
    gives the links the footprints from the installed library. It matters after you update
    StripForge, e.g. to get 0.2.0's slimmer link outline.
 3. Click **Add links to schematic**. It adds a `StripForge:Link` symbol for each `W` link to the
    schematic (and takes out the ones the board no longer has). Each sheet it changes is backed up
    first.
+
+   <img src="docs/images/schematic-link-symbols.png" alt="Link symbols W1 to W6 in the schematic, each with net labels on both pins" width="600">
 4. **Close the Schematic Editor without saving, and reopen it.** It doesn't reload a file changed on
    disk, and saving would undo step 3.
 5. Press **F8** (Update PCB from Schematic) in the board. The links match by path, so nothing moves
    and nothing is duplicated.
 6. Click **Run DRC**. "shorts 0" and "unconnected 0" is what you want. The report sorts real
    problems from the noise every stripboard has (dead strip ends, for example).
+
+   <img src="docs/images/plugin-drc-report.png" alt="The Run DRC report: shorts 0, clearance 0, unconnected 0, parity 0; the expected stripboard items filtered; Result: clean" width="720">
 7. Click **Build sheet**. It writes `<name>-stripforge.sheet.html` (and `.pdf` with Chrome) and
    opens it. Print it, cut the strips from the copper-side view, then fit the links and parts.
 
@@ -175,6 +186,11 @@ explains each one.
 - **Read the build report.** Anything StripForge couldn't join is listed with its pieces: move or
   turn a part so they come closer, or free some holes.
 
+<img src="docs/images/board-zoomed-links-cuts.png" alt="Close-up of a built board in KiCad: labelled holes on the strips, hole cut markers CUT85 and CUT86, and wire links W37 and W38 with pink rings round their pads" width="720">
+
+*A built board up close: the `CUT85`/`CUT86` markers are the cuts (move these, not the copper) and
+`W37`/`W38` are wire links, ringed so they stand out.*
+
 ## Status
 
 **Beta, 0.2.0.** StripForge runs inside KiCad 10's PCB editor (the IPC plugin above) and as a
@@ -220,7 +236,11 @@ The rest of this README is the detailed reference: every action, option and repo
 - **StripForge: Build sheet**: writes `<name>-stripforge.sheet.html` (and `.pdf` if Chrome is
   installed) and opens it in the browser.
 
-Each action offers to save the board first, because StripForge reads the saved file. It uses
+Each action offers to save the board first, because StripForge reads the saved file:
+
+<img src="docs/images/plugin-save-first.png" alt="StripForge asks: Save the board in KiCad first? Save and continue, Use the saved file, or Cancel" width="271">
+
+ It uses
 `stripboard.toml` next to the board if there is one. Without it, it uses the only other `*.toml`
 next to the board (e.g. `X56.toml`) if that is a valid StripForge config, and says so in the
 report; with several, or none, it derives the grid from the Edge.Cuts outline. If
