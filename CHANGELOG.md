@@ -28,24 +28,11 @@ and a printable build sheet.
   sheet.
 - New README with the step-by-step workflow, tips and screenshots (`docs/images/`).
 
-The details follow.
+The details follow, grouped by topic.
 
 ### Added
 
-- Plugin action **StripForge: Add links to schematic** (L badge icon). It writes a
-  `StripForge:Link` symbol for every placed W footprint into the project's schematic, in place.
-  Each symbol gets its Footprint field, the schematic path of its footprint, and net labels. Each
-  changed sheet is backed up first as `<sheet>-pre-links.kicad_sch`, rotated like the board
-  backups. The report says to close and reopen the Schematic Editor. The symbol is embedded, so no
-  sym-lib-table entry is needed. `link-symbols --in-place` uses the same backups (no more
-  timestamped `.bak`).
-- `link-symbols` / Add links to schematic complete W symbols that are already in the schematic
-  (for example placed by hand) and never duplicate them:
-  - bare pins get net labels;
-  - the uuid is set to the placed footprint's path, so F8 matches by path;
-  - an empty or different Footprint is set to the board's;
-  - a pin wired to another net is reported as a CONFLICT, and that symbol is left unchanged.
-
+**Building in your board, and backups**
 
 - `output` toml key: `"in_place"` (default) builds into the project's own `<name>.kicad_pcb`;
   `"separate"` writes `<name>-stripforge.kicad_pcb` as before. `build --separate` overrides it for
@@ -57,82 +44,74 @@ The details follow.
   - `backup_keep = N` keeps N backups in all; the default, 0, keeps every one.
   - A different existing `.kicad_dru` is kept once as `<name>-pre-stripbuild.kicad_dru`.
   - The CLI and plugin reports give the backup path, which backups moved, and how to undo.
+- The build sheet keeps the previous sheet: when the new HTML differs, the old HTML and PDF are
+  backed up as `<name>-stripforge.sheet-prev.html` / `.pdf` (rotating to `-prev-1`, ...,
+  `backup_keep`).
 
+**Wire links and the schematic**
+
+- `place_links` (toml) / `stripforge build --place-links`: the build places every proposed `W`
+  link footprint on its holes, with the net on both pads, locked, and with the schematic path of
+  its future symbol. No ratsnest is left to wire.
+- Plugin action **StripForge: Add links to schematic** (L badge icon). It writes a
+  `StripForge:Link` symbol for every placed W footprint into the project's schematic, in place.
+  Each symbol gets its Footprint field, the schematic path of its footprint, and net labels. Each
+  changed sheet is backed up first as `<sheet>-pre-links.kicad_sch`, rotated like the board
+  backups. The report says to close and reopen the Schematic Editor. The symbol is embedded, so no
+  sym-lib-table entry is needed.
+- The same from the command line: `stripforge link-symbols <board> [--schematic <root>]
+  (--out-dir DIR | --in-place)`. Each symbol gets its reference, Footprint field, the uuid from the
+  footprint's path (so F8 matches them) and net labels on both pins (local for `/Sheet/` nets,
+  global otherwise; an unnamed net is named on one of its pins). `--out-dir` writes a copy of the
+  project; `--in-place` uses the rotating `-pre-links` backups. KiCad's Update Schematic from PCB
+  can't add missing symbols, so this step fills the gap.
+- W symbols already in the schematic (for example placed by hand) are completed, never
+  duplicated:
+  - bare pins get net labels;
+  - the uuid is set to the placed footprint's path, so F8 matches by path;
+  - an empty or different Footprint is set to the board's;
+  - a pin wired to another net is reported as a CONFLICT, and that symbol is left unchanged.
 - `symbols/StripForge.kicad_sym`: the generic `StripForge:Link` symbol for wire links (2 passive
-  pins, reference `W`, value `Link`, empty footprint, footprint filter `Link_*`). It is bundled in the
-  plugin/PCM zip as `plugins/symbols/`.
-- `place_links` (toml) / `stripforge build --place-links`: the first build places every proposed
-  `W` link footprint on its holes, with the net on both pads, locked, and with the schematic path
-  of its future symbol. No ratsnest is left to wire. It is off by default.
-- `stripforge link-symbols <board> --schematic <root> (--out-dir DIR | --in-place)`: writes a
-  `StripForge:Link` symbol for every `W` footprint on the board that the schematic lacks. Each gets
-  its reference, Footprint field, the uuid from the footprint's path (so F8 matches them) and net
-  labels on both pins (local for `/Sheet/` nets, global otherwise; an unnamed net is named on one of
-  its pins). Output goes to a copy of the project or in place with timestamped `.bak` backups. KiCad's
-  Update Schematic from PCB can't add missing symbols, so this step fills the gap.
-- `stripforge drc`: a hint to run `link-symbols` when the only parity items are `W` footprints
-  with no symbol.
-
+  pins, reference `W`, value `Link`, empty footprint, footprint filter `Link_*`). It is bundled in
+  the plugin/PCM zip as `plugins/symbols/`.
+- Links from any free hole to any free hole: along a strip, on a diagonal (rotated `Link_P*` for
+  whole-pitch lengths, else the new off-pitch `Link_D*` family: 305 footprints, `Link_D3.59` …
+  `Link_D81.16`), or two links meeting on a bare **bus strip** isolated by hole cuts. Options
+  `max_link_mm`, `diagonal_links`, `off_pitch_links`, `bus_strips`. The report, links CSV/JSON
+  (`kind`, `rotation`, `bus`) and build sheet show them.
 - Link lengths in inches, pad-to-pad (pitches × 0.1"; diagonals to 0.01"): every `Wn` line in the
   build report and `.links.txt` (`W1  A8 -> L8  (1.1")`) and the build sheet's link list.
-- Link cut list in the report, `.links.txt` and on the build sheet: one row per length, shortest
-  first (Length | Qty | Links), to pre-cut and bend all links of a length in one go, with a reminder
-  that the lengths are pad-to-pad and the legs need extra wire. `link_lead_allowance_in` (inches a
-  leg, default 0 = off) adds a cut-length column.
+- A link cut list in the report, `.links.txt` and on the build sheet: one row per length, shortest
+  first (Length | Qty | Links), to pre-cut and bend all links of a length in one go, with a
+  reminder that the lengths are pad-to-pad and the legs need extra wire. `link_lead_allowance_in`
+  (inches a leg, default 0 = off) adds a cut-length column.
 - Lead-stretch suggestions (report only, on by default; `[stretch]` table: `enabled`,
   `max_pitches` = 6, `radial_max_pitches` = 2, `skip`, `allow_under_parts`): links that a longer
   lead on a two-pin leaded part could replace, with the pin, the new hole and the new span. In the
   report, `.links.txt`, `.links.json` (`lead_stretches`) and on the build sheet.
 
-- `knife_cuts = ["SW2"]`: every cut next to a listed part's pins is a knife cut, placed so the hole
-  beside each pin stays on that pin's net (its big pad overhangs it); the planner never slides those
-  cuts closer. Pins too close for that get a warning. Build sheet: "knife, per SW2 setting".
-- Trimming: after planning, each net piece is cut back to its outermost used hole (pin or link end)
-  when that frees at least `trim_min_free` (default 4) holes as bare strip (`trim_pieces`, default
-  on). A retry with the pieces trimmed first is tried when a net is left unjoined.
+**Your own cuts and links**
 
-- Your own cuts and links are kept: move, add or delete `CUT…` markers and move `W` links in the
-  built `*-stripforge.kicad_pcb`, then build again (the plugin's Build strips on a `-stripforge`
-  board rebuilds it in place; `stripforge build --in-place`): they are "locked" and StripForge only
-  links what is still unjoined. Or as text in a `[manual]` table (`links`, `cuts`, `no_cut`).
-  Checked: a link on a pin, cut or slot hole, a link shorting two nets, a missing cut that would
-  short (put back), a cut splitting a net that can't be joined. `respect_edits = false` plans from
-  scratch. The report and build sheet mark them "(yours)".
+- Move, add or delete `CUT…` markers and move `W` links in the built board, then build again:
+  they are kept ("locked") and StripForge only links what is still unjoined. Or give them as text
+  in a `[manual]` table (`links`, `cuts`, `no_cut`). Checked: a link on a pin, cut or slot hole, a
+  link shorting two nets, a missing cut that would short (put back), a cut splitting a net that
+  can't be joined. `respect_edits = false` plans from scratch. The report and build sheet mark
+  your cuts and links "(yours)".
 
-### Changed
-
-- Placed links are easier to see (Kevin and Mildrew): every straight `Link_P*` footprint has an
-  unfilled ring on `User.4` around each pad (colour User.4 yellow in KiCad to make them stand out;
-  `Link_D*` have none). The `StripForge:Link` symbol is redrawn as a small wire bridge with
-  zero-length pins 1.27 mm either side; link-symbols puts its net labels on the pins of whichever
-  Link definition the sheet embeds.
-- `place_links = true` is now the default: the first build places the W link footprints, and
-  **Add links to schematic** carries them into the schematic. KiCad's Update Schematic from PCB
-  can't create symbols. `build --no-place-links` / `place_links = false` gives the old two-pass
-  flow.
-- Build in place by default (Kevin's design). F8 only works in the project's own board opened from
-  the project manager, so the separate `-stripforge` board broke pass 2 ("PCB editor is opened in
-  stand-alone mode") and looked for a `-stripforge.kicad_sch`. Now pass 2 is: F8 in the same board,
-  then Build strips again. The plugin's Build strips must save the board first (OK/Cancel), then
-  reloads it in the PCB editor (kipy `Board.revert()`) after writing.
-- `link-symbols --schematic` is optional (defaults to `<name>.kicad_sch` next to the board, also for
-  a `-stripforge` board); `stripforge drc` finds `<name>.kicad_sch` for a `-stripforge` board by
-  itself. Link lists are always `<name>-stripforge.links.{json,csv,txt}`.
-- Straight links first: the planner ranks vertical < along the strip < bus strip with straight
-  drops < whole-pitch diagonal < off-pitch diagonal, and slides a cut (extends a piece) so two
-  pieces share a column or a piece reaches a bus. On the X56 test board: 34 links, no diagonals.
+**Strips, cuts and holes**
 
 - Build draws every stripboard hole: a board-only `SF_HOLES_<strip>` footprint per strip with a
   plated `B.Cu` pad per free hole on the strip's net (hole cuts as bare holes), so pcbnew and the
-  3D viewer show the real board. `draw_holes`, `hole_drill_mm`. `stripforge drc` counts the hole
-  footprints' courtyard/library items as "stripboard-hole item(s)" instead of failing on them.
-- Wire links from any free hole to any free hole: along a strip, on a diagonal (rotated `Link_P*`
-  for whole-pitch lengths, else the new off-pitch `Link_D*` family: 305 footprints, `Link_D3.59`
-  … `Link_D81.16`), or two links meeting on a bare **bus strip** isolated by hole cuts. Options
-  `max_link_mm`, `diagonal_links`, `off_pitch_links`, `bus_strips`. Pass 2 places rotated links;
-  the report, links CSV/JSON (`kind`, `rotation`, `bus`) and build sheet show them.
-- Links never cross or touch another link and never pass over a part pin or another link's end
-  (a bare wire would short); the planner retries unlinkable nets first for up to 4 rounds.
+  3D viewer show the real board. `draw_holes`, `hole_drill_mm`.
+- `knife_cuts = ["SW2"]`: every cut next to a listed part's pins is a knife cut, placed so the hole
+  beside each pin stays on that pin's net (its big pad overhangs it); the planner never slides
+  those cuts closer. Pins too close for that get a warning. Build sheet: "knife, per SW2 setting".
+- Trimming: after planning, each net piece is cut back to its outermost used hole (pin or link
+  end) when that frees at least `trim_min_free` (default 4) holes as bare strip (`trim_pieces`,
+  default on).
+
+**Parts that don't quite fit the grid**
 
 - `[bend]` table, the "Beckham tolerance": per-part snap tolerance in mm (e.g. `SW2 = 0.16` for a
   312 mil row pitch on 300 mil holes), in any direction, across the strip for slotted parts.
@@ -141,35 +120,84 @@ The details follow.
   0.3 mm warned.
 - `skip = [...]`: parts wired off-board (alias of `offboard_refs`): not snapped, no strips, a
   warning naming the nets to hand-wire, and a "Wired off-board" list on the build sheet.
-- Warnings for `slotted` / `[bend]` / `skip` entries naming parts that are not on the board.
-- Rejection hints by direction: across the strip suggests `[bend]` with a value, along the strip
-  suggests `slotted`, and a part that only sits off the grid is told how far to move it. A slotted
-  part whose slots point away from its centre is warned to be half a pitch off.
+- Better hints for a rejected part, by direction: across the strip suggests `[bend]` with a value,
+  along the strip suggests `slotted = ["REF"]`, and a part that only sits off the grid is told how
+  far to move it.
+- Slotted parts: a warning when the slots point away from the part's centre (it is half a pitch
+  off) or the part is placed lopsided ("BT1 slot offsets 0.000/0.635 mm; shift -0.318 mm along the
+  strip ... to centre it").
+- A warning for `slotted` / `[bend]` / `skip` entries naming parts that are not on the board.
+
+**DRC**
 
 - `[drc]` table in `stripboard.toml`: `ignore` (KiCad DRC types suppressed board-wide) and
   `allow_overlap` (reference pairs whose courtyard overlaps are accepted). Applied by
   `stripforge drc --config` and the plugin's Run DRC; suppressed items are counted in a
   "filtered (config)" line. Unknown keys are an error, unknown type names a warning.
-- Analyze warns when a slotted part is placed lopsided ("BT1 slot offsets 0.000/0.635 mm; shift
-  -0.318 mm along the strip ... to centre it").
-- A part rejected only for being off along the strip now hints `slotted = ["REF"]`.
+- `stripforge drc` counts the stripboard-hole footprints' courtyard/library items as
+  "stripboard-hole item(s)" instead of failing on them, and hints to run `link-symbols` when the
+  only parity items are `W` footprints with no symbol.
 
 ### Changed
 
-- Slot jobs give the filing distance for the pad's drill (offset plus half an oval drill's excess
-  length) in inches and mm, toward the part centre: the BH23APC reads 0.025" (0.635 mm), not
-  0.32 mm. JSON `slot_jobs` gain `file_mm`, `file_in` and `inward`.
-- New StripForge icon (Kevin's 64 × 64 px "S" with wordmark) as `resources/icon.png` (PCM), and
-  regenerated toolbar icons cropped to the "S".
+**Workflow**
+
+- Build in place by default (Kevin's design). F8 only works in the project's own board opened from
+  the project manager, so the separate `-stripforge` board broke the second pass ("PCB editor is
+  opened in stand-alone mode") and looked for a `-stripforge.kicad_sch`. The plugin's Build strips
+  saves the board first (OK/Cancel), writes into it, then reloads it in the PCB editor.
+- `place_links = true` is now the default: the first build places the W link footprints, and
+  **Add links to schematic** carries them into the schematic. `build --no-place-links` /
+  `place_links = false` gives the old two-pass flow.
+- `link-symbols --schematic` is optional (defaults to `<name>.kicad_sch` next to the board, also
+  for a `-stripforge` board); `stripforge drc` finds `<name>.kicad_sch` for a `-stripforge` board
+  by itself. Link lists are always `<name>-stripforge.links.{json,csv,txt}`.
 - The plugin uses the only other `*.toml` next to the board (e.g. `X56.toml`) when there is no
   `stripboard.toml` and it is a valid config.
 
+**Link planning**
+
+- Straight links first: the planner ranks vertical < along the strip < bus strip with straight
+  drops < whole-pitch diagonal < off-pitch diagonal, and slides a cut (extends a piece) so two
+  pieces share a column or a piece reaches a bus. On the X56 test board: 34 links, no diagonals.
+- Links never cross or touch another link and never pass over a part pin or another link's end
+  (a bare wire would short); the planner retries unlinkable nets first for up to 4 rounds.
+- Nets left unjoined after the first link pass get a second chance: the pieces are trimmed to
+  their used holes and the planner tries again, so a strip freed by the trim can become their
+  bus strip (Kevin's DAT1 on strip S). On the example board 3 more nets are joined (7 unlinkable
+  instead of 10). The unlinkable message now lists only the ways that were tried (`diagonal_links`
+  and `bus_strips` off say so).
+
+**Looks**
+
+- Placed links are easier to see (Kevin and Mildrew): every straight `Link_P*` footprint has an
+  unfilled ring on `User.4` around each pad (colour User.4 yellow in KiCad to make them stand out;
+  `Link_D*` have none). The `StripForge:Link` symbol is redrawn as a small wire bridge with
+  zero-length pins 1.27 mm either side.
+- New StripForge icon (Kevin's 64 × 64 px "S" with wordmark) as `resources/icon.png` (PCM), and
+  regenerated toolbar icons cropped to the "S".
+- Slot jobs give the filing distance for the pad's drill (offset plus half an oval drill's excess
+  length) in inches and mm, toward the part centre: the BH23APC reads 0.025" (0.635 mm), not
+  0.32 mm. JSON `slot_jobs` gain `file_mm`, `file_in` and `inward`.
+
 ### Fixed
 
+**Your edits**
+
+- Moving a cut is just moving its `CUT` marker (issue #2): Build strips regenerates the strip
+  tracks from the markers, and a strip track re-drawn by hand along a strip row (dragged, split or
+  routed in pcbnew, so it lost StripForge's uuid) is now replaced with a warning instead of making
+  the build refuse the board ("track/via item(s) that StripForge did not write"). Other hand-drawn
+  copper (diagonal or vertical tracks, F.Cu, vias) is still refused.
 - A board's `CUT` markers keep their numbers when it is built again and on the build sheet. Cuts
   added while planning (bus strips, trims) were numbered after the rest and then renumbered row by
   row, so a fresh board's sheet said "The board's cut markers differ from the model (moved or
   changed: CUT76, ...)" and its cut numbers didn't match the markers on the board.
+- On an edited board the build sheet called every cut "(yours)", StripForge's own too. Now only a
+  cut marker you moved or added is "(yours)"; one still where StripForge put it is not, and the
+  build report counts them apart ("kept your 1 cut(s) ... (and StripForge's other 85 cut
+  marker(s) where they were)"). A marker records where StripForge placed it; for a board built
+  with an older version, a marker counts as StripForge's if StripForge would cut there too.
 - Your links and cut markers (Kevin's DAT1 link that kept coming back):
   - a hole-cut marker under an end of your link no longer makes every build reject the link: the
     link wins, the marker is dropped with a warning, and the strip is cut elsewhere only where two
@@ -180,40 +208,35 @@ The details follow.
     second leg of an old bus strip) is removed from the board on rebuild, with a warning;
   - a link footprint placed by hand as `REF**` gets the next free W number, its pads' net, Value
     `Link` and a schematic path, so Add links to schematic and F8 handle it like the others.
-- Add links to schematic removes stale StripForge:Link W symbols (not on the built board and not
-  in its link plan) with their labels, after backing the sheet up, so F8 doesn't re-add a removed
-  link. It also updates a W symbol's Description from its footprint, and when the board was
-  re-planned (e.g. rebuilt from a backup) so a W ref now names a link on another net, it moves
-  the labels it put on that symbol's pins to the new net instead of leaving parity errors (a pin
-  with a wire of yours stays a conflict).
-- Build sheet keeps the previous sheet: when the new HTML differs, the old HTML and PDF are backed
-  up as `<name>-stripforge.sheet-prev.html` / `.pdf` (rotating to `-prev-1`, ..., `backup_keep`).
-- Nets left unjoined after the first link pass get a second chance: the pieces are trimmed to
-  their used holes and the planner tries again, so a strip freed by the trim can become their
-  bus strip (Kevin's DAT1 on strip S). On the example board 3 more nets are joined (7 unlinkable
-  instead of 10). The unlinkable message now lists only the ways that were tried (`diagonal_links`
-  and `bus_strips` off say so), and the link report says to use Add links to schematic for links
-  the build placed itself.
+
+**Add links to schematic**
+
+- Stale StripForge:Link W symbols (not on the built board and not in its link plan) are removed
+  with their labels, after backing the sheet up, so F8 doesn't re-add a removed link.
+- A W symbol's Description is updated from its footprint. When the board was re-planned (e.g.
+  rebuilt from a backup) so a W ref now names a link on another net, the labels it put on that
+  symbol's pins move to the new net instead of leaving parity errors (a pin with a wire of yours
+  stays a conflict).
+- The link report says to use Add links to schematic for links the build placed itself.
+
+**Footprints and files**
+
 - Link footprints' courtyard is a dumbbell: 0.25 mm around each pad and 0.25 mm either side of the
   0.6 mm wire, instead of a pad-wide rectangle, so a link is about as wide as a real wire. Update
   footprints on existing boards (Tools > Update Footprints from Library) to get the new outline.
-- The plugin no longer fails with a kipy `ApiError` traceback when KiCad is busy (an active
-  tool or a dialog). Saving, reading the board and project, finding kicad-cli, and reloading the
-  built board are retried for up to 10 s. If KiCad is still busy, a short message says to press
-  Esc, save with Cmd+S (Ctrl+S) and click the action again; nothing is built. If only the reload
-  after an in-place build fails, the report says to use File > Revert before saving.
-
-- Moving a cut is just moving its `CUT` marker (issue #2): Build strips regenerates the strip
-  tracks from the markers, and a strip track re-drawn by hand along a strip row (dragged, split or
-  routed in pcbnew, so it lost StripForge's uuid) is now replaced with a warning instead of making
-  the build refuse the board ("track/via item(s) that StripForge did not write"). Other hand-drawn
-  copper (diagonal or vertical tracks, F.Cu, vias) is still refused.
 - Rotated (diagonal) link footprints are written with 4-decimal angles, so rebuilding a board
   with placed links gives the same bytes. Before, a 6-significant-digit angle was re-rotated by
   0.0005° on each rebuild.
 
-- The plugin no longer says "Wrote <name>-stripforge.kicad_pcb" for a refused build when an old
-  output file exists.
+**Plugin**
+
+- No more kipy `ApiError` traceback when KiCad is busy (an active tool or a dialog). Saving,
+  reading the board and project, finding kicad-cli, and reloading the built board are retried for
+  up to 10 s. If KiCad is still busy, a short message says to press Esc, save with Cmd+S (Ctrl+S)
+  and click the action again; nothing is built. If only the reload after an in-place build fails,
+  the report says to use File > Revert before saving.
+- It no longer says "Wrote <name>-stripforge.kicad_pcb" for a refused build when an old output
+  file exists.
 
 ## [0.1.0] - 2026-09-27
 
