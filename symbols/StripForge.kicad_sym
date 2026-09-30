@@ -142,8 +142,8 @@
 		)
 		(symbol "Link_1_1"
 			(pin passive line
-				(at -1.27 0 0)
-				(length 0)
+				(at -3.81 0 0)
+				(length 2.54)
 				(name ""
 					(effects
 						(font
@@ -160,8 +160,8 @@
 				)
 			)
 			(pin passive line
-				(at 1.27 0 180)
-				(length 0)
+				(at 3.81 0 180)
+				(length 2.54)
 				(name ""
 					(effects
 						(font

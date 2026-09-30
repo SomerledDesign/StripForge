@@ -183,8 +183,15 @@ def test_link_symbols_to_a_copy(tmp_path):
     assert atom(inst, 1) == f"/{ROOT_UUID}/{SHEET}"
     x, y = float(find(node, "at")[1]), float(find(node, "at")[2])
     labels = _labels(out / "sub.kicad_sch", "label")
-    # on the pins' connection points (the Link symbol has zero-length pins 1.27 mm either side)
-    assert ("N", round(x - 1.27, 2), y) in labels and ("N", round(x + 1.27, 2), y) in labels
+    # on the pins' connection points, 3.81 mm either side (clear of the body)
+    assert ("N", round(x - 3.81, 2), y) in labels and ("N", round(x + 3.81, 2), y) in labels
+    root = loads((out / "sub.kicad_sch").read_text())
+    for lab in find_all(root, "label"):  # text runs away from the symbol
+        lx, angle = float(find(lab, "at")[1]), atom(find(lab, "at"), 3)
+        just = atom(find(find(lab, "effects"), "justify"), 1)
+        assert (angle, just) == (("180", "right") if lx < x else ("0", "left"))
+    (note,) = [t for t in find_all(root, "text") if "StripForge wire links" in atom(t, 1)]
+    assert all(len(line) <= 70 for line in atom(note, 1).split("\n"))
     glob = _labels(out / "sub.kicad_sch", "global_label")
     assert ("Net-(R1-Pad2)", 100.0, 103.81) in glob  # names the unnamed net on R1 pin 2
     assert sum(1 for g in glob if g[0] == "GND") == 2
@@ -383,3 +390,67 @@ def test_w_symbols_follow_a_replanned_board(tmp_path):
         assert local[(round(x, 2), y)] == "N"  # left as it was
     again = add_link_symbols(src / "demo.kicad_sch", board, in_place=True)
     assert not again.completed and len(again.conflicts) == 1
+
+
+def test_old_link_symbols_are_upgraded_and_stay_connected(tmp_path):
+    """Kevin's sheet: labels on the old zero-length pins (1.27 mm either side) overlapped the Link
+    body. A sheet with the old definition gets the new one; the labels move out to the new pin
+    ends, a wire on an old pin point gets a short wire to the new one, and the note is rewrapped."""
+    from stripforge.linksym import NOTE
+
+    src, board = _project(tmp_path)
+    old = tmp_path / "old"
+    add_link_symbols(src / "demo.kicad_sch", board, out_dir=old)
+    sub = old / "sub.kicad_sch"
+    text = sub.read_text()
+    x, y = (float(v) for v in find(_symbols(sub)["W1"][2], "at")[1:3])
+    # make it an old sheet: old pins, labels on them, the old one-line note; and a wire on W1 pin 2
+    text = text.replace("(at -3.81 0 0)\n\t\t\t\t\t(length 2.54)", "(at -1.27 0 0)\n\t\t\t\t\t(length 0)")
+    text = text.replace("(at 3.81 0 180)\n\t\t\t\t\t(length 2.54)", "(at 1.27 0 180)\n\t\t\t\t\t(length 0)")
+    assert text.count("(length 0)") == 2
+    root = loads(text)
+    for kind in ("label", "global_label"):
+        for lab in find_all(root, kind):
+            at = find(lab, "at")
+            for sym in _symbols_in(root):
+                sx, sy = float(find(sym, "at")[1]), float(find(sym, "at")[2])
+                if abs(float(at[2]) - sy) < 0.01 and abs(abs(float(at[1]) - sx) - 3.81) < 0.01:
+                    at[1] = f"{sx + (1.27 if float(at[1]) > sx else -1.27):g}"
+    for t in find_all(root, "text"):
+        t[1] = "StripForge wire links (W): written from the board by 'stripforge link-symbols'. one long line"
+    from stripforge.sexpr import dumps
+
+    text = dumps(root)
+    wire = f"(wire (pts (xy {x + 1.27:g} {y:g}) (xy {x + 1.27:g} {y + 10.16:g})) (uuid wireuuid))"
+    text = text.rstrip()[:-1] + wire + ")\n"
+    sub.write_text(text)
+
+    res = add_link_symbols(old / "demo.kicad_sch", board, out_dir=tmp_path / "new")
+    assert any("updated the StripForge:Link symbol" in w and "added 1 short wire" in w for w in res.warnings)
+    new = tmp_path / "new" / "sub.kicad_sch"
+    labels = _labels(new, "label")
+    assert ("N", round(x - 3.81, 2), y) in labels and ("N", round(x + 3.81, 2), y) in labels
+    root = loads(new.read_text())
+    ends = [
+        sorted((round(float(p[1]), 2), round(float(p[2]), 2)) for p in find_all(find(w, "pts"), "xy"))
+        for w in find_all(root, "wire")
+    ]
+    assert sorted([(round(x + 1.27, 2), y), (round(x + 3.81, 2), y)]) in ends  # the bridge
+    lib = next(s for s in find_all(find(root, "lib_symbols"), "symbol") if atom(s, 1) == "StripForge:Link")
+    pins = [find(p, "at")[1:] for sub_ in find_all(lib, "symbol") for p in find_all(sub_, "pin")]
+    assert sorted(float(p[0]) for p in pins) == [-3.81, 3.81]
+    (note,) = [t for t in find_all(root, "text") if "StripForge wire links" in atom(t, 1)]
+    assert atom(note, 1) == NOTE
+    sheets = load_hierarchy(tmp_path / "new" / "demo.kicad_sch")
+    from stripforge.linksym import _pin_nets
+
+    for ref, (_lib, _props, node) in _symbols(new).items():
+        if ref.startswith("W"):
+            nets = [_pin_nets(sheets[1], xy) for xy in pin_points(sheets[1], node).values()]
+            assert all(nets) and nets[0] == nets[1], (ref, nets)
+    again = add_link_symbols(tmp_path / "new" / "demo.kicad_sch", board, out_dir=tmp_path / "again")
+    assert not any("updated the StripForge:Link symbol" in w for w in again.warnings)
+
+
+def _symbols_in(root):
+    return [s for s in find_all(root, "symbol") if find(s, "lib_id") is not None]

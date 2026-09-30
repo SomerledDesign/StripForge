@@ -390,12 +390,117 @@ def _insert(root: list, nodes: list[list]) -> None:
     root[at:at] = nodes
 
 
-def _layout(ph: float, n: int, x0: float, y0: float, dx: float, dy: float, longest: float):
-    """(columns, width, height needed) for ``n`` symbols in rows ``dy`` apart on paper ``ph`` tall."""
+def _layout(ph: float, n: int, x0: float, y0: float, dx: float, dy: float, longest: float, note_w: float = 0):
+    """(columns, width, height needed) for ``n`` symbols in rows ``dy`` apart on paper ``ph`` tall,
+    under a note ``note_w`` wide that starts at the left end of the first labels."""
     rows_max = max(1, int((ph - y0 - 50.8) // dy) + 1)
     cols = max(1, -(-n // rows_max))
     rows = -(-n // cols)
-    return cols, x0 + (cols - 1) * dx + 5.08 + longest + 15.24, y0 + (rows - 1) * dy + 50.8
+    width = max(x0 + (cols - 1) * dx + 5.08 + longest + 15.24, x0 - longest - 5.08 + note_w + 15.24)
+    return cols, width, y0 + (rows - 1) * dy + 50.8
+
+
+# the note above the link symbols, wrapped to fit (KiCad doesn't wrap schematic text)
+NOTE_LINES = (
+    "StripForge wire links (W), written from the board by Add links to",
+    "schematic (stripforge link-symbols). Each is a StripForge:Link with",
+    "the board's Link_P*/Link_D* footprint. Don't move one to another",
+    "net here: move the link in the board and build again.",
+)
+NOTE = "\n".join(NOTE_LINES)
+
+
+def _away(center: tuple[float, float], xy: tuple[float, float]) -> bool | None:
+    """For a label on a pin at ``xy`` of a symbol at ``center``: True (text runs left), False
+    (right), None (the pin points up or down)."""
+    dx, dy = xy[0] - center[0], xy[1] - center[1]
+    if abs(dx) >= abs(dy):
+        return dx < 0
+    return None
+
+
+def _point_label(node: list, xy: tuple[float, float], center: tuple[float, float]) -> None:
+    """Move a label's connection point to ``xy``, its text running away from the symbol."""
+    left = _away(center, xy)
+    if left is None:
+        up = xy[1] < center[1]
+        angle, just = ("90", "left") if up else ("270", "right")
+    else:
+        angle, just = ("180", "right") if left else ("0", "left")
+    at = find(node, "at")
+    at[1:] = [_n(xy[0]), _n(xy[1]), Sym(angle)]
+    eff = find(node, "effects")
+    if eff is not None:
+        eff[:] = [c for c in eff if head(c) != "justify"] + [[Sym("justify"), Sym(just)]]
+    for prop in find_all(node, "property"):
+        pat = find(prop, "at")
+        if pat is not None:
+            pat[1:3] = [_n(xy[0]), _n(xy[1])]
+
+
+def upgrade_link_symbols(sheets: list[Sheet], definition: list, res: LinkSymbolResult) -> None:
+    """A sheet whose embedded StripForge:Link has its pins elsewhere than the bundled one (0.2.0
+    moved them out to 3.81 mm either side, clear of the body): embed the new definition and keep
+    every pin connected. A label on an old pin point moves to the new one, text away from the
+    body; a wire, junction or another pin there gets a short wire to the new pin point."""
+    new_pins = _pin_offsets(definition)
+    for sh in sheets:
+        root = sh.doc.root
+        libs = find(root, "lib_symbols")
+        embedded = next((s for s in find_all(libs or [], "symbol") if atom(s, 1) == LINK_LIB_ID), None)
+        if embedded is None:
+            continue
+        try:
+            if _pin_offsets(embedded) == new_pins:
+                continue
+        except LinkSymbolError:
+            continue
+        syms = [n for n, _ref in _placed_symbols(sh) if atom(find(n, "lib_id"), 1) == LINK_LIB_ID]
+        old = [pin_points(sh, n) for n in syms]
+        embedded[:] = [c for c in definition]
+        moved = wired = 0
+        wires: list[list] = []
+        for node, before in zip(syms, old):
+            after = pin_points(sh, node)
+            at = find(node, "at")
+            center = (float(at[1]), float(at[2]))
+            others = _connection_points(sh, node)
+            for pin, o in before.items():
+                n = after.get(pin)
+                if n is None or _near(o, n):
+                    continue
+                labels = [
+                    lab
+                    for kind in ("label", "global_label", "hierarchical_label")
+                    for lab in find_all(root, kind)
+                    if find(lab, "at") is not None
+                    and _near((float(find(lab, "at")[1]), float(find(lab, "at")[2])), o)
+                ]
+                for lab in labels:
+                    _point_label(lab, n, center)
+                    moved += 1
+                for nc in find_all(root, "no_connect"):
+                    nat = find(nc, "at")
+                    if _near((float(nat[1]), float(nat[2])), o):
+                        nat[1:3] = [_n(n[0]), _n(n[1])]
+                rest = sum(1 for q in others if _near(q, o)) - len(labels)
+                if rest > 0:  # a wire end, junction or pin at the old point: bridge it
+                    pts = [Sym("pts"), [Sym("xy"), _n(n[0]), _n(n[1])], [Sym("xy"), _n(o[0]), _n(o[1])]]
+                    key = f"link-symbols/upgrade/{atom(find(node, 'uuid'), 1)}/{pin}"
+                    stroke = [Sym("stroke"), [Sym("width"), Sym("0")], [Sym("type"), Sym("default")]]
+                    wires.append([Sym("wire"), pts, stroke, [Sym("uuid"), _u(key)]])
+                    wired += 1
+        if wires:
+            _insert(root, wires)
+        for t in find_all(root, "text"):
+            if atom(find(t, "uuid"), 1) == _u(f"link-symbols/note/{sh.uuid_path}"):
+                t[1] = NOTE
+        sh.changed = True
+        res.warnings.append(
+            f"{sh.file.name}: updated the StripForge:Link symbol (pins now 3.81 mm either side, clear of "
+            f"the body) on {len(syms)} W symbol(s): moved {moved} label(s) out to the pin ends"
+            + (f", added {wired} short wire(s) where something else met a pin" if wired else "")
+        )
 
 
 def _text_width(s: str) -> float:
@@ -612,6 +717,7 @@ def add_link_symbols(
     links, footprints, warns = board_links(board_path)
     res = LinkSymbolResult(warnings=warns)
     project = _project_name(sheets)
+    upgrade_link_symbols(sheets, definition, res)
     remove_stale(sheets, footprints, Path(board_path), res)
 
     existing: dict[str, Sheet] = {}
@@ -738,7 +844,8 @@ def add_link_symbols(
         n = len(group)
         name, w, h, _ = _paper(sh)
 
-        geom = (n, x0, y0, dx, dy, longest)
+        note_w = max(_text_width(line) for line in NOTE_LINES)
+        geom = (n, x0, y0, dx, dy, longest, note_w)
         cols, need_w, need_h = _layout(h, *geom)
         if need_w > w or need_h > h:
             pick = None
@@ -756,18 +863,18 @@ def add_link_symbols(
                 _insert(root, [new])
             else:
                 paper[:] = new
-        nodes: list[list] = [
+        note_uuid = _u(f"link-symbols/note/{sh.uuid_path}")
+        have_note = any(atom(find(t, "uuid"), 1) == note_uuid for t in find_all(root, "text"))
+        nodes: list[list] = [] if have_note else [
             [
                 Sym("text"),
-                "StripForge wire links (W): written from the board by 'stripforge link-symbols'.\n"
-                "Each is a StripForge:Link with the board's Link_P*/Link_D* footprint; do not move them to "
-                "another net here, re-plan with 'stripforge build'.",
+                NOTE,
                 [Sym("exclude_from_sim"), Sym("no")],
                 [Sym("at"), _n(x0 - longest - 5.08), _n(y0 - 12.7), Sym("0")],
                 _effects("left bottom"),
-                [Sym("uuid"), _u(f"link-symbols/note/{sh.uuid_path}")],
+                [Sym("uuid"), note_uuid],
             ]
-        ]
+        ]  # fmt: skip
         for i, (lk, _sh, kind, label_name, sym_uuid) in enumerate(group):
             x = x0 + (i % cols) * dx
             y = y0 + (i // cols) * dy  # row by row, cols across
