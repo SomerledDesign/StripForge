@@ -42,6 +42,8 @@ class Cut:
     reason: tuple[str, str]  # the two nets separated
     between: tuple[str, str] = ("", "")  # the pads either side, e.g. ("J2.3", "J2.4")
     user: str = ""  # a cut you made (where it came from, e.g. "CUT12 in the board"); never slid
+    # a board cut marker still where StripForge put it: kept like yours, but not called yours
+    auto: bool = False
     knife_for: str = ""  # a knife cut made because of knife_cuts (the part refs, e.g. "SW2")
     note: str = field(default="", repr=False, compare=False)
     note_missing: str = field(default="", repr=False, compare=False)
@@ -228,6 +230,7 @@ def place_cuts(
             ln, ll = (left[-1][1], left[-1][2]) if left else ("(bare strip)", "")
             rn, rl = (right[0][1], right[0][2]) if right else ("(bare strip)", "")
             cut = Cut("", strip.row, float(u.col), u.style, (ln, rn), (ll, rl), user=u.source)
+            cut.auto = getattr(u, "placed", "you") == "stripforge"
             found.append((strip.row, cut.col, cut))
     cuts: list[Cut] = []
     # a cut marker in the board keeps its number (CUT85 stays X85), so a rebuilt board and its build

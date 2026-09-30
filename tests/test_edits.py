@@ -4,6 +4,7 @@ are kept ("locked"); StripForge fills in only what is still unjoined and warns a
 from __future__ import annotations
 
 import json
+import re
 
 import pytest
 
@@ -351,3 +352,58 @@ def test_board_cut_markers_keep_their_numbers(tmp_path):
     assert _fp(p2, "CUT7") is not None and _fp(p2, "CUT1") is None
     m = buildsheet.sheet_model(p2, BoardConfig(trim_pieces=False), date="2026-09-29")
     assert m.built == "built" and not any("cut markers differ" in w for w in m.warnings)
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_build_sheet_calls_only_moved_or_added_cuts_yours(tmp_path, legacy):
+    """Kevin's edited board: the sheet said "(yours)" on every cut, StripForge's own too. Only a
+    marker you moved (or added) is yours; a marker still where StripForge put it is not. A board
+    built before 0.2.0 (``legacy``: the marker uuid doesn't record the spot) is judged against
+    StripForge's own plan."""
+    from stripforge import buildsheet
+    from stripforge.edits import own_marker_key
+
+    p2 = pass2(tmp_path, parts=TWO)
+    before = {f.ref: f for f in load_board(p2).footprints if f.ref.startswith("CUT")}
+    assert len(before) == 2
+    if legacy:
+        text = p2.read_text()
+        for ref in before:
+            text = text.replace(
+                writer._u(own_marker_key(f"X{ref[3:]}", _cut_label(p2, ref))), writer._u(f"cut/X{ref[3:]}")
+            )
+        p2.write_text(text)
+    row_a = next(r for r in before if _cut_label(p2, r).startswith("A"))
+    edit(p2, "W1", "A5")
+    edit(p2, row_a, "A6")  # the row A cut moves from A4 to A6; the row E one stays put
+    res = rebuild(p2)
+    by_ref = {f"CUT{c.id[1:]}": c for c in res.analysis.split.cuts}
+    assert by_ref[row_a].user and not by_ref[row_a].auto
+    (other,) = set(before) - {row_a}
+    assert by_ref[other].user and by_ref[other].auto
+    assert any(
+        w.startswith("edits: kept your 1 cut(s) and 2 placed link(s)")
+        and "StripForge's other 1 cut marker(s)" in w
+        for w in res.warnings
+    ), res.warnings
+    for _ in range(2):  # and it stays that way on a second rebuild
+        html = buildsheet.render_html(
+            buildsheet.sheet_model(p2, BoardConfig(trim_pieces=False), date="2026-09-29")
+        )
+        cuts = re.findall(r'<li class="item" data-kind="cut".*?</li>', html)
+        assert len(cuts) == 2
+        yours = [li for li in cuts if "(yours)" in li]
+        assert len(yours) == 1 and f'data-cut="X{row_a[3:]}"' in yours[0]  # only the moved cut
+        rebuild(p2)
+
+
+def _cut_label(path, ref):
+    from stripforge.analyze import make_grid
+    from stripforge.edits import CUT_KNIFE_ID, CutSpec, _snap
+
+    b = load_board(path)
+    fp = next(f for f in b.footprints if f.ref == ref)
+    g, _ = make_grid(b, BoardConfig(trim_pieces=False))
+    knife = fp.lib_id == CUT_KNIFE_ID
+    row, col, _ = _snap(g, fp.x_nm, fp.y_nm, knife)
+    return CutSpec(row, float(col), "knife" if knife else "hole", "").label

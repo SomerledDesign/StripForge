@@ -1022,7 +1022,7 @@ def _cut_list(model: SheetModel, cuts: list[Cut]) -> list[str]:
             out.append(
                 f'<li class="item" data-kind="cut" data-cut="{c.id}" data-style="{c.style}">{_box()}'
                 f'<span class="mono">{c.id}</span> {_cut_how(c)} <span class="muted">({_e(c.between[0])}|'
-                f"{_e(c.between[1])})</span>{' <b>(yours)</b>' if c.user else ''}</li>"
+                f"{_e(c.between[1])})</span>{' <b>(yours)</b>' if c.user and not c.auto else ''}</li>"
             )
     out.append("</ul>")
     return out

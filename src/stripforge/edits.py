@@ -44,6 +44,9 @@ class CutSpec:
     col: float  # integer: hole cut at that hole; x.5: knife cut between x and x+1
     style: str  # "hole" | "knife"
     source: str  # "CUT12 in the board", "[manual] cuts"
+    # who put a board marker where it is: "you" (moved or added by hand), "stripforge" (left where
+    # StripForge put it) or "unknown" (a marker from before 0.2.0; see own_marker_key)
+    placed: str = "you"
 
     @property
     def label(self) -> str:
@@ -155,6 +158,13 @@ def from_config(cfg) -> Edits:
     )
 
 
+def own_marker_key(cut_id: str, label: str) -> str:
+    """The uuid key of a cut marker StripForge placed itself: its cut id and where it put it
+    (``cut/X12@K13``). A marker you move keeps its uuid but no longer sits at that label, and one
+    you add or copy gets a new uuid, so either counts as yours on the next build."""
+    return f"cut/{cut_id}@{label}"
+
+
 def _snap(grid: Grid, x: int, y: int, half: bool) -> tuple[int, float, int]:
     """Nearest (row, col) to board point ``(x, y)``; with ``half``, the nearest half hole along the
     strip (a knife cut sits between two holes). Also the distance in nm from that spot."""
@@ -182,6 +192,7 @@ def from_board(board, grid: Grid, markers: list, link_fps: list, tol_nm: int) ->
             ed.warnings.append(
                 f"{fp.ref}: cut marker is {off / 1e6:.2f} mm off {spec.label}; taken as {spec.label}"
             )
+        spec.placed = _placed_by(fp, spec)
         ed.cuts.append(spec)
     for fp in link_fps:
         nodes = []
@@ -200,6 +211,22 @@ def from_board(board, grid: Grid, markers: list, link_fps: list, tol_nm: int) ->
             )
         )
     return ed
+
+
+def _placed_by(fp, spec: CutSpec) -> str:
+    from .sexpr import atom, find
+    from .writer import _u  # (writer imports this module)
+
+    node = find(fp.node, "uuid") if fp.node is not None else None
+    uid = atom(node, 1) if node is not None else None
+    num = fp.ref[3:] if fp.ref.startswith("CUT") else ""
+    if not uid or not num.isdigit():
+        return "you"
+    if uid == _u(own_marker_key(f"X{num}", spec.label)):
+        return "stripforge"
+    if uid == _u(f"cut/X{num}"):  # written before 0.2.0: the uuid doesn't say where it was put
+        return "unknown"
+    return "you"
 
 
 def links_win(ed: Edits) -> Edits:

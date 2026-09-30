@@ -674,6 +674,12 @@ def prepare(board: Board, cfg: BoardConfig, netlist: str | None = None) -> Prepa
     if cfg.respect_edits and not a.conflicts:
         theirs = edits_mod.from_board(board, a.grid, old_cuts, link_fps, mm_to_nm(cfg.snap_tol_mm))
         if theirs and _edited(a, plan, theirs):
+            # a marker from before 0.2.0 doesn't record where StripForge put it: it counts as
+            # StripForge's own if StripForge's plan cuts there too
+            own = {(c.row, c.col, c.style) for c in a.split.cuts}
+            for c in theirs.cuts:
+                if c.placed == "unknown":
+                    c.placed = "stripforge" if c.key in own else "you"
             # the board's cuts or placed links differ from StripForge's own plan: keep them all
             both = edits_mod.links_win(mine.merged(theirs))
             a, more, plan = _plan_edits(board, cfg, netlist, both, link_fps)
@@ -692,10 +698,13 @@ def prepare(board: Board, cfg: BoardConfig, netlist: str | None = None) -> Prepa
                         "needed there (without it two nets short); move the link or the cut"
                     )
             moves.update(more)
-            yours = sum(1 for c in a.split.cuts if c.user.endswith("in the board"))
+            yours = sum(1 for c in a.split.cuts if c.user and not c.auto)
             kept = sum(1 for lk in plan.links if lk.origin == "board")
+            others = sum(1 for c in a.split.cuts if c.auto)
+            also = f" (and StripForge's other {others} cut marker(s) where they were)" if others else ""
             warnings.append(
-                f"edits: kept your {yours} cut(s) and {kept} placed link(s) from the board as they are; "
+                f"edits: kept your {yours} cut(s) and {kept} placed link(s) from the board as they "
+                f"are{also}; "
                 "StripForge only filled in what they leave open (respect_edits = false plans from scratch)"
             )
             warnings += both.warnings
@@ -917,7 +926,12 @@ def build(
         if cut.style == "knife":
             x += a.grid.pitch_nm // 2
         name = "CUT_Hole" if cut.style == "hole" else "CUT_Knife"
-        markers.append(embed_footprint(name, f"CUT{cut.id[1:]}", x, y, f"cut/{cut.id}", library=library))
+        key = (
+            f"cut/{cut.id}/yours"
+            if cut.user and not cut.auto
+            else edits_mod.own_marker_key(cut.id, cut.label)
+        )
+        markers.append(embed_footprint(name, f"CUT{cut.id[1:]}", x, y, key, library=library))
     res.cut_markers = len(markers)
     markers = new_links + markers
     hole_fps = (
