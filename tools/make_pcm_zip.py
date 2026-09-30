@@ -4,11 +4,11 @@
 
     python tools/make_pcm_zip.py [--out dist] [--url https://.../StripForge-0.2.0-pcm.zip]
 
-Archive layout (what the PCM expects for a ``plugin`` package; docs/PCM-SUBMISSION.md):
+Archive layout (what the PCM expects for a ``plugin`` package; https://dev-docs.kicad.org/en/addons/):
 
     metadata.json            the repo's metadata.json with exactly one version, no download_* fields
     resources/icon.png       64 x 64 icon shown by the PCM
-    plugins/plugin.json      the KiCad 10 IPC plugin (runtime python), four actions
+    plugins/plugin.json      the KiCad 10 IPC plugin (runtime python), five actions
     plugins/requirements.txt kicad-python etc., installed by KiCad into the plugin's venv
     plugins/sf_*.py, plugins/stripforge_plugin.py, plugins/icons/
     plugins/stripforge/      the StripForge package (src/stripforge, no caches)

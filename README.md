@@ -233,7 +233,7 @@ The StripForge footprint library (`footprints/StripForge.pretty`, the `W` links'
 `StripForge:Link_*` footprints and the cut markers) is bundled in the plugin but **not
 registered**: add it to the footprint library table by hand, with nickname `StripForge` (see
 [Install](#install)). A PCM plugin package can't register libraries; that needs a separate library
-package (see [docs/PCM-SUBMISSION.md](docs/PCM-SUBMISSION.md)). The same goes for the symbol
+package. The same goes for the symbol
 library `symbols/StripForge.kicad_sym` (the generic `StripForge:Link` wire-link symbol): add it to
 the symbol library table as `StripForge` if you place links by hand. `stripforge link-symbols`
 embeds the symbol in the schematic, so it isn't needed for that.

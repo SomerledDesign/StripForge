@@ -31,3 +31,6 @@ _autosave-*
 plugins/stripforge/
 plugins/footprints/
 plugins/rules/
+
+# Kevin's local notes, not published
+docs/PCM-SUBMISSION.md
