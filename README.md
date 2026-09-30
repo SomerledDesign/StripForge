@@ -5,9 +5,17 @@
 **Lay out stripboard (Veroboard) circuits in KiCad with real footprints and a live netlist, and get a normal `.kicad_pcb` whose copper is the strips.**
 
 [![CI](https://github.com/SomerledDesign/StripForge/actions/workflows/ci.yml/badge.svg)](https://github.com/SomerledDesign/StripForge/actions/workflows/ci.yml)
-![Status: pre-alpha](https://img.shields.io/badge/status-pre--alpha-orange)
+![Status: beta](https://img.shields.io/badge/status-beta-yellow)
 ![KiCad 10](https://img.shields.io/badge/KiCad-10-314CB0)
 ![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)
+
+> **Beta (0.2.0).** KiCad 10 only. So far it has been tested on one real board (an ATtiny10
+> programming fixture on a 24 × 56 hole stripboard). It works well there, but expect rough
+> edges on other boards. Keep backups, check the DRC, and please report what you find.
+
+<p align="center">
+  <img src="docs/images/board-3d.png" alt="A built StripForge board in KiCad's 3D viewer: the parts on a stripboard, with the wire links" width="720">
+</p>
 
 ## Why
 
@@ -22,39 +30,162 @@ StripForge keeps the whole job inside KiCad:
   keeps the board honest.
 - **A normal `.kicad_pcb` as output.** The copper is stripboard strips on B.Cu instead of routed
   tracks. You can open, edit, DRC and plot it like any other board.
+- **A printable build sheet.** The copper side mirrored the way you hold the board to cut it, with
+  every cut, link and part in checklists.
 
-## How it works
+## What it does
 
-1. **Snap parts to the grid.** Place the THT parts roughly on a 2.54 mm grid. StripForge snaps each
-   footprint rigidly to the nearest holes, within a tolerance for parts that are slightly off pitch
-   (for example 2.50 mm capacitors), and logs every deviation.
-2. **Split strips by net.** Each row becomes hole-to-hole copper pieces on B.Cu. Wherever two nets
-   would share a strip, StripForge places a cut and gives every remaining piece the net of the pads
-   on it.
-3. **Cuts are real copper gaps plus markers.** The gap in the copper is the electrical truth, so
-   KiCad sees exactly what the physical board will have. A marker on a user layer makes each cut
-   visible and plottable.
-4. **Wire links are zero-ohm jumpers.** Links are `W` jumper parts that also exist in the
-   schematic, so the schematic and board stay in sync.
-5. **KiCad DRC catches shorts and opens.** KiCad's own checks (`kicad-cli pcb drc` with schematic
-   parity) flag a strip carrying two nets, a missing link or an extra cut. StripForge also runs the
-   same checks in pure Python first, for faster and clearer errors.
-6. **A mirrored copper-side build sheet.** An SVG/PDF of the copper side, mirrored the way you hold
-   the board, with every cut and link listed, row and column labels, and a 1:1 scale ruler.
+1. **Snaps parts to the grid.** Place the through-hole parts roughly on a 2.54 mm (0.1") grid.
+   StripForge snaps each footprint to the nearest holes and logs anything that is off.
+2. **Splits the strips by net.** Wherever two nets would share a strip, it cuts the strip. A cut is
+   a real gap in the copper plus a `CUT` marker you can see and move.
+3. **Adds wire links.** Pieces of one net on different strips are joined with wire links (`W1`,
+   `W2`, …), placed on their holes. Links are also added to the schematic, so the two stay in
+   sync.
+4. **Checks the result with KiCad's DRC**, including schematic parity: a strip carrying two nets, a
+   missing link or an extra cut shows up as an error.
+5. **Writes a build sheet** (HTML, and PDF when Chrome is installed).
+
+| KiCad's copper layer after Build strips (B.Cu, mirrored) | The build sheet's component side |
+|---|---|
+| ![Strip copper with cuts on B.Cu](docs/images/board-copper-kicad.png) | ![Component side with parts and wire links](docs/images/sheet-component-side.png) |
 
 The full design is in [Sketch.md](Sketch.md).
 
+## Install
+
+StripForge is a KiCad 10 **IPC plugin**. It is not in KiCad's official Plugin and Content Manager
+(PCM) yet.
+
+1. KiCad > Preferences > Plugins: tick **Enable KiCad API**, and check that the Python interpreter
+   is KiCad's own (the default on macOS).
+2. Get the package `StripForge-0.2.0-pcm.zip` (from the release, or build it yourself with
+   `python tools/make_pcm_zip.py`, which writes it to `dist/`). In KiCad, open the Plugin and
+   Content Manager and click **Install from File…**.
+3. **Restart KiCad.** The first time you open a board, KiCad sets up the plugin's Python
+   environment, which takes a minute. Five StripForge buttons then appear in the PCB editor's
+   toolbar: **Analyze**, **Build strips**, **Add links to schematic**, **Run DRC** and
+   **Build sheet**.
+4. **Add the StripForge footprint library** (once): Preferences > Manage Footprint Libraries >
+   Global Libraries, add a library with nickname `StripForge` and path
+   `${KICAD10_3RD_PARTY}/plugins/com.github.somerleddesign.stripforge/footprints/StripForge.pretty`.
+   The built board doesn't need it (its footprints are embedded), but **Update Footprints from
+   Library** and placing a link by hand do.
+
+To install by hand instead, copy the *contents* of the zip's `plugins/` folder to
+`~/Documents/KiCad/10.0/plugins/com.github.somerleddesign.stripforge/` (macOS; on Linux
+`~/.local/share/kicad/10.0/plugins/`, on Windows `Documents\KiCad\10.0\plugins\`), and point the
+library at the `footprints/StripForge.pretty` folder in there. To update, install the new zip the
+same way and restart KiCad. If a button does nothing, try Preferences > Plugins > **Recreate Plugin
+Environment**.
+
+## Using it
+
+Open your project from the KiCad project manager (not the board file on its own, or F8 won't
+work), then open the board. Place the parts on the stripboard's hole grid first; the rest is
+StripForge's job.
+
+1. **Save the board** (Cmd+S / Ctrl+S), then click **Build strips**. StripForge backs the board up,
+   writes the strip copper, the cuts and the wire links into it, and reloads it. The report lists
+   every link, anything it couldn't do, and the backup it made. If KiCad says it is busy, press Esc,
+   save and click again.
+2. **Tools > Update Footprints from Library** (select all footprints, or just the `W` links). This
+   gives the links the footprints from the installed library. It matters after you update
+   StripForge, e.g. to get 0.2.0's slimmer link outline.
+3. Click **Add links to schematic**. It adds a `StripForge:Link` symbol for each `W` link to the
+   schematic (and takes out the ones the board no longer has). Each sheet it changes is backed up
+   first.
+4. **Close the Schematic Editor without saving, and reopen it.** It doesn't reload a file changed on
+   disk, and saving would undo step 3.
+5. Press **F8** (Update PCB from Schematic) in the board. The links match by path, so nothing moves
+   and nothing is duplicated.
+6. Click **Run DRC**. "shorts 0" and "unconnected 0" is what you want. The report sorts real
+   problems from the noise every stripboard has (dead strip ends, for example).
+7. Click **Build sheet**. It writes `<name>-stripforge.sheet.html` (and `.pdf` with Chrome) and
+   opens it. Print it, cut the strips from the copper-side view, then fit the links and parts.
+
+Changed something? Move parts, cut markers or links and click **Build strips** again: StripForge
+keeps your cuts and links and fills in the rest. Then repeat steps 3 to 7.
+
+| Build sheet, page 1: the copper side, mirrored | Build sheet: checklists in build order |
+|---|---|
+| ![Build sheet copper side](docs/images/sheet-page1-copper-side.png) | ![Build sheet checklists](docs/images/sheet-page3-checklists.png) |
+
+### Backups
+
+Nothing is overwritten without a copy:
+
+- **The board:** before every build, `<name>.kicad_pcb` is saved as
+  `<name>-pre-stripbuild.kicad_pcb`. Older backups move up to `-1`, `-2`, … (the highest number is
+  the oldest, usually your placement board before the first build). To undo a build, close the
+  board and rename the backup back to `<name>.kicad_pcb`.
+- **The schematic:** each sheet Add links to schematic changes is first saved as
+  `<sheet>-pre-links.kicad_sch`, rotating the same way.
+- **The build sheet:** when it changes, the old one is kept as `<name>-stripforge.sheet-prev.html`
+  (and `.pdf`).
+- `backup_keep = N` in the config limits how many backups are kept (default `0`: keep them all).
+
+To start over from scratch, restore the oldest board backup **and** the oldest schematic backup.
+
+### The config file
+
+StripForge reads `stripboard.toml` next to the board, or the only other `.toml` there (e.g.
+`X56.toml`). Without one it takes the grid from the board outline. The options most people need:
+
+```toml
+rows = 24                    # strips (A..X)
+cols = 56                    # holes along each strip
+origin_mm = [51.27, 51.27]   # the centre of hole A1 in the board file
+strip_width_mm = 1.8         # measure your board
+diagonal_links = false       # true: allow diagonal links when nothing straight fits
+bus_strips = true            # join two pieces through a spare bare strip
+max_link_mm = 81.28          # the longest link (32 holes)
+knife_cuts = ["SW2"]         # parts with big pads: cut between holes, not at a hole
+slotted = ["BT1"]            # parts whose pins need a hole filed longer
+skip = ["SW3"]               # parts that are not on the stripboard
+backup_keep = 0              # how many board backups to keep (0 = all)
+
+[bend]                       # parts whose legs you can bend onto the holes (mm off)
+SW2 = 0.16
+
+[drc]                        # DRC items you accept
+ignore = ["silk_overlap"]
+```
+
+[`examples/x56.toml`](examples/x56.toml) has every option with comments; the reference below
+explains each one.
+
+### Tips
+
+- **Move `CUT` markers, not strip copper.** The strip tracks are redrawn from the markers on every
+  build. Drag a marker to another hole (or between two holes) and build again. Don't delete,
+  drag or route strip tracks by hand.
+- **Don't route copper.** StripForge refuses a board with tracks or vias it didn't draw (apart from
+  strip tracks, which it replaces).
+- **Keep the link length.** A link footprint has a fixed length (`Link_P7.62`: 3 holes apart). If you
+  move a link so it spans a different distance, change its footprint to the matching
+  `StripForge:Link_P<mm>` (2.54 mm per hole).
+- **Never put a link on a cut.** A wire in a cut hole has no copper to solder to. If you do,
+  StripForge drops the cut and warns you, and cuts the strip elsewhere only if two nets would
+  short (if the cut is needed exactly there, it keeps the cut and doesn't use the link).
+- **Diagonal links: your choice.** StripForge's default allows them when nothing straight fits.
+  The test board's config turns them off (`diagonal_links = false`, as in the example above),
+  because straight links are easier to fit and check. With diagonals off, a net that needs one is
+  joined through a spare strip (two straight links) or reported.
+- **Read the build report.** Anything StripForge couldn't join is listed with its pieces: move or
+  turn a part so they come closer, or free some holes.
+
 ## Status
 
-**Pre-alpha, 0.1.0: M1, M2 and M3 done.** StripForge runs inside KiCad 10's PCB editor as an
-IPC plugin (see [Install in KiCad](#install-in-kicad)) and as a command line. `stripforge analyze` reads a
-`.kicad_pcb` (and optionally its netlist), snaps footprints to the hole grid, splits the strips by
-net and reports cuts, nets needing links, slot jobs, off-board parts, placement hints, warnings and
-conflicts, using hole labels (`A1`…). `stripforge snap -o` writes a copy of the board with each
-part moved by its best-fit shift. `stripforge build` writes the strip copper, the cuts and the wire
-links into a copy of the board, and `stripforge drc` runs KiCad's DRC through `kicad-cli` and sorts
-the results into real problems and expected stripboard noise. `stripforge sheet` writes a printable
-build sheet (HTML, and PDF when Chrome is available).
+**Beta, 0.2.0.** StripForge runs inside KiCad 10's PCB editor (the IPC plugin above) and as a
+command line (`stripforge analyze | snap | build | link-symbols | drc | sheet`, see
+[Development](#development)). Tested with KiCad 10.0.4 on macOS, on one real board. Not yet in the
+official PCM.
+
+The plugin does its work on the saved board file with a file backend plus `kicad-cli`, both
+headless, and uses KiCad's IPC API only to find, save and reload the open board. The SWIG `pcbnew`
+API is avoided because KiCad 11 removes it. Python 3.9+ (KiCad 10's bundled Python on macOS is
+3.9).
 
 ## Roadmap
 
@@ -63,75 +194,58 @@ build sheet (HTML, and PDF when Chrome is available).
 | **M0: Foundations** | Repo and CI; lossless S-expression round-trip on a KiCad 10 board; netlist parser; fixture intake; strip, cut-marker and link-footprint specs; a first `.kicad_dru`; verify every open question against a real KiCad 10 install. |
 | **M1: Model and splitting** | Pure-Python grid snap, strip model, cut placement, net per piece, link proposals and validation, with unit tests and a JSON plan output. |
 | **M2: Board output and DRC** | File-backend `.kicad_pcb` writer, `kicad-cli` DRC wrapper and classifier, the two-pass link flow, and mutation tests proving DRC guards the layout. |
-| **M3: Build sheet and IPC (stretch)** | Mirrored SVG/PDF build sheet with cut and link lists; a live-board IPC backend (one undo step) and an optional KiCad plugin wrapper. |
+| **M3: Build sheet and IPC** | Mirrored SVG/PDF build sheet with cut and link lists; the KiCad plugin. Done in 0.1.0; 0.2.0 is the first beta. |
+| **Next** | More boards tested, pre-drilled mounting holes, the official PCM. |
 
-## Target
+## Reference
 
-**KiCad 10** (tested with 10.0.4). The work is done by a file backend plus `kicad-cli`, both
-headless. The KiCad plugin uses the IPC API (kicad-python) to find and save the open board. The
-SWIG `pcbnew` API is avoided because KiCad 11 removes it. Python 3.9+ (KiCad 10's bundled Python on
-macOS is 3.9).
+The rest of this README is the detailed reference: every action, option and report in full.
 
-## Install in KiCad
+### The plugin's actions
 
-StripForge is a KiCad 10 **IPC plugin**. It isn't in the official PCM yet, because the repository
-is private.
-
-1. KiCad > Preferences > Plugins: tick **Enable KiCad API**, and check that the Python interpreter
-   is KiCad's own (the default on macOS).
-2. Install it one of two ways:
-   - **From the package:** build it with `python tools/make_pcm_zip.py` (writes
-     `dist/StripForge-<version>-pcm.zip`), then Plugin and Content Manager > **Install from
-     File…**.
-   - **By hand:** copy the *contents* of the zip's `plugins/` folder to
-     `~/Documents/KiCad/10.0/plugins/com.github.somerleddesign.stripforge/` (macOS; on Linux
-     `~/.local/share/kicad/10.0/plugins/`, on Windows `Documents\KiCad\10.0\plugins\`).
-3. Restart KiCad and open a board in the PCB editor. KiCad creates the plugin's Python environment
-   (kicad-python, from `plugins/requirements.txt`) the first time, which takes a minute. Five
-   StripForge toolbar buttons appear in the PCB editor:
-   - **StripForge: Analyze**: a read-only report: snap, cuts, links needed, slot jobs, hints.
-   - **StripForge: Build strips**: builds **in the open board itself** (`<name>.kicad_pcb`, the
-     project's own board, so F8 keeps working), after saving it and backing it up to
-     `<name>-pre-stripbuild.kicad_pcb` (older backups rotate to `-1`, `-2`, …). With
-     `place_links = true` (the default) the `W` link footprints are placed on their holes too. It
-     then reloads the board in the PCB editor. Writes
-     `<name>.kicad_dru` and the link lists (`<name>-stripforge.links.*`) next to it. See
-     **Where the build goes** below; `output = "separate"` gives the old `<name>-stripforge.kicad_pcb`.
-   - **StripForge: Add links to schematic**: writes a `StripForge:Link` symbol for every placed
-     `W` footprint into the project's schematic, in place (see **Links from the board to the
-     schematic** below). Each changed sheet is backed up first as `<sheet>-pre-links.kicad_sch`,
-     and older backups rotate like the board's. **Then close the Schematic Editor without saving
-     and reopen it**: it does not reload a file changed on disk.
-   - **StripForge: Run DRC**: kicad-cli DRC with schematic parity on the built board, classified.
-   - **StripForge: Build sheet**: writes `<name>-stripforge.sheet.html` (and `.pdf` if Chrome is
-     installed) and opens it in the browser.
+- **StripForge: Analyze**: a read-only report: snap, cuts, links needed, slot jobs, hints.
+- **StripForge: Build strips**: builds **in the open board itself** (`<name>.kicad_pcb`, the
+  project's own board, so F8 keeps working), after saving it and backing it up to
+  `<name>-pre-stripbuild.kicad_pcb` (older backups rotate to `-1`, `-2`, …). With
+  `place_links = true` (the default) the `W` link footprints are placed on their holes too. It
+  then reloads the board in the PCB editor. Writes `<name>.kicad_dru` and the link lists
+  (`<name>-stripforge.links.*`) next to it. See **Where the build goes** below;
+  `output = "separate"` gives the old `<name>-stripforge.kicad_pcb`.
+- **StripForge: Add links to schematic**: writes a `StripForge:Link` symbol for every placed `W`
+  footprint into the project's schematic, in place (see **Links from the board to the schematic**
+  below). Each changed sheet is backed up first as `<sheet>-pre-links.kicad_sch`, and older
+  backups rotate like the board's. **Then close the Schematic Editor without saving and reopen
+  it**: it does not reload a file changed on disk.
+- **StripForge: Run DRC**: kicad-cli DRC with schematic parity on the built board, classified.
+- **StripForge: Build sheet**: writes `<name>-stripforge.sheet.html` (and `.pdf` if Chrome is
+  installed) and opens it in the browser.
 
 Each action offers to save the board first, because StripForge reads the saved file. It uses
 `stripboard.toml` next to the board if there is one. Without it, it uses the only other `*.toml`
 next to the board (e.g. `X56.toml`) if that is a valid StripForge config, and says so in the
-report; with several, or none, it derives the grid from the Edge.Cuts outline. If `<project>.kicad_sch` is there, it exports a fresh netlist with kicad-cli to
-cross-check pad nets. Results appear in a dialog ("Show in Finder", "Copy report"). If a button
-does nothing, see the status-bar warnings or Preferences > Plugins > "Recreate Plugin
-Environment". To uninstall a hand install, delete the folder from step 2. Manual test steps:
-[docs/KICAD-PLUGIN-TEST.md](docs/KICAD-PLUGIN-TEST.md).
+report; with several, or none, it derives the grid from the Edge.Cuts outline. If
+`<project>.kicad_sch` is there, it exports a fresh netlist with kicad-cli to cross-check pad nets.
+Results appear in a dialog ("Show in Finder", "Copy report"). If a button does nothing, see the
+status-bar warnings or Preferences > Plugins > "Recreate Plugin Environment". To uninstall a hand
+install, delete its folder. Manual test steps: [docs/KICAD-PLUGIN-TEST.md](docs/KICAD-PLUGIN-TEST.md).
 
-The StripForge footprint library (`footprints/StripForge.pretty`, needed for the `W` links'
-`StripForge:Link_*` footprints in the schematic) is bundled in the plugin but **not registered**:
-add it to the footprint library table by hand, with nickname `StripForge`. A PCM plugin package
-can't register libraries; that needs a separate library package (see
-[docs/PCM-SUBMISSION.md](docs/PCM-SUBMISSION.md)). The same goes for the symbol library
-`symbols/StripForge.kicad_sym` (the generic `StripForge:Link` wire-link symbol): add it to the
-symbol library table as `StripForge` if you place links by hand. `stripforge link-symbols` embeds
-the symbol in the schematic, so it isn't needed for that.
+The StripForge footprint library (`footprints/StripForge.pretty`, the `W` links'
+`StripForge:Link_*` footprints and the cut markers) is bundled in the plugin but **not
+registered**: add it to the footprint library table by hand, with nickname `StripForge` (see
+[Install](#install)). A PCM plugin package can't register libraries; that needs a separate library
+package (see [docs/PCM-SUBMISSION.md](docs/PCM-SUBMISSION.md)). The same goes for the symbol
+library `symbols/StripForge.kicad_sym` (the generic `StripForge:Link` wire-link symbol): add it to
+the symbol library table as `StripForge` if you place links by hand. `stripforge link-symbols`
+embeds the symbol in the schematic, so it isn't needed for that.
 
-## First test case
+### First test case
 
 An **ATtiny10 TPI programming fixture** (22 real THT parts, 41 nets; the earlier 25-part M1 board is
 frozen in `tests/fixtures/tpi-m1/`). See [examples/tpi-fixture](examples/tpi-fixture/).
 It is done when every part snaps, DRC with schematic parity is clean, and the fixture can be built
 from the build sheet with no rework on the copper side.
 
-## Development
+### Development
 
 ```sh
 python -m venv .venv && source .venv/bin/activate
