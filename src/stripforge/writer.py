@@ -652,7 +652,9 @@ def prepare(board: Board, cfg: BoardConfig, netlist: str | None = None) -> Prepa
         board.footprints.remove(fp)
     root[:] = [n for n in root if not (head(n) == "footprint" and atom(n, 1) == HOLES_LIB_ID)]
     link_fps = [fp for fp in board.footprints if is_link(fp)]
+    refs_before = {id(fp): fp.ref for fp in link_fps}
     named = name_links(link_fps)
+    renamed = {fp.ref for fp in link_fps if refs_before[id(fp)] != fp.ref}
     cfg = replace(cfg, offboard_refs=sorted(set(cfg.offboard_refs) | {fp.ref for fp in link_fps}))
     cfg, clip_warnings = clip_to_outline(board, cfg, grid)
 
@@ -677,7 +679,6 @@ def prepare(board: Board, cfg: BoardConfig, netlist: str | None = None) -> Prepa
             # a marker from before 0.2.0 doesn't record where StripForge put it: it counts as
             # StripForge's own if StripForge's plan cuts there too
             own = {(c.row, c.col, c.style) for c in a.split.cuts}
-            own_plan = plan
             for c in theirs.cuts:
                 if c.placed == "unknown":
                     c.placed = "stripforge" if c.key in own else "you"
@@ -699,7 +700,7 @@ def prepare(board: Board, cfg: BoardConfig, netlist: str | None = None) -> Prepa
                         "needed there (without it two nets short); move the link or the cut"
                     )
             moves.update(more)
-            _mark_own_links(plan, board.path, own_plan)
+            _mark_own_links(plan, board.path, renamed)
             yours = sum(1 for c in a.split.cuts if c.user and not c.auto)
             kept = sum(1 for lk in plan.links if lk.origin == "board" and lk.yours)
             others = sum(1 for c in a.split.cuts if c.auto)
@@ -720,32 +721,37 @@ def prepare(board: Board, cfg: BoardConfig, netlist: str | None = None) -> Prepa
     )
 
 
-def _mark_own_links(plan: links_mod.LinkPlan, board_path, own_plan: links_mod.LinkPlan) -> None:
-    """Which of the board's kept links are still where StripForge put them (not "yours"): the
-    saved link plan of the last build (``<name>-stripforge.links.json``) has the link at the same
-    holes and didn't call it yours. A plan saved before 0.2.0 has no "yours": there the link must
-    also be one StripForge's own plan makes (same holes)."""
+def _mark_own_links(plan: links_mod.LinkPlan, board_path, renamed: set[str] = frozenset()) -> None:
+    """Which of the board's kept links are yours. Only one that clearly is: a link you placed
+    with a ``REF**`` reference (``renamed``), one in no saved link plan
+    (``<name>-stripforge.links.json`` of the last build), or one whose holes differ from its saved
+    plan entry (you moved it). A link that was yours stays yours (the plan saves why). When unsure
+    (no saved plan, a plan from before 0.2.0, or a "yours" saved without a reason by a 0.2.0
+    pre-release that guessed) the link is StripForge's, and that guess is cleared."""
     import json
 
-    if not board_path:
-        return
-    path = link_file(board_path, ".json")
-    try:
-        saved = {d["ref"]: d for d in json.loads(path.read_text(encoding="utf-8"))["links"]}
-    except (OSError, ValueError, KeyError, TypeError):
-        return
-    own = {frozenset((lk.start, lk.end)) for lk in own_plan.links}
+    saved = None
+    if board_path:
+        try:
+            data = json.loads(link_file(board_path, ".json").read_text(encoding="utf-8"))
+            saved = {d["ref"]: d for d in data["links"] if isinstance(d, dict)}
+        except (OSError, ValueError, KeyError, TypeError):
+            saved = None
     for lk in plan.links:
-        d = saved.get(lk.ref_hint)
-        if lk.origin != "board" or not isinstance(d, dict):
+        if lk.origin != "board":
             continue
-        holes = frozenset((lk.start, lk.end))
-        if frozenset((d.get("from"), d.get("to"))) != holes:
-            continue  # moved since the last build
-        if "yours" in d:
-            lk.yours = bool(d["yours"])
-        else:
-            lk.yours = holes not in own
+        why = ""
+        d = saved.get(lk.ref_hint) if saved is not None else None
+        if lk.ref_hint in renamed:
+            why = "added"
+        elif saved is not None and d is None:
+            why = "added"
+        elif d is not None and frozenset((d.get("from"), d.get("to"))) != frozenset((lk.start, lk.end)):
+            why = "moved"
+        elif d is not None and d.get("yours") is True and d.get("yours_why") in ("moved", "added"):
+            why = d["yours_why"]
+        lk.yours = bool(why)
+        lk.yours_why = why
 
 
 def _plan_edits(board: Board, cfg: BoardConfig, netlist, edits, link_fps):

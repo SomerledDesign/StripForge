@@ -200,8 +200,12 @@ The details follow, grouped by topic.
   with an older version, a marker counts as StripForge's if StripForge would cut there too.
 - The same for links: the Build strips report said "(yours, kept)" on every link of a rebuilt
   board. Now a link still where StripForge put it says "(kept)", and only one you moved or added
-  says "(yours, kept)" (also on the build sheet). The link plan saved with each build
-  (`.links.json`, new `yours` field) records which is which.
+  says "(yours, kept)" (also on the build sheet). A link is yours only when that's clear: its
+  holes differ from the link plan saved by the last build (you moved it), it's in no saved plan
+  or you placed it as `REF**` (you added it). When unsure (no saved plan, or one from before
+  0.2.0) it's StripForge's. The plan (`.links.json`, new `yours` and `yours_why` fields) records
+  which is which, and a "yours" saved without a reason by a 0.2.0 pre-release, which guessed from
+  a fresh plan and so took StripForge's links around your moved cuts, is cleared on the next build.
 - Your links and cut markers (Kevin's DAT1 link that kept coming back):
   - a hole-cut marker under an end of your link no longer makes every build reject the link: the
     link wins, the marker is dropped with a warning, and the strip is cut elsewhere only where two

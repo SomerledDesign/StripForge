@@ -439,11 +439,85 @@ def test_only_moved_links_are_yours(tmp_path, legacy):
         (w1,) = [ln for ln in text.splitlines() if ln.strip().startswith("W1 ")]
         (w2,) = [ln for ln in text.splitlines() if ln.strip().startswith("W2 ")]
         assert "(yours, kept)" in w1 and "(kept)" in w2 and "yours" not in w2
-        saved = {d["ref"]: d["yours"] for d in json.loads(lj.read_text())["links"]}
-        assert saved == {"W1": True, "W2": False}
+        saved = {d["ref"]: (d["yours"], d.get("yours_why")) for d in json.loads(lj.read_text())["links"]}
+        assert saved == {"W1": (True, "moved"), "W2": (False, None)}
         html = buildsheet.render_html(
             buildsheet.sheet_model(p2, BoardConfig(trim_pieces=False), date="2026-09-29")
         )
         rows = re.findall(r'<tr class="item" data-kind="link" data-link="(W\d+)"(.*?)</tr>', html, re.S)
         assert [r for r, _ in rows] == ["W1", "W2"]
         assert [r for r, body in rows if "(yours)" in body] == ["W1"]
+
+
+def _yours(res):
+    return sorted(lk.ref_hint for lk in res.plan.links if lk.origin == "board" and lk.yours)
+
+
+def _set_saved(lj, **changes):
+    data = json.loads(lj.read_text())
+    for d in data["links"]:
+        change = changes.get(d["ref"], {})
+        for key, value in change.items() if isinstance(change, dict) else ():
+            if value is None:
+                d.pop(key, None)
+            else:
+                d[key] = value
+    data["links"] = [d for d in data["links"] if changes.get(d["ref"]) != "drop"]
+    lj.write_text(json.dumps(data))
+
+
+def _moved_w1(tmp_path):
+    """The two-link board with W1 moved to A5-C5 (and the row A cut to A6): an edited board."""
+    p2 = pass2(tmp_path, parts=TWO)
+    row_a = next(r for r in ("CUT1", "CUT2") if _cut_label(p2, r).startswith("A"))
+    edit(p2, "W1", "A5")
+    edit(p2, row_a, "A6")
+    return p2, tmp_path / "p2-stripforge.links.json"
+
+
+def test_guessed_yours_marks_are_cleared(tmp_path):
+    """A 0.2.0 pre-release guessed and saved "yours": true on links StripForge had placed (Kevin's
+    W1, W3, W5, W19, W22, W26, W27). With no reason saved, the next build clears the mark."""
+    p2, lj = _moved_w1(tmp_path)
+    _set_saved(lj, W1={"yours": True}, W2={"yours": True})  # guessed marks, no "yours_why"
+    for _ in range(2):
+        res = rebuild(p2)
+        assert _yours(res) == ["W1"]  # W1 was moved (its holes differ from the saved plan)
+        detail = {p.ref: p.detail for p in res.placements}
+        assert detail["W2"].endswith("(kept)") and "(yours" not in detail["W2"]
+        saved = {d["ref"]: (d["yours"], d.get("yours_why")) for d in json.loads(lj.read_text())["links"]}
+        assert saved == {"W1": (True, "moved"), "W2": (False, None)}
+        assert any("kept your 1 cut(s) and 1 placed link(s)" in w for w in res.warnings)
+
+
+def test_old_plan_link_not_in_the_fresh_plan_is_not_yours(tmp_path):
+    """The old fallback called a link yours when StripForge's fresh plan (made without your edits)
+    wouldn't put a link there, which wrongly took StripForge's own links placed around your moved
+    cuts. With a plan saved before 0.2.0, a link at its saved holes is StripForge's."""
+    p2, lj = _moved_w1(tmp_path)
+    rebuild(p2)  # W1 is saved at A5-C5 (not where a fresh plan puts it)
+    _set_saved(lj, W1={"yours": None, "yours_why": None}, W2={"yours": None})  # as before 0.2.0
+    for _ in range(2):
+        res = rebuild(p2)
+        assert ("A5", "C5") in links(res) and _yours(res) == []
+        assert all(not d["yours"] for d in json.loads(lj.read_text())["links"])
+
+
+def test_link_in_no_saved_plan_is_yours(tmp_path):
+    """A W link the saved plan doesn't have (you added it) is yours, and stays yours."""
+    p2, lj = _moved_w1(tmp_path)
+    _set_saved(lj, W2="drop")
+    for _ in range(2):
+        res = rebuild(p2)
+        assert _yours(res) == ["W1", "W2"]
+        why = {d["ref"]: d.get("yours_why") for d in json.loads(lj.read_text())["links"]}
+        assert why == {"W1": "moved", "W2": "added"}
+
+
+def test_no_saved_plan_links_are_stripforges(tmp_path):
+    """Without a saved plan there is no telling which links you moved: when unsure, a link is
+    StripForge's."""
+    p2, lj = _moved_w1(tmp_path)
+    lj.unlink()
+    res = rebuild(p2)
+    assert _yours(res) == [] and ("A5", "C5") in links(res)

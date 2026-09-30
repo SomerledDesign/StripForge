@@ -143,6 +143,10 @@ class LinkProposal:
     # a "board" link you moved or added by hand; False: still where StripForge put it (kept all
     # the same, but not called yours)
     yours: bool = True
+    # why a "board" link is yours ("moved": not at the holes of its saved plan entry, "added": in
+    # no saved plan); saved with it, so it stays yours on later builds. A saved "yours" without a
+    # reason (from a 0.2.0 pre-release that guessed) is not trusted.
+    yours_why: str = ""
 
     @property
     def is_yours(self) -> bool:
@@ -231,6 +235,7 @@ class LinkProposal:
             "bus": self.bus,
             "locked": self.origin,
             "yours": self.is_yours,
+            **({"yours_why": self.yours_why} if self.origin == "board" and self.is_yours else {}),
             "pitches": self.pitches,
             "length_mm": self.length_mm,
             "length_in": self.length_in,
