@@ -2,7 +2,7 @@
 # Copyright (C) 2026 Somerled Design
 """Build the KiCad Plugin and Content Manager (PCM) package: ``dist/StripForge-<version>-pcm.zip``.
 
-    python tools/make_pcm_zip.py [--out dist] [--url https://.../StripForge-0.1.0-pcm.zip]
+    python tools/make_pcm_zip.py [--out dist] [--url https://.../StripForge-0.2.0-pcm.zip]
 
 Archive layout (what the PCM expects for a ``plugin`` package; docs/PCM-SUBMISSION.md):
 

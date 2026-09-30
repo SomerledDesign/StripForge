@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-29
+
+First beta. KiCad 10 only; tested on one real board (an ATtiny10 programming fixture on a 24 × 56
+hole stripboard), where it goes from placed parts to a clean DRC (no shorts, nothing unconnected)
+and a printable build sheet.
+
+### Highlights
+
+- **Builds in your board.** Build strips saves the project's own board, backs it up
+  (`<name>-pre-stripbuild.kicad_pcb`, older backups rotate) and writes the strips, cuts and wire
+  links into it, so F8 keeps working.
+- **Links placed for you.** The `W` wire links are placed on their holes, and the new **Add links
+  to schematic** button puts their symbols in the schematic. No more copying links by hand.
+- **Your edits are kept.** Move a cut marker or a link and build again: StripForge keeps what you
+  did and fills in the rest.
+- **Joins more nets.** Nets left unjoined get a second try after unused strip ends are trimmed,
+  and a spare strip can carry a net between two pieces (a "bus strip").
+- **Backups everywhere**: the board, each schematic sheet it changes, and the previous build
+  sheet.
+- New README with the step-by-step workflow, tips and screenshots (`docs/images/`).
+
+The details follow.
+
 ### Added
 
 - Plugin action **StripForge: Add links to schematic** (L badge icon). It writes a

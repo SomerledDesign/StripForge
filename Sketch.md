@@ -2,7 +2,7 @@
 
 *StripForge is a KiCad stripboard (Veroboard) layout tool. This sketch was originally drafted as the "KiCad Stripboard Layout Tool" v0 plan.*
 
-*Status: v0 plan (2026-09-27). M1 and M2 are done. M3 is done as 0.1.0: `stripforge sheet` (a printable HTML/PDF build sheet) and a KiCad 10 IPC plugin with four PCB-editor actions, packaged for the PCM (§4.9, §4.10). The live-board IPC backend (§3) is still a stub; see §4.10 for why the plugin writes new files instead.*
+*Status: v0 plan (2026-09-27); 0.2.0, the first beta, 2026-09-29. M1 and M2 are done. M3 is done as 0.1.0: `stripforge sheet` (a printable HTML/PDF build sheet) and a KiCad 10 IPC plugin with four PCB-editor actions, packaged for the PCM (§4.9, §4.10). The live-board IPC backend (§3) is still a stub; see §4.10 for why the plugin writes new files instead.*
 *Owners: Jarvis (scaffolding, generator, net splitting, build sheet, planning) and Mildrew (EE: strip, cut and link footprints, DRC rules, board validation).*
 
 Anything marked **[UNVERIFIED]** must be checked against a real KiCad 10.0.4 install during M0.

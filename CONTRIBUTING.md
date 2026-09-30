@@ -1,6 +1,6 @@
 # Contributing to StripForge
 
-Thanks for your interest. StripForge is pre-alpha, so the design in [Sketch.md](Sketch.md) is still
+Thanks for your interest. StripForge is in beta, so the design in [Sketch.md](Sketch.md) is still
 moving. Please open an issue to discuss anything larger than a small fix before writing code.
 
 ## Setup

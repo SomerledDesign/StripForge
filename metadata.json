@@ -2,7 +2,7 @@
     "$schema": "https://go.kicad.org/pcm/schemas/v2",
     "name": "StripForge",
     "description": "Stripboard (Veroboard) layout in KiCad: strip copper, cuts and wire links in a normal .kicad_pcb, KiCad DRC and a printable build sheet.",
-    "description_full": "StripForge turns a KiCad project's real footprints and netlist into stripboard copper on B.Cu at a 2.54 mm pitch. It snaps THT parts to the hole grid, splits the strips by net with real copper gaps plus cut markers, proposes wire links as zero-ohm jumpers that also live in the schematic, runs KiCad's DRC with schematic parity to catch shorts and opens, and writes a printable build sheet: the mirrored copper side with every cut, the component side, and checklists for cuts, slots, links, parts and a continuity check.\n\nThe PCB editor gets four toolbar actions: StripForge: Analyze, Build strips, Run DRC and Build sheet. Nothing edits the open board; Build strips writes <name>-stripforge.kicad_pcb next to it.\n\nKiCad 10 IPC plugin (the IPC API must be enabled in Preferences > Plugins). Pre-alpha.",
+    "description_full": "StripForge turns a KiCad project's real footprints and netlist into stripboard copper on B.Cu at a 2.54 mm pitch. It snaps THT parts to the hole grid, splits the strips by net with real copper gaps plus cut markers, places wire links (zero-ohm W jumpers that also go into the schematic), runs KiCad's DRC with schematic parity to catch shorts and opens, and writes a printable build sheet: the mirrored copper side with every cut, the component side, and checklists for cuts, slots, links, parts and a continuity check.\n\nThe PCB editor gets five toolbar actions: StripForge: Analyze, Build strips, Add links to schematic, Run DRC and Build sheet. Build strips saves the board, backs it up (<name>-pre-stripbuild.kicad_pcb, older backups rotate) and builds into it. You can move cut markers and links by hand; the next build keeps them.\n\nKiCad 10 only, IPC plugin (enable the KiCad API in Preferences > Plugins). Beta: tested on one real board so far.",
     "identifier": "com.github.somerleddesign.stripforge",
     "type": "plugin",
     "author": {
@@ -31,7 +31,7 @@
     ],
     "versions": [
         {
-            "version": "0.1.0",
+            "version": "0.2.0",
             "status": "testing",
             "kicad_version": "10.0",
             "runtime": "ipc"

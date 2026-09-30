@@ -63,13 +63,13 @@ link report would need to print `PCM_StripForge:Link_…`. That's open.
 2. Build the zip and note the numbers:
 
    ```sh
-   python tools/make_pcm_zip.py --url https://github.com/SomerledDesign/StripForge/releases/download/v0.1.0/StripForge-0.1.0-pcm.zip
+   python tools/make_pcm_zip.py --url https://github.com/SomerledDesign/StripForge/releases/download/v0.2.0/StripForge-0.2.0-pcm.zip
    ```
 
    It prints the sha256, download_size, install_size and a ready `versions` entry.
 3. Test it locally: in KiCad, Plugin and Content Manager > **Install from File…**, pick the zip,
    restart KiCad and run through [KICAD-PLUGIN-TEST.md](KICAD-PLUGIN-TEST.md).
-4. Tag and publish a GitHub release `v0.1.0` with the zip as an asset. Check that the asset URL
+4. Tag and publish a GitHub release `v0.2.0` with the zip as an asset. Check that the asset URL
    downloads the exact same bytes (`shasum -a 256`).
 5. Fork <https://gitlab.com/kicad/addons/metadata> on GitLab and create a branch (not `main`) in
    the fork, e.g. `add-stripforge`.

@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "stripforge"
-version = "0.1.0"
-description = "StripForge: stripboard (Veroboard) copper, cuts and links as a normal KiCad .kicad_pcb (pre-alpha)"
+version = "0.2.0"
+description = "StripForge: stripboard (Veroboard) copper, cuts and links as a normal KiCad .kicad_pcb (beta)"
 readme = "README.md"
 requires-python = ">=3.9"  # 3.9: KiCad 10's bundled Python on macOS runs the plugin
 license = "GPL-3.0-or-later"
@@ -13,7 +13,7 @@ license-files = ["LICENSE"]
 authors = [{ name = "Somerled Design" }]
 keywords = ["kicad", "stripboard", "veroboard", "pcb", "electronics", "prototyping"]
 classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
+    "Development Status :: 4 - Beta",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.11",

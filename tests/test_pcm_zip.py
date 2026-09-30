@@ -25,7 +25,7 @@ def mk():
 def test_versions_agree(mk):
     v = mk.versions()
     assert len(set(v.values())) == 1, v
-    assert v["pyproject.toml"] == "0.1.0"
+    assert v["pyproject.toml"] == "0.2.0"
 
 
 def test_repo_metadata_is_an_ipc_plugin(mk):
@@ -42,7 +42,7 @@ def test_repo_metadata_is_an_ipc_plugin(mk):
 def test_zip_layout_and_determinism(mk, tmp_path):
     out, info = mk.build(tmp_path / "a")
     out2, info2 = mk.build(tmp_path / "b")
-    assert out.name == "StripForge-0.1.0-pcm.zip"
+    assert out.name == "StripForge-0.2.0-pcm.zip"
     assert info == info2 and out.read_bytes() == out2.read_bytes()
     assert info["download_size"] == out.stat().st_size
     with zipfile.ZipFile(out) as z:
