@@ -52,7 +52,7 @@ from .board import rotate_nm
 from .edits import ref_number
 from .grid import Node, hole_label
 from .sexpr import atom, find, find_all, head, mm_to_nm
-from .splitter import Cut, assign_nets, knife_keep_clear
+from .splitter import Cut, assign_nets, knife_keep_clear, next_cut_id
 from .strips import Piece, Strip
 from .validate import validate
 
@@ -966,7 +966,7 @@ class _Planner:
         ):
             if spare < 2:
                 continue
-            cut_id = f"X{len(self.a.split.cuts) + 1}"
+            cut_id = next_cut_id(self.a.split.cuts)
             why = (net, "(bare strip)") if side == "right" else ("(bare strip)", net)
             if not knife_only and self._cuttable(bus.row, hole):
                 strip.cut_hole(hole)
@@ -1116,7 +1116,7 @@ class _Planner:
                 if choice is None or choice[2] < min_free:
                     continue
                 style, pos, freed = choice
-                cut_id = f"X{len(self.a.split.cuts) + 1}"
+                cut_id = next_cut_id(self.a.split.cuts)
                 pad = next((o.label for o in self.a.holes.occupants.get(Node(p.row, last), [])), "link end")
                 why = (p.net, "(bare strip)") if side == "right" else ("(bare strip)", p.net)
                 if style == "hole":

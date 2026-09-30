@@ -334,3 +334,20 @@ def test_rejected_link_with_another_footprint_keeps_its_name_and_is_not_placed(t
     assert st["W1"] == "rejected" and "pin" in next(p.detail for p in res.placements if p.ref == "W1")
     assert [lk.ref_hint for lk in res.plan.links] == ["W2"] and st["W2"] == "placed"
     assert res.plan.ok and not res.ok  # the rejected W1 is still a problem to fix
+
+
+def test_board_cut_markers_keep_their_numbers(tmp_path):
+    """Kevin's sheet said "cut markers differ (moved or changed: CUT76 ... CUT86)" on a board fresh
+    from Build strips: the cuts added while planning are numbered after the rest, and a rebuild or
+    the sheet renumbered the board's markers row by row. A board's CUT marker now keeps its number."""
+    from stripforge import buildsheet
+
+    p2 = pass2(tmp_path)
+    edit(p2, "W1", "A5")
+    edit(p2, "CUT1", "A6")
+    p2.write_text(p2.read_text().replace('"Reference" "CUT1"', '"Reference" "CUT7"'))
+    res = rebuild(p2)
+    assert [c.id for c in res.analysis.split.cuts] == ["X7"]
+    assert _fp(p2, "CUT7") is not None and _fp(p2, "CUT1") is None
+    m = buildsheet.sheet_model(p2, BoardConfig(trim_pieces=False), date="2026-09-29")
+    assert m.built == "built" and not any("cut markers differ" in w for w in m.warnings)

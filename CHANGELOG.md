@@ -143,6 +143,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A board's `CUT` markers keep their numbers when it is built again and on the build sheet. Cuts
+  added while planning (bus strips, trims) were numbered after the rest and then renumbered row by
+  row, so a fresh board's sheet said "The board's cut markers differ from the model (moved or
+  changed: CUT76, ...)" and its cut numbers didn't match the markers on the board.
 - Your links and cut markers (Kevin's DAT1 link that kept coming back):
   - a hole-cut marker under an end of your link no longer makes every build reject the link: the
     link wins, the marker is dropped with a warning, and the strip is cut elsewhere only where two

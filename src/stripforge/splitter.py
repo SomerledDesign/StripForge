@@ -16,12 +16,21 @@ carrying one net or none. A net found on more than one piece is split and needs 
 
 from __future__ import annotations
 
+import re
 from collections import Counter
 from dataclasses import dataclass, field
 
 from .config import CutStyle
 from .grid import Node, hole_label
 from .strips import HoleMap, Piece, Strip, pairs
+
+_BOARD_CUT = re.compile(r"CUT(\d+) in the board$")
+
+
+def next_cut_id(cuts: list[Cut]) -> str:
+    """A free cut id after the highest one in use ("X87" after X86)."""
+    nums = [int(c.id[1:]) for c in cuts if c.id[1:].isdigit()]
+    return f"X{max(nums, default=0) + 1}"
 
 
 @dataclass
@@ -221,8 +230,23 @@ def place_cuts(
             cut = Cut("", strip.row, float(u.col), u.style, (ln, rn), (ll, rl), user=u.source)
             found.append((strip.row, cut.col, cut))
     cuts: list[Cut] = []
+    # a cut marker in the board keeps its number (CUT85 stays X85), so a rebuilt board and its build
+    # sheet name the cuts as the board does; the other cuts are numbered row by row after them
+    kept: dict[int, int] = {}
+    for _row, _col, cut in found:
+        m = _BOARD_CUT.match(cut.user or "")
+        if m and int(m.group(1)) not in kept.values():
+            kept[id(cut)] = int(m.group(1))
+    taken = set(kept.values())
+    n = 0
     for row, _col, cut in sorted(found, key=lambda t: (t[0], t[1])):
-        cut.id = f"X{len(cuts) + 1}"
+        if id(cut) in kept:
+            cut.id = f"X{kept[id(cut)]}"
+        else:
+            n += 1
+            while n in taken:
+                n += 1
+            cut.id = f"X{n}"
         c = int(cut.col)
         if cut.style == "hole":
             by_row[row].cut_hole(c)
