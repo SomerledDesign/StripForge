@@ -263,9 +263,9 @@ class Ui:
             dlg = wx.MessageDialog(
                 None,
                 f"Build strips writes into this board file and then reloads it:\n{board}\n\n"
-                f"The board is saved first and backed up as\n{backup_path(board).name}\n"
-                f"(older backups move up to -1, -2, ...; to undo: delete the built board and\n"
-                f"rename that backup back).",
+                f"The board is saved first and backed up as:\n{backup_path(board).name}\n\n"
+                "Older backups move up to -1, -2, and so on. To undo the build, close the board "
+                f"and rename that backup back to {board.name}.",
                 "StripForge",
                 wx.OK | wx.CANCEL | wx.ICON_QUESTION,
             )

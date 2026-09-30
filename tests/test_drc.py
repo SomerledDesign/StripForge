@@ -81,7 +81,12 @@ def test_real_fixture_pass1_drc(tmp_path, real_board_path, real_netlist_path):
     d = drc.run_drc(out, parity=False)
     assert d.counts()["shorts"] == 0 and d.counts()["clearance"] == 0
     assert not d.stripboard_rules
-    assert len(d.unconnected) == res.plan.needed
+    # one ratsnest item per link still to fit (a bus-strip join is two links: the bus strip carries
+    # the net, so it is a piece of its own) plus what the unlinkable nets leave apart. Not
+    # plan.needed, which counts a bus join once: 47 = 40 links + 7, needed = 32 joins + 7
+    left = sum(len(u.groups) - 1 for u in res.plan.unlinkable)
+    assert len(d.unconnected) == len(res.plan.links) + left
+    assert res.plan.needed == res.plan.joins + left
     assert d.filtered_dangling > 0
 
 

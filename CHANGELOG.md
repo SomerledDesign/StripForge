@@ -172,8 +172,8 @@ The details follow, grouped by topic.
 
 - Placed links are easier to see (Kevin and Mildrew): every straight `Link_P*` footprint has an
   unfilled ring on `User.4` around each pad (colour User.4 yellow in KiCad to make them stand out;
-  `Link_D*` have none). The `StripForge:Link` symbol is redrawn as a small wire bridge with
-  zero-length pins 1.27 mm either side.
+  `Link_D*` have none). The `StripForge:Link` symbol is redrawn as a small wire bridge, with its
+  pins ending 3.81 mm either side so the net labels sit clear of it.
 - New StripForge icon (Kevin's 64 × 64 px "S" with wordmark) as `resources/icon.png` (PCM), and
   regenerated toolbar icons cropped to the "S".
 - Slot jobs give the filing distance for the pad's drill (offset plus half an oval drill's excess
@@ -198,6 +198,10 @@ The details follow, grouped by topic.
   build report counts them apart ("kept your 1 cut(s) ... (and StripForge's other 85 cut
   marker(s) where they were)"). A marker records where StripForge placed it; for a board built
   with an older version, a marker counts as StripForge's if StripForge would cut there too.
+- The same for links: the Build strips report said "(yours, kept)" on every link of a rebuilt
+  board. Now a link still where StripForge put it says "(kept)", and only one you moved or added
+  says "(yours, kept)" (also on the build sheet). The link plan saved with each build
+  (`.links.json`, new `yours` field) records which is which.
 - Your links and cut markers (Kevin's DAT1 link that kept coming back):
   - a hole-cut marker under an end of your link no longer makes every build reject the link: the
     link wins, the marker is dropped with a warning, and the strip is cut elsewhere only where two
@@ -211,6 +215,12 @@ The details follow, grouped by topic.
 
 **Add links to schematic**
 
+- Net labels no longer overlap the Link symbols: the symbol's pins now end 3.81 mm either side
+  (clear of the body) and the labels' text runs away from it. A sheet with the old symbol is
+  updated on the next run: the new symbol is embedded, the labels move out to the new pin ends,
+  and anything else on an old pin point gets a short wire, so every link stays on its net.
+- The note above the link symbols is wrapped to four short lines so it fits the sheet (the paper
+  size allows for it), and a second run no longer adds a second copy.
 - Stale StripForge:Link W symbols (not on the built board and not in its link plan) are removed
   with their labels, after backing the sheet up, so F8 doesn't re-add a removed link.
 - A W symbol's Description is updated from its footprint. When the board was re-planned (e.g.
@@ -237,6 +247,8 @@ The details follow, grouped by topic.
   the report says to use File > Revert before saving.
 - It no longer says "Wrote <name>-stripforge.kicad_pcb" for a refused build when an old output
   file exists.
+- The Build strips confirmation no longer breaks a sentence in the middle ("delete the built
+  board / and rename ..."); it now says to close the board and rename the backup back.
 
 ## [0.1.0] - 2026-09-27
 
