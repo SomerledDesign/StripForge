@@ -700,7 +700,7 @@ def prepare(board: Board, cfg: BoardConfig, netlist: str | None = None) -> Prepa
                         "needed there (without it two nets short); move the link or the cut"
                     )
             moves.update(more)
-            _mark_own_links(plan, board.path, renamed)
+            _mark_own_links(plan, board.path, renamed, cfg)
             yours = sum(1 for c in a.split.cuts if c.user and not c.auto)
             kept = sum(1 for lk in plan.links if lk.origin == "board" and lk.yours)
             others = sum(1 for c in a.split.cuts if c.auto)
@@ -721,37 +721,102 @@ def prepare(board: Board, cfg: BoardConfig, netlist: str | None = None) -> Prepa
     )
 
 
-def _mark_own_links(plan: links_mod.LinkPlan, board_path, renamed: set[str] = frozenset()) -> None:
+def _mark_own_links(
+    plan: links_mod.LinkPlan, board_path, renamed: set[str] = frozenset(), cfg: BoardConfig | None = None
+) -> None:
     """Which of the board's kept links are yours. Only one that clearly is: a link you placed
     with a ``REF**`` reference (``renamed``), one in no saved link plan
     (``<name>-stripforge.links.json`` of the last build), or one whose holes differ from its saved
-    plan entry (you moved it). A link that was yours stays yours (the plan saves why). When unsure
-    (no saved plan, a plan from before 0.2.0, or a "yours" saved without a reason by a 0.2.0
-    pre-release that guessed) the link is StripForge's, and that guess is cleared."""
+    plan entry (you moved it). A link that was yours stays yours (the plan saves why).
+
+    A plan saved before this record existed (before 0.2.0, or by a 0.2.0 pre-release that guessed
+    from a fresh plan and so took StripForge's own links around your moved cuts) doesn't say which
+    links you moved before the last build. There the ``-pre-stripbuild`` backups do: a link that
+    sat on holes in one backup and on other holes in the next was moved by hand in between (a
+    build keeps your links where they are), and counts as yours if it is still there. Otherwise,
+    when unsure, the link is StripForge's, and a guessed "yours" is cleared."""
     import json
 
     saved = None
+    recorded = False
     if board_path:
         try:
             data = json.loads(link_file(board_path, ".json").read_text(encoding="utf-8"))
             saved = {d["ref"]: d for d in data["links"] if isinstance(d, dict)}
-        except (OSError, ValueError, KeyError, TypeError):
+            recorded = data.get("yours_record") == 1
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
             saved = None
+    history = None
     for lk in plan.links:
         if lk.origin != "board":
             continue
         why = ""
+        holes = frozenset((lk.start, lk.end))
         d = saved.get(lk.ref_hint) if saved is not None else None
         if lk.ref_hint in renamed:
             why = "added"
         elif saved is not None and d is None:
             why = "added"
-        elif d is not None and frozenset((d.get("from"), d.get("to"))) != frozenset((lk.start, lk.end)):
+        elif d is not None and frozenset((d.get("from"), d.get("to"))) != holes:
             why = "moved"
         elif d is not None and d.get("yours") is True and d.get("yours_why") in ("moved", "added"):
             why = d["yours_why"]
+        elif not recorded and board_path and cfg is not None:
+            if history is None:
+                history = moved_in_backups(board_path, cfg)
+            if history.get(lk.ref_hint) == holes:
+                why = "moved"
         lk.yours = bool(why)
         lk.yours_why = why
+
+
+def _link_holes(path: Path, cfg: BoardConfig) -> dict[str, frozenset]:
+    """``{ref: {hole, hole}}`` for the W links of board ``path`` whose two pads sit on holes."""
+    b = load_board(path)
+    grid, _ = make_grid(b, cfg)
+    tol = mm_to_nm(cfg.snap_tol_mm)
+    out = {}
+    for fp in b.footprints:
+        if not is_link(fp) or len(fp.pads) != 2:
+            continue
+        nodes = []
+        for p in fp.pads:
+            n = grid.nearest(p.x_nm, p.y_nm)
+            x, y = grid.hole_xy(n)
+            if abs(p.x_nm - x) > tol or abs(p.y_nm - y) > tol:
+                break
+            nodes.append(n.label)
+        else:
+            out[fp.ref] = frozenset(nodes)
+    return out
+
+
+def moved_in_backups(board_path, cfg: BoardConfig) -> dict[str, frozenset]:
+    """The links you moved by hand, going by the ``-pre-stripbuild`` backups (oldest first, the
+    unnumbered one newest): ``{ref: holes}`` for a link that was on holes in one backup and on
+    other holes in the next (a build keeps a placed link where it is, so the move was yours), and
+    stayed on those holes in every later backup. A link that only appears (placed by a build or
+    by you, which the backups can't tell apart) or goes off the holes is not counted."""
+    chain = [p for _, p in sorted(numbered_backups(board_path).items(), reverse=True)]
+    head_backup = backup_path(board_path)
+    if head_backup.is_file():
+        chain.append(head_backup)
+    states = []
+    for p in chain:
+        try:
+            states.append(_link_holes(p, cfg))
+        except Exception:  # an unreadable backup ends the evidence there
+            states = []
+    moved: dict[str, frozenset] = {}
+    for ref in {r for st in states for r in st}:
+        seq = [st.get(ref) for st in states]
+        found = None
+        for i in range(1, len(seq)):
+            if seq[i] != seq[i - 1]:
+                found = seq[i] if seq[i] is not None and seq[i - 1] is not None else None
+        if found is not None:
+            moved[ref] = found
+    return moved
 
 
 def _plan_edits(board: Board, cfg: BoardConfig, netlist, edits, link_fps):

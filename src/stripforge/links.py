@@ -361,6 +361,8 @@ class LinkPlan:
             "links_needed": self.needed,
             "unlinkable": [{"net": u.net, "groups": u.groups, "message": u.text} for u in self.unlinkable],
             "cut_moves": [m.text for m in self.cut_moves],
+            # "yours" and "yours_why" on the links come from evidence (0.2.0): trusted as saved
+            "yours_record": 1,
         }
 
 

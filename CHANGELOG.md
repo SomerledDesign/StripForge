@@ -204,8 +204,11 @@ The details follow, grouped by topic.
   holes differ from the link plan saved by the last build (you moved it), it's in no saved plan
   or you placed it as `REF**` (you added it). When unsure (no saved plan, or one from before
   0.2.0) it's StripForge's. The plan (`.links.json`, new `yours` and `yours_why` fields) records
-  which is which, and a "yours" saved without a reason by a 0.2.0 pre-release, which guessed from
-  a fresh plan and so took StripForge's links around your moved cuts, is cleared on the next build.
+  which is which. A plan saved without that record (before 0.2.0, or by a 0.2.0 pre-release,
+  which guessed from a fresh plan and so took StripForge's links around your moved cuts) is
+  checked once against the `-pre-stripbuild` backups: a link on other holes in an older backup
+  that has stayed where you moved it is yours; the other guessed marks are cleared. Your links
+  stay where you put them either way.
 - Your links and cut markers (Kevin's DAT1 link that kept coming back):
   - a hole-cut marker under an end of your link no longer makes every build reject the link: the
     link wins, the marker is dropped with a warning, and the strip is cut elsewhere only where two

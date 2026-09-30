@@ -521,3 +521,47 @@ def test_no_saved_plan_links_are_stripforges(tmp_path):
     lj.unlink()
     res = rebuild(p2)
     assert _yours(res) == [] and ("A5", "C5") in links(res)
+
+
+def test_links_moved_before_the_last_build_are_found_in_the_backups(tmp_path):
+    """Kevin moved W1, W3, W5, W19, W25, W26 and W27 off the corner holes over several builds, and
+    a 0.2.0 pre-release saved guessed marks (some right, some wrong, W25 missed). The link plan
+    doesn't say what happened before the last build, but the -pre-stripbuild backups do: W1 on
+    other holes in an older backup was moved by hand. W2, never moved, is StripForge's."""
+    p2 = pass2(tmp_path, parts=TWO)
+    rebuild(p2)  # backup: W1 at A2-C2, where StripForge put it
+    row_a = next(r for r in ("CUT1", "CUT2") if _cut_label(p2, r).startswith("A"))
+    edit(p2, "W1", "A5")
+    edit(p2, row_a, "A6")
+    rebuild(p2)  # backups now: W1 at A2-C2, then A5-C5
+    lj = tmp_path / "p2-stripforge.links.json"
+    data = json.loads(lj.read_text())
+    del data["yours_record"]  # as a pre-release saved it: marks without reasons
+    for d in data["links"]:
+        d["yours"] = d["ref"] == "W2"  # a wrong guess on W2, a missed one on W1
+        d.pop("yours_why", None)
+    lj.write_text(json.dumps(data))
+    for _ in range(2):
+        res = rebuild(p2)
+        assert ("A5", "C5") in links(res)  # kept where you put it
+        assert _yours(res) == ["W1"]
+        saved = json.loads(lj.read_text())
+        assert saved["yours_record"] == 1
+        why = {d["ref"]: (d["yours"], d.get("yours_why")) for d in saved["links"]}
+        assert why == {"W1": (True, "moved"), "W2": (False, None)}
+
+
+def test_moved_in_backups(tmp_path):
+    """Only a change from holes to other holes counts, and only if the link stayed there."""
+    from stripforge import writer as w
+
+    p2 = pass2(tmp_path, parts=TWO)
+    rebuild(p2)
+    assert w.moved_in_backups(p2, BoardConfig(trim_pieces=False)) == {}
+    edit(p2, "W2", "A5")
+    rebuild(p2)
+    moved = w.moved_in_backups(p2, BoardConfig(trim_pieces=False))
+    assert list(moved) == ["W2"] and "A5" in moved["W2"]
+    edit(p2, "W2", "A2", delete=True)  # gone from the next backup: no longer counted
+    rebuild(p2)
+    assert w.moved_in_backups(p2, BoardConfig(trim_pieces=False)) == {}
