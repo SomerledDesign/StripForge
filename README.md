@@ -61,7 +61,16 @@ StripForge is a KiCad 10 **IPC plugin**. It is not in KiCad's official Plugin an
    is KiCad's own (the default on macOS).
 2. Get the package `StripForge-0.2.0-pcm.zip` (from the release, or build it yourself with
    `python tools/make_pcm_zip.py`, which writes it to `dist/`). In KiCad, open the Plugin and
-   Content Manager and click **Install from File…**.
+   Content Manager, click **Install from File…** at the bottom left, and pick the zip:
+
+   <img src="docs/images/install-pcm-install-from-file.png" alt="KiCad's Plugin and Content Manager, with the Install from File button at the bottom left" width="560">
+
+   <img src="docs/images/install-pick-zip-dist.png" alt="The file dialog open on the dist folder, showing StripForge-0.1.0-pcm.zip and StripForge-0.2.0-pcm.zip" width="330"> <img src="docs/images/install-zip-selected.png" alt="StripForge-0.2.0-pcm.zip selected in the file dialog" width="210">
+
+   StripForge then shows on the **Installed** tab as version 0.2.0:
+
+   <img src="docs/images/install-pcm-installed.png" alt="The Installed tab of the Plugin and Content Manager: StripForge 0.2.0, compatible, with its description and metadata" width="640">
+
 3. **Restart KiCad.** The first time you open a board, KiCad sets up the plugin's Python
    environment, which takes a minute. Five StripForge buttons then appear in the PCB editor's
    toolbar: **Analyze**, **Build strips**, **Add links to schematic**, **Run DRC** and
@@ -71,8 +80,9 @@ StripForge is a KiCad 10 **IPC plugin**. It is not in KiCad's official Plugin an
 
 4. **Add the StripForge footprint library** (once): Preferences > Manage Footprint Libraries >
    Global Libraries, add a library with nickname `StripForge` and path
-   `${KICAD10_3RD_PARTY}/plugins/com.github.somerleddesign.stripforge/footprints/StripForge.pretty`.
-   The built board doesn't need it (its footprints are embedded), but **Update Footprints from
+   `${KICAD10_3RD_PARTY}/plugins/com_github_somerleddesign_stripforge/footprints/StripForge.pretty`.
+   (The Plugin and Content Manager names the plugin's folder with underscores, not dots.) The built
+   board doesn't need the library (its footprints are embedded), but **Update Footprints from
    Library** and placing a link by hand do.
 
 To install by hand instead, copy the *contents* of the zip's `plugins/` folder to

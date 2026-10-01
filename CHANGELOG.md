@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Docs
+
+- README and release notes: screenshots of Install from File in the Plugin and Content Manager.
+- The footprint library path for a PCM install is `${KICAD10_3RD_PARTY}/plugins/com_github_somerleddesign_stripforge/...`:
+  the Plugin and Content Manager names the folder with underscores, not dots as the docs said.
+
 ## [0.2.0] - 2026-09-29
 
 First beta. KiCad 10 only; tested on one real board (an ATtiny10 programming fixture on a 24 × 56

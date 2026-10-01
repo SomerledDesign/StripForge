@@ -30,13 +30,23 @@ like to hear about them.
 1. KiCad 10 > Preferences > Plugins: tick **Enable KiCad API**.
 2. Download `StripForge-0.2.0-pcm.zip` below. In KiCad's Plugin and Content Manager, click
    **Install from File…** and pick it.
+
+   <img src="https://raw.githubusercontent.com/SomerledDesign/StripForge/main/docs/images/install-pcm-install-from-file.png" alt="KiCad's Plugin and Content Manager, with the Install from File button at the bottom left" width="560">
+
+   <img src="https://raw.githubusercontent.com/SomerledDesign/StripForge/main/docs/images/install-pick-zip-dist.png" alt="The file dialog open on the dist folder, showing StripForge-0.1.0-pcm.zip and StripForge-0.2.0-pcm.zip" width="330"> <img src="https://raw.githubusercontent.com/SomerledDesign/StripForge/main/docs/images/install-zip-selected.png" alt="StripForge-0.2.0-pcm.zip selected in the file dialog" width="210">
+
+   StripForge then shows on the **Installed** tab as version 0.2.0:
+
+   <img src="https://raw.githubusercontent.com/SomerledDesign/StripForge/main/docs/images/install-pcm-installed.png" alt="The Installed tab of the Plugin and Content Manager: StripForge 0.2.0, compatible, with its description and metadata" width="640">
+
 3. Restart KiCad. Five StripForge buttons appear in the PCB editor's toolbar:
 
    <img src="https://raw.githubusercontent.com/SomerledDesign/StripForge/main/docs/images/plugin-toolbar-buttons.png" alt="The five StripForge toolbar buttons" width="511">
 
 4. Add the footprint library once (Preferences > Manage Footprint Libraries), nickname
    `StripForge`, path
-   `${KICAD10_3RD_PARTY}/plugins/com.github.somerleddesign.stripforge/footprints/StripForge.pretty`.
+   `${KICAD10_3RD_PARTY}/plugins/com_github_somerleddesign_stripforge/footprints/StripForge.pretty`
+   (the Plugin and Content Manager names the folder with underscores).
 
 Then follow **Using it** in the [README](https://github.com/SomerledDesign/StripForge#using-it): save, Build strips, Update
 Footprints from Library, Add links to schematic, close and reopen the schematic, F8, Run DRC,
