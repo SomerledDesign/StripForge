@@ -645,27 +645,82 @@ real-parts board: 22 footprints, 41 nets, 86 pads, with BT1 slotted.*
   mutation tests are open.
 - *Exit:* criterion 5 passes. Kevin's real build (criterion 8) is the final sign-off.
 
-**Future: one StripForge dialog (after 0.1.x).**
-- Replace the four toolbar buttons with **one "StripForge" button** that opens a single dialog
-  where the decisions are made and saved to `stripboard.toml`: board size (rows, cols, origin),
-  slotted parts (with the filing amount and the lopsided warning shown per part), DRC ignores and
-  allowed courtyard overlaps, cut style.
-- **Per-part choices in one table:** each footprint that doesn't sit cleanly on the holes gets a
-  row with its offsets and a choice: on grid / **slotted** (file the end holes) / **bend** (the
-  Beckham tolerance, with the leg bend shown in mm and mil) / **skip** (wired off-board) /
-  **adapter** (a carrier board or socket; not implemented yet). The dialog suggests the fitting
-  choice the way the rejection hints do, and writes `slotted`, `[bend]` and `skip`.
-- **Analyze inside the dialog** (live report pane; Build strips and Run DRC as buttons there).
-- **Built-in Sheet view:** a PDF-viewer-like preview of the build sheet (pages, zoom, copper /
-  component side), instead of only opening the browser.
-- Before writing it, look at how other KiCad / perfboard tools do dialogs and previews for code to
-  reuse. **perfboard-studio / PerfStudio** (medinstech; code Apache-2.0, 3D meshes CC-BY-SA-4.0)
-  is a candidate: Apache-2.0 code may be used in this GPL-3.0-or-later project with credit (keep
-  its LICENSE/NOTICE text and name it in Credits); do not copy the CC-BY-SA meshes. Note it uses
-  PySide6/Qt and Python 3.12+, while a KiCad 10 plugin has wxPython and Python 3.9, so ideas and
-  pure-Python parts port more easily than UI code. GPL-compatible KiCad plugins are fine too.
+**M4: one dialog, tidy backups, safer link defaults (after the M3 freeze; Kevin, 2026-10-02).**
+Docs only so far: nothing here is built yet.
 
-**Post-M3 backlog: pre-existing mounting holes (Kevin, 2026-09-29; not in M3).**
+- **M4a: one StripForge button, one dialog.** Replace the five toolbar buttons (Analyze, Build
+  strips, Add links to schematic, Run DRC, Build sheet) with **one "StripForge" button** that opens
+  a single settings / actions / check dialog, the way other KiCad plugins work.
+  - **Settings**, saved to `stripboard.toml`: board size (rows, cols, origin), slotted parts (with
+    the filing amount and the lopsided warning shown per part), DRC ignores and allowed courtyard
+    overlaps, cut style, link options (`diagonal_links` and friends, see M4c).
+  - **Per-part choices in one table:** each footprint that doesn't sit cleanly on the holes gets a
+    row with its offsets and a choice: on grid / **slotted** (file the end holes) / **bend** (the
+    Beckham tolerance, with the leg bend shown in mm and mil) / **skip** (wired off-board) /
+    **adapter** (a carrier board or socket; not implemented yet). The dialog suggests the fitting
+    choice the way the rejection hints do, and writes `slotted`, `[bend]` and `skip`.
+  - **Actions:** Build strips, Add links to schematic, Run DRC, Build sheet and Clean (M4b) as
+    buttons in the dialog, in workflow order, each with the save-first prompt it has today.
+  - **Check:** Analyze inside the dialog as a live report pane, plus the DRC result, so the
+    dialog is also where you look before and after a build.
+  - **Built-in Sheet view:** a PDF-viewer-like preview of the build sheet (pages, zoom, copper /
+    component side), instead of only opening the browser.
+  - **Reuse dialog code** from plugins with a compatible licence rather than starting from zero.
+    Look first at how other KiCad / perfboard tools do dialogs and previews. **perfboard-studio /
+    PerfStudio** (medinstech; code Apache-2.0, 3D meshes CC-BY-SA-4.0) is a candidate: Apache-2.0
+    code may be used in this GPL-3.0-or-later project with credit (keep its LICENSE/NOTICE text and
+    name it in Credits); do not copy the CC-BY-SA meshes. It uses PySide6/Qt and Python 3.12+,
+    while a KiCad 10 plugin has wxPython and Python 3.9, so ideas and pure-Python parts port more
+    easily than UI code. GPL-compatible (GPL-2.0-or-later, GPL-3.0, LGPL, MIT, BSD, Apache-2.0)
+    KiCad plugins are fine too; record each borrowed file and its licence in Credits.
+  - The toolbar keeps working until the dialog covers every action; the CLI is unchanged.
+
+- **M4b: Clean (tidy the backups into `stripforge-backups/`).** A Clean action (a dialog button,
+  and `stripforge clean <board> [--dry-run]`) **moves** every StripForge backup out of the project
+  root into a `stripforge-backups/` folder in the project. It **never deletes** anything.
+  - **What it moves:** board backups `<name>-pre-stripbuild.kicad_pcb` and `-pre-stripbuild-<n>`
+    (and the `-pre-stripbuild.kicad_dru` copy); schematic backups `<sheet>-pre-links.kicad_sch` and
+    `-pre-links-<n>`; previous build sheets `<name>-stripforge.sheet-prev.html` / `.pdf` and
+    `-prev-<n>`; and the nested files from building a backup board by mistake, such as
+    `<name>-pre-stripbuild-pre-stripbuild.kicad_pcb`, `<name>-pre-stripbuild.kicad_dru` /
+    `.kicad_pro` / `.kicad_prl` next to it, and `<name>-pre-stripbuild-stripforge.links.*` (seen
+    in Kevin's project on 2026-10-01).
+  - **What it never touches:** the project's own `<name>.kicad_pcb`, `.kicad_sch` sheets,
+    `.kicad_pro`, `.kicad_prl`, `.kicad_dru`, the current `<name>-stripforge.*` outputs (sheet,
+    SVGs, CSV, link lists), `stripboard.toml`, and KiCad's own `<name>-backups/` folder. Only names
+    that match StripForge's backup patterns move.
+  - **How:** list what would move first (the dry run), ask, then move with `os.replace` only when
+    the target doesn't exist, so nothing is overwritten. Names stay as they are. If a name is
+    already in `stripforge-backups/` (a second Clean), that batch goes into a dated subfolder
+    `stripforge-backups/<YYYY-MM-DD_HHMMSS>/`. The report lists every move, so undoing one is a
+    move back. Refuse while the open board is itself one of the backups.
+  - **Keep the "(yours)" evidence working.** `writer.moved_in_backups` (links you moved, §4.11)
+    reads the `-pre-stripbuild` chain through `numbered_backups` / `backup_path`. After Clean it
+    must find the backups in `stripforge-backups/` (and its dated subfolders) as well as next to
+    the board, as one chain in the right order, since it compares each backup with the next. Order:
+    the oldest Clean batch first, then the newer ones, then the backups still in the project root;
+    inside each, the highest number first (oldest), as now. A test moves a project's backups with
+    Clean and checks that the build gives the same "(yours)" marks before and after.
+  - **Rotation and `backup_keep`** stay as they are and act only on the project root: Clean'd
+    files are never renumbered or pruned. (Writing new backups straight into the folder could be
+    an option later; not in M4.)
+  - Related, small: warn (or refuse) when Build strips runs on a backup board
+    (`*-pre-stripbuild*.kicad_pcb`), which is how the nested files above were made.
+
+- **M4c: diagonal links off by default, and at most a one-hole shift.** Change the default to
+  `diagonal_links = false` (the TPI fixture already builds with it off: 34 straight links, joined
+  through spare strips where needed), and when diagonals are turned on, allow only a **one-hole
+  sideways shift** (a link that drops to another strip and moves at most one hole along it). A
+  longer diagonal is reported with the reason instead of placed. This changes the default
+  behaviour, so it waits for M4 rather than going into 0.2.x: document it in the CHANGELOG and the
+  README's "Diagonal links: your choice" tip, and keep `diagonal_links = true` plus a new limit
+  (e.g. `max_diagonal_shift = 1`) for anyone who wants more.
+
+- *Exit:* Kevin builds and checks a board using only the dialog; Clean on his project leaves the
+  root tidy with every backup in `stripforge-backups/` and the same "(yours)" marks on the next
+  build; the TPI fixture builds unchanged with the new diagonal defaults.
+
+**Later (after M4): pre-existing mounting holes (Kevin, 2026-09-29; not in M3).**
 - A `stripboard.toml` option for mounting holes already drilled in the stripboard, given either
   by hole label plus diameter (e.g. `C3`, `C65`, `X3`, `X65`, 3.2 mm) or by board coordinates in
   inches (e.g. `(0.3, 0.3)`, `(6.5, 0.3)`, `(0.3, 2.4)`, `(6.5, 2.4)`). The origin for inch

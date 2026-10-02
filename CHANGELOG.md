@@ -21,6 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Docs
 
+- Roadmap: a new **M4** in Sketch.md §7 (one StripForge button and dialog; a Clean action that moves
+  backups into `stripforge-backups/` and never deletes; diagonal links off by default with at most
+  a one-hole shift). Pre-drilled mounting holes move to "Later". Plans only, no code.
 - README and release notes: screenshots of Install from File in the Plugin and Content Manager.
 - The footprint library path for a PCM install is `${KICAD10_3RD_PARTY}/plugins/com_github_somerleddesign_stripforge/...`:
   the Plugin and Content Manager names the folder with underscores, not dots as the docs said.

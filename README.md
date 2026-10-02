@@ -223,7 +223,8 @@ API is avoided because KiCad 11 removes it. Python 3.9+ (KiCad 10's bundled Pyth
 | **M1: Model and splitting** | Pure-Python grid snap, strip model, cut placement, net per piece, link proposals and validation, with unit tests and a JSON plan output. |
 | **M2: Board output and DRC** | File-backend `.kicad_pcb` writer, `kicad-cli` DRC wrapper and classifier, the two-pass link flow, and mutation tests proving DRC guards the layout. |
 | **M3: Build sheet and IPC** | Mirrored SVG/PDF build sheet with cut and link lists; the KiCad plugin. Done in 0.1.0; 0.2.0 is the first beta. |
-| **Next** | More boards tested, pre-drilled mounting holes, the official PCM. |
+| **M4** (planned) | One StripForge button and dialog (settings, actions, Analyze, a built-in sheet view); Clean, which moves backups into `stripforge-backups/` (never deletes); diagonal links off by default, at most a one-hole shift. See [Sketch.md](Sketch.md) §7. |
+| **Later** | More boards tested, pre-drilled mounting holes, the official PCM. |
 
 ## Reference
 
