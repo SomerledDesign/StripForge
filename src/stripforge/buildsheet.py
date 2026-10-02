@@ -829,8 +829,8 @@ h3 { font-size: 11pt; margin: 3mm 0 1mm; }
 h4 { font-size: 10pt; margin: 2.5mm 0 1mm; }
 ul.check.three { columns: 3; column-gap: 5mm; font-size: 9pt; }
 table.parts { table-layout: fixed; }
-col.c-box { width: 7mm; } col.c-ref { width: 12mm; } col.c-val { width: 34mm; } col.c-fp { width: 58mm; }
-col.c-status { width: 17mm; }
+col.c-box { width: 7mm; } col.c-ref { width: 12mm; } col.c-val { width: 34mm; } col.c-fp { width: 56mm; }
+col.c-status { width: 21mm; } table.parts td.status { overflow-wrap: normal; white-space: nowrap; }
 table.parts td { overflow-wrap: anywhere; }
 .viewpage h2 { margin-top: 0; }
 .mirror-note { font-weight: bold; color: #b00; font-size: 11pt; margin: 1mm 0 2mm; }
