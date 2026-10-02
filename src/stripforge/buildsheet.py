@@ -889,6 +889,8 @@ svg .wire text { fill: #1f5fbf; font-weight: bold; stroke: #fff; stroke-width: 0
 svg .wire.proposed line { stroke-dasharray: 1 0.7; }
 .legend { font-size: 8.5pt; margin: 1.5mm 0; color: #333; }
 .legend i { display: inline-block; width: 4mm; height: 2.5mm; vertical-align: middle; margin: 0 1mm 0 3mm; }
+.legend i.line { width: 6mm; height: 0; border-top: 0.6mm solid; background: none; }
+.legend i.line.dashed { border-top-style: dashed; }
 ol.steps { padding-left: 5mm; }
 ul.check { list-style: none; padding: 0; margin: 0 0 2mm; columns: 2; column-gap: 8mm; }
 ul.check.one { columns: 1; }
@@ -1017,7 +1019,10 @@ CHECK_JS = r"""
 """
 
 
-def _legend(copper: bool) -> str:
+def _legend(copper: bool, proposed: bool = False) -> str:
+    """The key under a view. The component side's links get line swatches: a solid blue line for a
+    wire link, and a dashed one for "proposed (not placed yet)" only when the sheet has any."""
+    lines: list[tuple[str, str]] = []
     if copper:
         items = [
             (COPPER, "strip copper"),
@@ -1030,11 +1035,16 @@ def _legend(copper: bool) -> str:
         items = [
             ("#2b2b2b", "part outline"),
             ("#ffe9a8", "pin 1 (square pad, red dot)"),
-            (LINK_BLUE, "wire link (dashed: proposed, not placed yet)"),
         ]
+        lines.append(("solid", "wire link"))
+        if proposed:
+            lines.append(("dashed", "proposed (not placed yet)"))
     return (
         '<div class="legend">'
         + "".join(f'<i style="background:{c}"></i>{_e(t)}' for c, t in items)
+        + "".join(
+            f'<i class="line {style}" style="border-top-color:{LINK_BLUE}"></i>{_e(t)}' for style, t in lines
+        )
         + "</div>"
     )
 
@@ -1116,7 +1126,7 @@ def render_html(model: SheetModel) -> str:
             '<p class="legend">Not mirrored: as seen from the parts side. Hole 1 is on the left. The faint '
             "bands are the strips underneath.</p>",
             component_svg(model, v),
-            _legend(False),
+            _legend(False, any(r.status != "placed" for r in model.links)),
             "</section>",
         ]
     out.append(

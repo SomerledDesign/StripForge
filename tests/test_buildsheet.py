@@ -140,6 +140,19 @@ def test_pass1_sheet_draws_links_dashed_and_says_so(real):
     assert [r.status for r in m.links] == ["to-add"] * 40
     assert h.count('class="wire proposed"') == 40
     assert any("40 wire link(s) are not placed" in w for w in m.warnings)
+    assert '<i class="line dashed" style="border-top-color:#1f5fbf"></i>proposed (not placed yet)' in h
+
+
+def test_legend_has_a_solid_wire_link_and_a_dashed_entry_only_for_proposed_links(real):
+    """Kevin 2026-10-02: every link placed, yet the key said "wire link (dashed: proposed, not
+    placed yet)". The links were drawn solid; the legend just always showed that entry."""
+    h = real["h2"]
+    assert h.count('class="wire"') == 40 and 'class="wire proposed"' not in h
+    assert '<i class="line solid" style="border-top-color:#1f5fbf"></i>wire link' in h
+    assert "proposed (not placed yet)" not in h and "dashed: proposed" not in h
+    css = h.split("<style>", 1)[1].split("</style>", 1)[0]
+    assert ".legend i.line { width: 6mm; height: 0; border-top: 0.6mm solid;" in css
+    assert ".legend i.line.dashed { border-top-style: dashed; }" in css
 
 
 def test_copper_view_is_mirrored_and_labelled_on_both_edges(real):

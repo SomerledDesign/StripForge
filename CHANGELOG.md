@@ -19,6 +19,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   One inline script, no external files. The PDF stays static (Chrome's print-to-PDF makes no form
   fields): print it and tick by pen.
 
+### Fixed
+
+- Build sheet legend: the component-side key always said "wire link (dashed: proposed, not placed
+  yet)", even when every link was placed (placed links were already drawn solid). It now has two
+  line swatches: a solid blue "wire link", and a dashed blue "proposed (not placed yet)" shown only
+  when the sheet has links that aren't placed. Same in the HTML and the PDF.
+
 ### Docs
 
 - Roadmap: a new **M4** in Sketch.md §7 (one StripForge button and dialog; a Clean action that moves
