@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Build sheet: tick the checklists off in the browser** (Kevin, building the TPI fixture). A
+  click on a row or its box ticks it, strikes the row through except the Status, and sets the
+  Status to "Cut" (cuts) or "Installed" (links and parts; parts get a Status column); click again
+  to undo. Slot jobs, link lengths, off-board parts and nets tick and strike the same way. Ticks
+  are kept in localStorage under `stripforge-sheet:<board>:<build hash>` (a hash of the
+  checklists, so a reprint keeps them and a changed build starts afresh), with a progress count
+  per list ("12/34 links") and a **Reset checklist** button. Print shows the ticks as they are.
+  One inline script, no external files. The PDF stays static (Chrome's print-to-PDF makes no form
+  fields): print it and tick by pen.
+
 ### Docs
 
 - README and release notes: screenshots of Install from File in the Plugin and Content Manager.

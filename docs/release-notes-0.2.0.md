@@ -21,6 +21,9 @@ like to hear about them.
   keeps what you did and fills in the rest.
 - **More nets joined.** A spare strip can carry a net between two pieces ("bus strip"), and nets
   left over get a second try after unused strip ends are trimmed.
+- **Tick the build sheet off on screen.** Click a checklist row in the HTML sheet to tick it and
+  strike it through (Status: "Cut" or "Installed"); progress counts, a reset button, and the ticks
+  survive a refresh. The PDF is for printing and ticking by pen.
 - **Backups** of the board, every schematic sheet it changes, and the previous build sheet.
 - A slimmer link footprint outline, clearer reports, and many fixes. The full list is in the
   [CHANGELOG](https://github.com/SomerledDesign/StripForge/blob/main/CHANGELOG.md).

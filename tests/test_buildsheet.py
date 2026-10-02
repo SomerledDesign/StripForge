@@ -79,7 +79,8 @@ def test_cut_list_is_grouped_by_strip_in_order(real):
     heads = re.findall(r'<li class="strip-head"><b>Strip (\w+)</b>', h)
     assert heads == sorted(heads, key=lambda s: (len(s), s)) and heads[0] == "A"  # bus strip A
     assert (
-        'data-cut="X1" data-style="hole"><span class="box"></span>'
+        'data-cut="X1" data-style="hole" data-key="cut:X1"><span class="box" role="checkbox" '
+        'aria-checked="false" tabindex="0"></span><span class="what">'
         '<span class="mono">X1</span> hole <b>B24</b>' in h
     )
     assert "<b>knife B27|B28</b>" in h
@@ -95,7 +96,7 @@ def test_slot_jobs_say_which_way_and_how_far(real):
 
 def test_links_list_from_to_length_and_footprint(real):
     h = real["h2"]
-    row = re.search(r'<tr class="item" data-kind="link" data-link="W7">.*?</tr>', h).group(0)
+    row = re.search(r'<tr class="item" data-kind="link" data-link="W7"[^>]*>.*?</tr>', h).group(0)
     assert "<b>B18</b>" in row and "<b>U18</b>" in row and "1.9&quot;" in row and "19 holes, 48.26 mm" in row
     assert "StripForge:Link_P48.26" in row and "placed" in row
 
@@ -110,7 +111,7 @@ def test_parts_in_build_order_with_every_pin_hole(real):
     j2 = next(r for r in m.parts if r.ref == "J2")
     assert len(j2.pins) == 18 and j2.group_name == "ICs and sockets"
     h = real["h2"]
-    row = re.search(r'data-kind="part" data-ref="R3">.*?</tr>', h).group(0)
+    row = re.search(r'data-kind="part" data-ref="R3"[^>]*>.*?</tr>', h).group(0)
     assert "1:<b>H25</b>" in row and "2:<b>L25</b>" in row
 
 
@@ -196,7 +197,8 @@ def test_placement_board_and_edited_board_are_flagged(real, tmp_path):
 
 def test_html_is_self_contained_and_deterministic(real):
     h = real["h2"]
-    assert "<script" not in h and "<link" not in h and " src=" not in h
+    assert h.count("<script") == 1 and "<script>" in h  # the inline checklist script, nothing loaded
+    assert "<link" not in h and " src=" not in h
     assert not re.search(r"https?://(?!www\.w3\.org/2000/svg)", h)
     assert "@page" in h and "Letter" in h
     assert buildsheet.render_html(real["m2"]) == h
@@ -306,3 +308,124 @@ def test_sheet_keeps_the_previous_one_only_when_it_changes(tmp_path):
     keep1 = BoardConfig(trim_pieces=False, backup_keep=1)
     buildsheet.write_sheet(board, keep1, out, pdf=False, date="2026-10-01")
     assert not (tmp_path / "b-stripforge.sheet-prev-1.html").exists()  # backup_keep = 1: just -prev
+
+
+# --- clickable checklists (Kevin 2026-10-02, building the TPI fixture) --------------------------
+
+
+def _row(h: str, key: str) -> str:
+    return re.search(rf'<(li|tr) class="item"[^>]*data-key="{re.escape(key)}">.*?</\1>', h).group(0)
+
+
+def test_every_checklist_row_has_a_key_a_box_and_where_it_matters_a_status(real):
+    h = real["h2"]
+    keys = re.findall(r'data-key="([^"]+)"', h)
+    assert len(keys) == len(set(keys)) == h.count('class="item"')
+    kinds = {k.split(":", 1)[0] for k in keys}
+    assert {"cut", "slot", "link", "link-length", "part", "net"} <= kinds
+    assert h.count('role="checkbox"') == len(keys)
+    cut = _row(h, "cut:" + items(h, "cut")[0])
+    assert '<span class="status" data-done="Cut">' in cut and '<span class="what">' in cut
+    link = _row(h, "link:W7")
+    assert '<td class="status"><span class="status" data-done="Installed">placed</span></td>' in link
+    part = _row(h, "part:R3")
+    assert '<td class="status"><span class="status" data-done="Installed"></span></td>' in part
+    assert h.count("<th>Status</th>") == 1 + h.count('<table class="list parts">')
+    for kind in ("cut", "link", "part"):
+        assert f'<span class="progress" data-for="{kind}"></span>' in h
+    assert '<button type="button" id="reset-checklist">Reset checklist</button>' in h
+
+
+def test_yours_stays_in_the_status_until_ticked(tmp_path):
+    from test_edits import edit, pass2, rebuild
+
+    p2 = pass2(tmp_path)
+    edit(p2, "W1", "A5")
+    edit(p2, "CUT1", "A6")
+    rebuild(p2)
+    h = buildsheet.render_html(buildsheet.sheet_model(p2, BoardConfig(trim_pieces=False), date=DATE))
+    yours = re.findall(r'<span class="status" data-done="(\w+)">([^<]*(?:<b>[^<]*</b>)?[^<]*)</span>', h)
+    assert ("Cut", "<b>(yours)</b>") in yours and ("Installed", "placed <b>(yours)</b>") in yours
+
+
+def test_build_hash_follows_the_checklists_not_the_date(real):
+    import copy
+
+    m2 = real["m2"]
+    build = re.search(r'<body data-board="fixture" data-build="([0-9a-f]{16})"', real["h2"]).group(1)
+    later = copy.copy(m2)
+    later.date = "2027-01-01"
+    h = buildsheet.render_html(later)
+    assert "2027-01-01" in h and f'data-build="{build}"' in h  # printing again keeps the ticks
+    b1 = re.search(r'data-build="([0-9a-f]{16})"', real["h1"]).group(1)
+    assert b1 != build  # links added since pass 1: a different build, a fresh checklist
+
+
+def test_ticks_and_strike_through_print(real):
+    h = real["h2"]
+    css = h.split("<style>", 1)[1].split("</style>", 1)[0]
+    screen = css.split("@media screen", 1)[1].split("@media print", 1)[0]
+    assert ".item.done .box::after" in css and ".item.done .box::after" not in screen
+    assert "text-decoration: line-through" in css and "line-through" not in screen
+    assert "td:not(.status)" in css
+
+
+@pytest.mark.skipif(buildsheet.find_chrome() is None, reason="no Chrome/Chromium to run the script")
+def test_clicking_rows_ticks_strikes_saves_and_resets(real, tmp_path):
+    """Run the sheet's own script in headless Chrome: seed a saved tick, click rows, read back."""
+    import html as html_mod
+    import subprocess
+
+    h = real["h2"]
+    first_cut = "cut:" + items(h, "cut")[0]
+    key_js = (
+        '"stripforge-sheet:" + document.body.getAttribute("data-board") + ":" '
+        '+ document.body.getAttribute("data-build")'
+    )
+    seed = (
+        f"<script>localStorage.clear(); localStorage.setItem({key_js}, "
+        f"JSON.stringify([{first_cut!r}]));</script>"
+    )
+    probe = (
+        "<script>window.confirm = function () { return true; };"
+        f"var key = {key_js}, r = {{}};"
+        "function q(k) { return document.querySelector('.item[data-key=\"' + k + '\"]'); }"
+        "function st(k) { return q(k).querySelector('.status').textContent; }"
+        f"r.seeded = [q({first_cut!r}).classList.contains('done'), st({first_cut!r})];"
+        "q('link:W7').querySelector('td:nth-child(3)').click();"
+        "r.link = [q('link:W7').classList.contains('done'), st('link:W7'),"
+        " q('link:W7').querySelector('.box').getAttribute('aria-checked')];"
+        "r.strike = getComputedStyle(q('link:W7').querySelector('td:nth-child(3)')).textDecorationLine;"
+        "r.statusStrike = getComputedStyle(q('link:W7').querySelector('td.status')).textDecorationLine;"
+        "q('part:R3').querySelector('.box').click();"
+        "r.part = [q('part:R3').classList.contains('done'), st('part:R3')];"
+        "r.saved = JSON.parse(localStorage.getItem(key)).sort();"
+        "r.progress = document.querySelector('.progress[data-for=\"link\"]').textContent;"
+        "r.hasTicks = document.body.classList.contains('has-ticks');"
+        "q('link:W7').click();"
+        "r.undo = [q('link:W7').classList.contains('done'), st('link:W7')];"
+        "document.getElementById('reset-checklist').click();"
+        "r.reset = [document.querySelectorAll('.item.done').length, localStorage.getItem(key)];"
+        "document.body.setAttribute('data-result', JSON.stringify(r));</script>"
+    )
+    sheet_js = h.rindex("<script>")
+    page = tmp_path / "probe.html"
+    page.write_text(
+        h[:sheet_js] + seed + h[sheet_js:].replace("</body>", probe + "</body>"), encoding="utf-8"
+    )
+    cmd = [buildsheet.find_chrome(), "--headless=new", "--disable-gpu", "--no-sandbox", "--no-first-run",
+           f"--user-data-dir={tmp_path / 'prof'}", "--dump-dom", page.as_uri()]  # fmt: skip
+    try:
+        dom = subprocess.run(cmd, capture_output=True, text=True, timeout=120).stdout
+    except subprocess.TimeoutExpired:
+        pytest.skip("headless Chrome did not finish")
+    r = json.loads(html_mod.unescape(re.search(r'data-result="([^"]*)"', dom).group(1)))
+    n_links = len(items(h, "link"))
+    assert r["seeded"] == [True, "Cut"]
+    assert r["link"] == [True, "Installed", "true"]
+    assert r["strike"] == "line-through" and r["statusStrike"] == "none"
+    assert r["part"] == [True, "Installed"]
+    assert r["saved"] == sorted([first_cut, "link:W7", "part:R3"])
+    assert r["progress"] == f"1/{n_links} links" and r["hasTicks"] is True
+    assert r["undo"] == [False, "placed"]
+    assert r["reset"] == [0, None]

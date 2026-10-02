@@ -17,7 +17,9 @@ Contents, in build order:
 3. the **component side**: part outlines (F.Fab), refs, values, pads with pin-1 marks and the wire
    links drawn as wires;
 4. checklists with a box per item: cuts grouped by strip, slot jobs, wire links, then the parts
-   (links, resistors, diodes, ... switches last) with the hole of every pin;
+   (links, resistors, diodes, ... switches last) with the hole of every pin. In a browser a click
+   on a row ticks it and strikes it through (see :data:`CHECK_JS`); the ticks are kept in the
+   browser's localStorage per board and build, and print as they are;
 5. the net check table (every hole each net should reach, for a continuity meter);
 6. warnings (knife cuts, courtyard overlaps, unlinkable nets, anything else).
 
@@ -29,8 +31,10 @@ from __future__ import annotations
 
 import csv
 import datetime as _dt
+import hashlib
 import html
 import io
+import json
 import math
 import os
 import re
@@ -825,10 +829,34 @@ h3 { font-size: 11pt; margin: 3mm 0 1mm; }
 h4 { font-size: 10pt; margin: 2.5mm 0 1mm; }
 ul.check.three { columns: 3; column-gap: 5mm; font-size: 9pt; }
 table.parts { table-layout: fixed; }
-col.c-box { width: 7mm; } col.c-ref { width: 12mm; } col.c-val { width: 34mm; } col.c-fp { width: 62mm; }
+col.c-box { width: 7mm; } col.c-ref { width: 12mm; } col.c-val { width: 34mm; } col.c-fp { width: 58mm; }
+col.c-status { width: 17mm; }
 table.parts td { overflow-wrap: anywhere; }
 .viewpage h2 { margin-top: 0; }
 .mirror-note { font-weight: bold; color: #b00; font-size: 11pt; margin: 1mm 0 2mm; }
+.checkbar { display: flex; flex-wrap: wrap; align-items: center; gap: 1mm 5mm; font-size: 9pt;
+            border: 0.5pt solid #999; background: #f6f6f6; padding: 1.2mm 2.5mm; margin: 0 0 2mm; }
+.checkbar button { font: inherit; font-size: 8.5pt; padding: 0.4mm 2.5mm; cursor: pointer; }
+.checkbar .hint { color: #666; }
+.progress { font-weight: normal; font-size: 9pt; color: #333; margin-left: 2mm; }
+.progress:empty { display: none; }
+.item.done .box { background: #111; position: relative; }
+.item.done .box::after { content: ""; position: absolute; left: 0.95mm; top: 0.15mm; width: 0.9mm;
+                         height: 1.9mm; border: solid #fff; border-width: 0 0.5mm 0.5mm 0; transform: rotate(45deg); }
+li.item.done .what, tr.item.done td:not(.status) { text-decoration: line-through; color: #555; }
+.item.done .status { font-weight: bold; color: #0a6b2a; }
+li.item .status { display: inline-block; text-indent: 0; }
+@media screen {
+  .item[data-key] { cursor: pointer; }
+  .item[data-key]:hover { background: #fff8d6; }
+  .box[tabindex]:focus { outline: 1.5pt solid #1f5fbf; outline-offset: 0.5pt; }
+  .checkbar { position: sticky; top: 0; z-index: 2; }
+}
+@media print {
+  .checkbar button, .checkbar .hint { display: none; }
+  body:not(.has-ticks) .checkbar, body:not(.has-ticks) .progress { display: none; }
+  .item[data-key]:hover { background: none; }
+}
 svg.view { display: block; margin: 0 auto; background: #fff; }
 svg .board { fill: #fbf7ef; stroke: #555; stroke-width: 0.25; }
 svg[data-side="component"] .board { fill: #f3f6ef; }
@@ -881,7 +909,112 @@ footer { margin-top: 6mm; font-size: 8pt; color: #666; }
 
 
 def _box() -> str:
-    return '<span class="box"></span>'
+    return '<span class="box" role="checkbox" aria-checked="false" tabindex="0"></span>'
+
+
+def _key(kind: str, ident: str) -> str:
+    """The row's id in the saved checklist state (``data-key``)."""
+    return f' data-key="{_e(kind)}:{_e(ident)}"'
+
+
+def _status(text: str, done: str) -> str:
+    """A Status cell's content: ``text`` until the row is ticked, then ``done`` (by CHECK_JS)."""
+    return f'<span class="status" data-done="{_e(done)}">{text}</span>'
+
+
+#: What a ticked row's Status says.
+DONE_CUT = "Cut"
+DONE_INSTALLED = "Installed"
+
+#: Checklist kinds and the words for their progress counts ("12/34 links").
+CHECK_KINDS = {
+    "cut": "cuts",
+    "slot": "slots",
+    "link": "links",
+    "link-length": "lengths",
+    "part": "parts",
+    "offboard": "wired",
+    "net": "nets",
+}
+
+
+def _progress(kind: str) -> str:
+    return f'<span class="progress" data-for="{kind}"></span>'
+
+
+def sheet_hash(lists_html: str) -> str:
+    """A short hash of the checklists, so saved ticks belong to one build: a rebuild that changes
+    a cut, a link or a part starts a fresh checklist; printing the same build again does not."""
+    return hashlib.sha256(lists_html.encode("utf-8")).hexdigest()[:16]
+
+
+#: The sheet's only script: inline, no external files. A click on a checklist row (or Space/Enter
+#: on its box) ticks it, strikes the row through except its Status, and sets the Status to its
+#: ``data-done`` text; a second click undoes it. Ticks are saved in localStorage under
+#: ``stripforge-sheet:<board>:<build hash>``; "Reset checklist" clears them.
+CHECK_JS = r"""
+(function () {
+  var body = document.body;
+  var key = "stripforge-sheet:" + body.getAttribute("data-board") + ":" + body.getAttribute("data-build");
+  var items = Array.prototype.slice.call(document.querySelectorAll(".item[data-key]"));
+  var kinds = JSON.parse(body.getAttribute("data-kinds") || "{}");
+  var store = null;
+  try { store = window.localStorage; store.getItem(key); } catch (e) { store = null; }
+  items.forEach(function (it) {
+    var st = it.querySelector(".status[data-done]");
+    if (st) { st.setAttribute("data-was", st.innerHTML); }
+  });
+  function set(it, on) {
+    it.classList.toggle("done", on);
+    var box = it.querySelector(".box");
+    if (box) { box.setAttribute("aria-checked", on ? "true" : "false"); }
+    var st = it.querySelector(".status[data-done]");
+    if (st) { st.innerHTML = on ? st.getAttribute("data-done") : st.getAttribute("data-was"); }
+  }
+  function done() { return items.filter(function (it) { return it.classList.contains("done"); }); }
+  function save() {
+    if (!store) { return; }
+    var on = done().map(function (it) { return it.getAttribute("data-key"); });
+    try { if (on.length) { store.setItem(key, JSON.stringify(on)); } else { store.removeItem(key); } } catch (e) {}
+  }
+  function progress() {
+    var n = done().length;
+    body.classList.toggle("has-ticks", n > 0);
+    Array.prototype.forEach.call(document.querySelectorAll(".progress[data-for]"), function (el) {
+      var kind = el.getAttribute("data-for");
+      var all = items.filter(function (it) { return it.getAttribute("data-kind") === kind; });
+      var ticked = all.filter(function (it) { return it.classList.contains("done"); });
+      el.textContent = all.length ? ticked.length + "/" + all.length + " " + (kinds[kind] || kind) : "";
+    });
+  }
+  function toggle(it) { set(it, !it.classList.contains("done")); save(); progress(); }
+  var saved = [];
+  try { saved = JSON.parse((store && store.getItem(key)) || "[]"); } catch (e) { saved = []; }
+  items.forEach(function (it) { if (saved.indexOf(it.getAttribute("data-key")) >= 0) { set(it, true); } });
+  progress();
+  document.addEventListener("click", function (e) {
+    var it = e.target.closest ? e.target.closest(".item[data-key]") : null;
+    if (!it) { return; }
+    var sel = window.getSelection ? String(window.getSelection()) : "";
+    if (sel.length && e.target.className !== "box") { return; }  // selecting text, not ticking
+    toggle(it);
+  });
+  document.addEventListener("keydown", function (e) {
+    if ((e.key === " " || e.key === "Enter") && e.target.classList && e.target.classList.contains("box")) {
+      var it = e.target.closest(".item[data-key]");
+      if (it) { e.preventDefault(); toggle(it); }
+    }
+  });
+  var reset = document.getElementById("reset-checklist");
+  if (reset) {
+    reset.addEventListener("click", function () {
+      if (!done().length || !window.confirm("Clear every tick on this build sheet?")) { return; }
+      items.forEach(function (it) { set(it, false); });
+      save(); progress();
+    });
+  }
+})();
+"""
 
 
 def _legend(copper: bool) -> str:
@@ -923,12 +1056,18 @@ def render_html(model: SheetModel) -> str:
     hole_cuts = sum(1 for c in cuts if c.style == "hole")
     placed = sum(1 for r in model.links if r.status == "placed")
     parts = [r for r in model.parts if r.group != 0]
+    checklists = _cut_list(model, cuts) + _slot_list(model) + _link_list(model) + _part_list(model)
+    nets = _net_table(model)
+    build = sheet_hash("\n".join(checklists + nets))
+    board_name = Path(model.board_path).stem
+    kinds = html.escape(json.dumps(CHECK_KINDS, separators=(",", ":")), quote=True)
     out = [
         "<!DOCTYPE html>",
         '<html lang="en"><head><meta charset="utf-8">',
         '<meta name="generator" content="StripForge ' + _e(__version__) + '">',
         f"<title>StripForge build sheet: {_e(model.project)}</title>",
-        f"<style>{CSS}</style></head><body>",
+        f"<style>{CSS}</style></head>",
+        f'<body data-board="{_e(board_name)}" data-build="{build}" data-kinds="{kinds}">',
         '<div class="first">',
         f"<h1>StripForge build sheet: {_e(model.project)}</h1>",
         '<table class="meta">',
@@ -986,26 +1125,29 @@ def render_html(model: SheetModel) -> str:
         "</li><li>Check every cut with a loupe or a meter: no copper bridges.</li><li>Fit the wire links "
         "(list 3), then the parts (list 4), lowest first.</li><li>Before power, check each net with a "
         "continuity meter (section 4).</li></ol>"
+        '<div class="checkbar"><span>Progress:</span>'
+        + "".join(_progress(k) for k in ("cut", "link", "part"))
+        + '<button type="button" id="reset-checklist">Reset checklist</button>'
+        '<span class="hint">Click a row to tick it; click again to undo. Ticks are saved in this '
+        "browser for this build.</span></div>"
     )
-    out += _cut_list(model, cuts)
-    out += _slot_list(model)
-    out += _link_list(model)
-    out += _part_list(model)
+    out += checklists
     out.append("</section>")
-    out += _net_table(model)
+    out += nets
     out += _warnings(model)
-    out.append(
+    out += [
         f"<footer>Generated by StripForge {_e(__version__)} from {_e(Path(model.board_path).name)}, "
         f"config grid {g.span_label}, strip width {_f(cfg.strip_width_mm)} mm, cut style "
         f"{_e(str(cfg.cut_style))}. Print on Letter at 100% (no 'fit to page'); the ruler under each view "
-        "gives the printed scale.</footer></body></html>"
-    )
+        "gives the printed scale.</footer>",
+        f"<script>{CHECK_JS}</script></body></html>",
+    ]
     return "\n".join(out) + "\n"
 
 
 def _cut_list(model: SheetModel, cuts: list[Cut]) -> list[str]:
     out = [
-        f"<h3>List 1: cuts ({len(cuts)}), grouped by strip</h3>",
+        f"<h3>List 1: cuts ({len(cuts)}), grouped by strip{_progress('cut')}</h3>",
         '<p class="legend"><b>hole</b>: cut the copper right round that hole with a spot-face cutter (or a '
         "3-4 mm drill bit turned by hand). <b>knife</b> A|B: between holes A and B, score across the strip "
         "twice and lift the copper between. The pads either side are in brackets.</p>",
@@ -1019,10 +1161,11 @@ def _cut_list(model: SheetModel, cuts: list[Cut]) -> list[str]:
     for r, rc in rows.items():
         out.append(f'<li class="strip-head"><b>Strip {row_label(r)}</b> ({len(rc)})</li>')
         for c in rc:
+            yours = "<b>(yours)</b>" if c.user and not c.auto else ""
             out.append(
-                f'<li class="item" data-kind="cut" data-cut="{c.id}" data-style="{c.style}">{_box()}'
-                f'<span class="mono">{c.id}</span> {_cut_how(c)} <span class="muted">({_e(c.between[0])}|'
-                f"{_e(c.between[1])})</span>{' <b>(yours)</b>' if c.user and not c.auto else ''}</li>"
+                f'<li class="item" data-kind="cut" data-cut="{c.id}" data-style="{c.style}"{_key("cut", c.id)}>'
+                f'{_box()}<span class="what"><span class="mono">{c.id}</span> {_cut_how(c)} <span class="muted">'
+                f"({_e(c.between[0])}|{_e(c.between[1])})</span></span> {_status(yours, DONE_CUT)}</li>"
             )
     out.append("</ul>")
     return out
@@ -1030,23 +1173,24 @@ def _cut_list(model: SheetModel, cuts: list[Cut]) -> list[str]:
 
 def _slot_list(model: SheetModel) -> list[str]:
     jobs = model.a.slot_jobs
-    out = [f"<h3>List 2: slot jobs ({len(jobs)})</h3>"]
+    out = [f"<h3>List 2: slot jobs ({len(jobs)}){_progress('slot')}</h3>"]
     if not jobs:
         return out + ['<p class="muted">No slotted parts.</p>']
     out.append('<ul class="check one">')
     for j in jobs:
         where = "toward the part centre" if j.inward else "away from the part centre"
         out.append(
-            f'<li class="item" data-kind="slot" data-hole="{j.hole.label}">{_box()}file <b>{j.hole.label}</b> '
+            f'<li class="item" data-kind="slot" data-hole="{j.hole.label}"{_key("slot", j.hole.label)}>{_box()}'
+            f'<span class="what">file <b>{j.hole.label}</b> '
             f"<b>{_e(j.amount)}</b> toward <b>{j.toward.label}</b> ({where}) for {_e(j.ref)} pin "
-            f"{_e(j.pad)}: elongate the hole along the strip so the pin drops in</li>"
+            f"{_e(j.pad)}: elongate the hole along the strip so the pin drops in</span></li>"
         )
     out.append("</ul>")
     return out
 
 
 def _link_list(model: SheetModel) -> list[str]:
-    out = [f"<h3>List 3: wire links ({len(model.links)})</h3>"]
+    out = [f"<h3>List 3: wire links ({len(model.links)}){_progress('link')}</h3>"]
     if not model.links:
         return out + ['<p class="muted">No wire links.</p>']
     out.append(
@@ -1061,9 +1205,10 @@ def _link_list(model: SheetModel) -> list[str]:
         elif lk.is_yours:
             status += " <b>(yours)</b>"
         out.append(
-            f'<tr class="item" data-kind="link" data-link="{lk.ref_hint}"><td>{_box()}</td><td class="mono">{lk.ref_hint}</td>'
+            f'<tr class="item" data-kind="link" data-link="{lk.ref_hint}"{_key("link", lk.ref_hint)}><td>{_box()}</td>'
+            f'<td class="mono">{lk.ref_hint}</td>'
             f"<td><b>{lk.start}</b></td><td><b>{lk.end}</b></td><td><b>{_e(lk.inches)}</b> ({lk.pitches} holes, {_f(lk.length_mm)} mm){_link_how(lk)}</td>"
-            f'<td class="mono">{_e(lk.footprint)}</td><td>{_e(lk.net)}</td><td>{status}</td></tr>'
+            f'<td class="mono">{_e(lk.footprint)}</td><td>{_e(lk.net)}</td><td class="status">{_status(status, DONE_INSTALLED)}</td></tr>'
         )
     out.append("</table>")
     out += _link_cut_list(model)
@@ -1077,7 +1222,7 @@ def _link_cut_list(model: SheetModel) -> list[str]:
     allowance = float(getattr(model.prep.config, "link_lead_allowance_in", 0.0) or 0.0)
     cut = allowance > 0
     out = [
-        f"<h4>Link cut list ({len(rows)} length(s))</h4>",
+        f"<h4>Link cut list ({len(rows)} length(s)){_progress('link-length')}</h4>",
         '<table class="list cutlist"><tr><th></th><th>Length (inches, pad-to-pad)</th><th>Qty</th>'
         + ("<th>Cut length</th>" if cut else "")
         + "<th>Links</th></tr>",
@@ -1085,7 +1230,7 @@ def _link_cut_list(model: SheetModel) -> list[str]:
     for v, refs in rows:
         extra = f"<td><b>{_e(links_mod.inch_text(round(v + 2 * allowance, 2)))}</b></td>" if cut else ""
         out.append(
-            f'<tr class="item" data-kind="link-length" data-length="{v:g}"><td>{_box()}</td>'
+            f'<tr class="item" data-kind="link-length" data-length="{v:g}"{_key("link-length", f"{v:g}")}><td>{_box()}</td>'
             f"<td><b>{_e(links_mod.inch_text(v))}</b></td><td>{len(refs)}</td>{extra}"
             f'<td class="mono">{_e(", ".join(refs))}</td></tr>'
         )
@@ -1116,7 +1261,7 @@ def _stretch_list(model: SheetModel) -> list[str]:
 
 def _part_list(model: SheetModel) -> list[str]:
     parts = [r for r in model.parts if r.group != 0]
-    out = [f"<h3>List 4: parts ({len(parts)}), lowest first</h3>"]
+    out = [f"<h3>List 4: parts ({len(parts)}), lowest first{_progress('part')}</h3>"]
     if model.links:
         out.append(
             f"<p>Fit the {len(model.links)} wire links from list 3 first; they lie flat under the parts.</p>"
@@ -1130,16 +1275,17 @@ def _part_list(model: SheetModel) -> list[str]:
             out.append(
                 f"<h4>{_e(r.group_name)}</h4>"
                 '<table class="list parts"><colgroup><col class="c-box"><col class="c-ref"><col class="c-val">'
-                '<col class="c-fp"><col></colgroup>'
-                "<tr><th></th><th>Ref</th><th>Value</th><th>Footprint</th><th>Pins (pin: hole)</th></tr>"
+                '<col class="c-fp"><col><col class="c-status"></colgroup>'
+                "<tr><th></th><th>Ref</th><th>Value</th><th>Footprint</th><th>Pins (pin: hole)</th><th>Status</th></tr>"
             )
         pins = " ".join(f"{_e(n)}:<b>{_e(h)}</b>" for n, h, _ in r.pins)
         note = " <i>(slotted: file its holes first)</i>" if r.slotted else ""
         if r.bend:
             note += f" <i>({_e(r.bend)})</i>"
         out.append(
-            f'<tr class="item" data-kind="part" data-ref="{_e(r.ref)}"><td>{_box()}</td><td class="mono">{_e(r.ref)}</td>'
-            f'<td>{_e(r.value)}</td><td class="mono">{_e(r.footprint)}</td><td class="mono">{pins}{note}</td></tr>'
+            f'<tr class="item" data-kind="part" data-ref="{_e(r.ref)}"{_key("part", r.ref)}><td>{_box()}</td>'
+            f'<td class="mono">{_e(r.ref)}</td><td>{_e(r.value)}</td><td class="mono">{_e(r.footprint)}</td>'
+            f'<td class="mono">{pins}{note}</td><td class="status">{_status("", DONE_INSTALLED)}</td></tr>'
         )
     if group is not None:
         out.append("</table>")
@@ -1154,13 +1300,14 @@ def _offboard_list(model: SheetModel) -> list[str]:
     refs = a.skipped
     if not refs:
         return []
-    out = [f"<h4>Wired off-board ({len(refs)})</h4>", '<ul class="check one">']
+    out = [f"<h4>Wired off-board ({len(refs)}){_progress('offboard')}</h4>", '<ul class="check one">']
     for r in refs:
         nets = sorted({p.net for p in fps[r].pads if p.net and not p.net.startswith("unconnected-")})
         out.append(
-            f'<li class="item" data-kind="offboard" data-ref="{_e(r)}">{_box()}<b>{_e(r)}</b> '
+            f'<li class="item" data-kind="offboard" data-ref="{_e(r)}"{_key("offboard", r)}>{_box()}'
+            f'<span class="what"><b>{_e(r)}</b> '
             f"({_e(_value(fps[r]))}): wired off-board, not on the stripboard; hand-wire it to "
-            f"{_e(', '.join(nets)) if nets else 'nothing (no nets)'}</li>"
+            f"{_e(', '.join(nets)) if nets else 'nothing (no nets)'}</span></li>"
         )
     out.append("</ul>")
     return out
@@ -1168,7 +1315,7 @@ def _offboard_list(model: SheetModel) -> list[str]:
 
 def _net_table(model: SheetModel) -> list[str]:
     out = [
-        '<section class="nets"><h2>4. Net check (continuity)</h2>',
+        f'<section class="nets"><h2>4. Net check (continuity){_progress("net")}</h2>',
         "<p>With the meter on continuity, each net must beep between every hole listed, and must not beep "
         "to the neighbouring strips. Link ends count as holes on their net.</p>",
         '<table class="list"><tr><th></th><th>Net</th><th>Holes it must reach</th></tr>',
@@ -1177,7 +1324,7 @@ def _net_table(model: SheetModel) -> list[str]:
         holes = ", ".join(f'<b>{_e(h)}</b> <span class="muted">{_e(w)}</span>' for h, w in n.holes)
         flag = "" if n.joined else ' <b style="color:#b00">(not fully joined: see warnings)</b>'
         out.append(
-            f'<tr class="item" data-kind="net" data-net="{_e(n.net)}"><td>{_box()}</td><td>{_e(n.net)}{flag}</td>'
+            f'<tr class="item" data-kind="net" data-net="{_e(n.net)}"{_key("net", n.net)}><td>{_box()}</td><td>{_e(n.net)}{flag}</td>'
             f'<td class="mono">{holes}</td></tr>'
         )
     out.append("</table>")

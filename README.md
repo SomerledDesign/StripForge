@@ -124,6 +124,8 @@ StripForge's job.
    <img src="docs/images/plugin-drc-report.png" alt="The Run DRC report: shorts 0, clearance 0, unconnected 0, parity 0; the expected stripboard items filtered; Result: clean" width="720">
 7. Click **Build sheet**. It writes `<name>-stripforge.sheet.html` (and `.pdf` with Chrome) and
    opens it. Print it, cut the strips from the copper-side view, then fit the links and parts.
+   Or keep the HTML open on the bench: click a row to tick it off (see **Ticking it off in the
+   browser** below).
 
 Changed something? Move parts, cut markers or links and click **Build strips** again: StripForge
 keeps your cuts and links and fills in the rest. Then repeat steps 3 to 7.
@@ -579,6 +581,16 @@ there, the old HTML and PDF are kept as `<out>-prev.html` / `.pdf` first (older 
 4. **Net check:** every net and every hole it must touch, for a continuity meter.
 5. **Warnings:** knife cuts, courtyard overlaps, unlinkable nets, links still to add, and a banner
    if the file isn't a (current) StripForge build.
+
+**Ticking it off in the browser.** In the HTML sheet, click a checklist row (or its box) to tick
+it: the box fills, the row is struck through except its Status, and the Status says **Cut** (a cut)
+or **Installed** (a link or a part). Click again to undo. A "Progress" bar shows how many cuts,
+links and parts are done (e.g. "12/34 links"), and **Reset checklist** clears them all. The ticks
+are saved in the browser (localStorage), keyed by the board name and a hash of the checklists, so a
+refresh, or running Build sheet again on the same build, keeps them; a rebuild that changes a cut,
+link or part starts a fresh checklist. Printing the HTML prints the ticks and strike-throughs as
+they are. The script is inline (no files or network). The PDF stays a plain printout to tick by
+pen: Chrome's print-to-PDF can't make PDF form checkboxes.
 
 Large boards are split across pages.
 
