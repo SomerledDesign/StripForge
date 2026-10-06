@@ -736,6 +736,23 @@ Docs only so far: nothing here is built yet.
   - **Build sheet:** draw the holes on both views and list them (they are drilled, not cut: keep
     them out of the cut list and the cut count).
 
+- **M5: Incorporate a protoboard type routing on standard perfboard** as in [perfboard-studio](https://github.com/medinstech/perfboard-studio).
+
+
+**Later (around M6–M7): premade board types beyond plain stripboard (Kevin, 2026-10-05).**
+- Asked for on EEVblog by mariush (2026-10-05, reply #1 on the 0.2.0 thread): add the common
+  off-the-shelf prototype boards to the list of boards you can pick, not only plain horizontal
+  strips.
+- Board types he linked as examples: pairs of joined holes; pairs with bus bars between the
+  columns; 3-hole groups; 5-hole groups like a breadboard; a full breadboard-style board; a
+  3-5-5-2 breadboard-style layout with bus bars; and boards with SMD pads.
+- Rough shape: a board list (presets in the plugin, chosen in the M4 dialog or `stripboard.toml`),
+  where each board type says which holes share copper and where any SMD pads sit. Today's
+  horizontal stripboard becomes one entry. The splitter, link finder, cuts, DRC copper and build
+  sheet read the copper islands from the chosen board instead of assuming one strip per row.
+- Not scheduled yet; it comes after M5 (perfboard routing). Kevin's reply on the thread
+  says it is on the list.
+
 ## 8. Jarvis / Mildrew split
 
 | Area | Jarvis | Mildrew |
