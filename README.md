@@ -92,6 +92,25 @@ library at the `footprints/StripForge.pretty` folder in there. To update, instal
 same way and restart KiCad. If a button does nothing, try Preferences > Plugins > **Recreate Plugin
 Environment**.
 
+### If the buttons don't appear (Linux)
+
+On Debian and Ubuntu, KiCad builds the plugin's Python environment with the system Python, which
+needs the `python3-venv` package. If that package was missing the first time KiCad tried, it leaves
+a half-built environment with no pip, and it keeps reusing it even after you install
+`python3-venv`. KiCad prints no error for this, and StripForge never shows up. To fix it:
+
+1. Close KiCad.
+2. Install the venv package: `sudo apt install python3-venv`.
+3. Delete the broken environment:
+   `rm -rf ~/.cache/kicad/10.0/python-environments/com.github.somerleddesign.stripforge`
+4. Open the PCB editor again and give it a few seconds to install. The five buttons appear at the
+   right end of the top toolbar; maximise the window if only the first one shows.
+
+StripForge isn't listed under Tools > External Plugins, because that menu is for the older SWIG
+plugins; the toolbar buttons are where it lives. If it still doesn't load, start the PCB editor from
+a terminal with `KICAD_ENABLE_WXTRACE=1 WXTRACE=KICAD_API pcbnew` and look at the lines starting
+with `Manager:`.
+
 ## Using it
 
 Open your project from the KiCad project manager (not the board file on its own, or F8 won't
