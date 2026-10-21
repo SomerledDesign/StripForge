@@ -716,6 +716,18 @@ Docs only so far: nothing here is built yet.
   README's "Diagonal links: your choice" tip, and keep `diagonal_links = true` plus a new limit
   (e.g. `max_diagonal_shift = 1`) for anyone who wants more.
 
+- **M4d: fail loudly (issue #1, NickLarsenNZ, 2026-10-20; NixOS, KiCad 10.0.5).** Build strips
+  "did nothing": no Edge.Cuts outline, and no wxPython in the plugin venv, so every message went to
+  stdout (KiCad only shows that in the PCB editor's status-bar warnings).
+  - Always write the run report to a log file (e.g. `<name>-stripforge.log` next to the board) and
+    print one short line pointing to it.
+  - Without wx, don't save the board silently in `ask_save`: say so, or refuse an in-place build.
+  - Check for a missing Edge.Cuts outline (with no `origin_mm`/`rows`/`cols`) before saving, with a
+    clear message; consider a default grid from the footprints' bounding box.
+  - README: "draw a board outline first" step; fix the venv path case to match KiCad's docs; a NixOS
+    note (set Preferences > Plugins > Python interpreter to a Python with wxPython, then Recreate
+    Plugin Environment).
+
 - *Exit:* Kevin builds and checks a board using only the dialog; Clean on his project leaves the
   root tidy with every backup in `stripforge-backups/` and the same "(yours)" marks on the next
   build; the TPI fixture builds unchanged with the new diagonal defaults.
