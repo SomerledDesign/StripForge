@@ -724,6 +724,9 @@ Docs only so far: nothing here is built yet.
   - Without wx, don't save the board silently in `ask_save`: say so, or refuse an in-place build.
   - Check for a missing Edge.Cuts outline (with no `origin_mm`/`rows`/`cols`) before saving, with a
     clear message; consider a default grid from the footprints' bounding box.
+  - Off-grid footprint error should give the actionable fix (issue #1): name the footprint, the
+    suggested (dx, dy) offset in mm, and the KiCad steps (select it, Shift+M Move Exactly with that
+    relative offset; or set a 2.54 mm grid with its origin on a hole and drag it to snap).
   - README: "draw a board outline first" step; fix the venv path case to match KiCad's docs; a NixOS
     note (set Preferences > Plugins > Python interpreter to a Python with wxPython, then Recreate
     Plugin Environment).
