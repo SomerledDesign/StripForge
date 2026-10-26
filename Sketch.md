@@ -751,6 +751,23 @@ Docs only so far: nothing here is built yet.
   - **Build sheet:** draw the holes on both views and list them (they are drilled, not cut: keep
     them out of the cut list and the cut count).
 
+- **M4e: board profiles, starting with a solderable breadboard (issue #2, NickLarsenNZ, 2026-10-23).**
+  Nick builds on Epizon-style solderable-breadboard PCBs (about 52 x 89 mm, 2.54 mm pitch).
+  Copper side: 30 rows of horizontal 5-hole strips either side of a 2-hole-wide centre gap, a
+  vertical power rail pair down each side, 2-hole gaps between rails and strips, one empty row
+  top and bottom. Today StripForge assumes a hole everywhere and full-length strips, so it routes
+  links through holes that don't exist and joins strips across the gap.
+  - Add a board profile (preset or `stripboard.toml`): grid size, strip direction, which holes
+    exist, and which holes share copper. Plain horizontal stripboard becomes the default profile.
+  - Ship one built-in "solderable breadboard" profile first (Nick says a generic breadboard
+    layout is enough for him); custom profiles reuse the same model.
+  - Missing holes are keep-out: no pin, link end or cut lands there; a part over one is rejected
+    with a hint. Strips on either side of a gap are separate copper islands.
+  - The splitter, link finder, cuts, DRC copper and build sheet read copper islands from the
+    profile instead of one strip per row.
+  - Test case: Nick's board model and back-side photo in issue #2.
+  - This is the first step of the "premade board types" item below.
+
 - **M5: Incorporate a protoboard type routing on standard perfboard** as in [perfboard-studio](https://github.com/medinstech/perfboard-studio).
 
 
