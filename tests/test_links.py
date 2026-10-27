@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+from conftest import X56_DIAGONALS
 from sfbuild import one_pad_board
 from stripforge import config, writer
 from stripforge.config import BoardConfig
@@ -104,7 +105,7 @@ def test_report_files(tmp_path):
 
 
 def test_real_fixture_plan(tmp_path, real_board_path, real_netlist_path):
-    cfg = config.load(real_board_path.parents[1] / "x56.toml")
+    cfg = config.load(X56_DIAGONALS)
     out = tmp_path / "b.kicad_pcb"
     res = writer.build(real_board_path, cfg, out, netlist=str(real_netlist_path))
     plan = res.plan

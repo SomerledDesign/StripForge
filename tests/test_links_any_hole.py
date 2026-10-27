@@ -22,6 +22,9 @@ from stripforge.links import (
 )
 from stripforge.sexpr import atom, find, find_all, head
 
+# diagonal links on, any shift (M4c: off by default, at most max_diagonal_shift holes sideways)
+DIAG = BoardConfig(trim_pieces=False, bus_strips=False, diagonal_links=True, max_diagonal_shift=32)
+
 
 def build(tmp_path, parts, cfg=None, name="out.kicad_pcb"):
     return writer.build(
@@ -43,7 +46,7 @@ def test_pythagorean_offsets_are_whole_pitch_lengths():
 
 
 def test_diagonal_link_when_no_column_fits(tmp_path):
-    res = build(tmp_path, DIAGONAL, BoardConfig(trim_pieces=False, bus_strips=False))
+    res = build(tmp_path, DIAGONAL, DIAG)
     assert res.plan.ok and res.plan.needed == 1
     (lk,) = res.plan.links
     assert (lk.start, lk.end, lk.kind, lk.pitches) == ("A1", "D5", "diagonal", 5)
@@ -65,12 +68,10 @@ def test_diagonal_links_can_be_turned_off(tmp_path):
 
 def test_pass2_places_a_diagonal_link_rotated_onto_its_holes(tmp_path):
     board = one_pad_board(tmp_path, DIAGONAL)
-    res = writer.build(board, BoardConfig(trim_pieces=False, bus_strips=False), tmp_path / "p1.kicad_pcb")
+    res = writer.build(board, DIAG, tmp_path / "p1.kicad_pcb")
     links = json.loads((tmp_path / "stripforge" / "p1-stripforge.links.json").read_text())["links"]
     pass2_sim.add_links_to_board(board, links, tmp_path / "f8.kicad_pcb")
-    res2 = writer.build(
-        tmp_path / "f8.kicad_pcb", BoardConfig(trim_pieces=False, bus_strips=False), tmp_path / "p2.kicad_pcb"
-    )
+    res2 = writer.build(tmp_path / "f8.kicad_pcb", DIAG, tmp_path / "p2.kicad_pcb")
     assert [p.status for p in res2.placements] == ["placed"] and res2.ok
     (w1,) = [f for f in load_board(tmp_path / "p2.kicad_pcb").footprints if f.ref == "W1"]
     g = res.analysis.grid
@@ -243,7 +244,7 @@ OFF_PITCH = [("P1", 1, 0, "A"), ("P2", 3, 0, "B"), ("P3", 2, 2, "C"), ("P4", 5, 
 
 
 def test_off_pitch_diagonal_uses_a_rotated_link_d(tmp_path):
-    res = build(tmp_path, OFF_PITCH, BoardConfig(trim_pieces=False, bus_strips=False))
+    res = build(tmp_path, OFF_PITCH, DIAG)
     assert res.plan.ok and res.plan.needed == 1
     (lk,) = res.plan.links
     assert (lk.start, lk.end, lk.kind, lk.off_pitch) == ("A1", "C5", "diagonal", True)
@@ -255,9 +256,7 @@ def test_off_pitch_diagonal_uses_a_rotated_link_d(tmp_path):
     links = json.loads((tmp_path / "stripforge" / "out-stripforge.links.json").read_text())["links"]
     board = one_pad_board(tmp_path, OFF_PITCH)
     pass2_sim.add_links_to_board(board, links, tmp_path / "f8.kicad_pcb")
-    res2 = writer.build(
-        tmp_path / "f8.kicad_pcb", BoardConfig(trim_pieces=False, bus_strips=False), tmp_path / "p2.kicad_pcb"
-    )
+    res2 = writer.build(tmp_path / "f8.kicad_pcb", DIAG, tmp_path / "p2.kicad_pcb")
     assert [p.status for p in res2.placements] == ["placed"] and res2.ok
     (w1,) = [f for f in load_board(tmp_path / "p2.kicad_pcb").footprints if f.ref == "W1"]
     want = sorted(res.analysis.grid.hole_xy(n) for n in lk.nodes)
@@ -266,7 +265,17 @@ def test_off_pitch_diagonal_uses_a_rotated_link_d(tmp_path):
 
 
 def test_off_pitch_links_can_be_turned_off(tmp_path):
-    res = build(tmp_path, OFF_PITCH, BoardConfig(trim_pieces=False, bus_strips=False, off_pitch_links=False))
+    res = build(
+        tmp_path,
+        OFF_PITCH,
+        BoardConfig(
+            trim_pieces=False,
+            bus_strips=False,
+            off_pitch_links=False,
+            diagonal_links=True,
+            max_diagonal_shift=32,
+        ),
+    )
     assert not res.plan.ok and res.plan.links == []
 
 
@@ -323,3 +332,68 @@ def test_unlinkable_text_and_placed_links_note_follow_the_config(tmp_path):
     assert "The build placed 1 W link footprint(s)" in txt and "Add links to schematic" in txt
     assert "To add the links to the schematic (pass 2)" not in txt  # nothing left to place by hand
     assert "To add the links to the schematic (pass 2)" in format_text(res.plan)
+
+
+# M4c: diagonal links are off by default; turned on, a link may shift at most max_diagonal_shift
+# holes along the strip it drops to (default 1). Row A: B at A1, A at A2 (knife cut between) -> the
+# A piece is A2-A10; row C: A at C3, C at C4 -> the A piece is C1-C3. No column has a free hole on
+# both, but A3 -> C2 is one hole sideways.
+ONE_SHIFT = [("P1", 1, 0, "A"), ("P2", 0, 0, "B"), ("P3", 3, 2, "C"), ("P4", 2, 2, "A")]
+
+
+def test_diagonal_links_are_off_by_default_and_the_report_says_how_to_turn_them_on(tmp_path):
+    assert BoardConfig().diagonal_links is False and BoardConfig().max_diagonal_shift == 1
+    res = build(tmp_path, ONE_SHIFT, BoardConfig(trim_pieces=False, bus_strips=False))
+    assert not res.plan.ok and res.plan.links == []
+    (u,) = res.plan.unlinkable
+    assert "It can't be joined without a diagonal link (shifting 1 hole along a strip)" in u.text
+    assert u.text.endswith("set diagonal_links = true in the config")
+    assert "max_diagonal_shift" not in u.text
+
+
+def test_a_one_hole_diagonal_with_diagonal_links_on(tmp_path):
+    cfg = BoardConfig(trim_pieces=False, bus_strips=False, diagonal_links=True)
+    res = build(tmp_path, ONE_SHIFT, cfg)
+    assert res.plan.ok
+    (lk,) = res.plan.links
+    assert (lk.start, lk.end, lk.kind, abs(lk.dx)) == ("A3", "C2", "diagonal", 1)
+
+
+def test_a_longer_diagonal_is_reported_with_the_shift_it_needs(tmp_path):
+    for sub in ("off", "on", "four"):
+        (tmp_path / sub).mkdir()
+    off = build(tmp_path / "off", DIAGONAL, BoardConfig(trim_pieces=False, bus_strips=False))
+    (u,) = off.plan.unlinkable
+    assert u.diagonal_shift == 4
+    assert u.text.endswith("set diagonal_links = true in the config with max_diagonal_shift = 4")
+    cfg = BoardConfig(trim_pieces=False, bus_strips=False, diagonal_links=True)
+    on = build(tmp_path / "on", DIAGONAL, cfg)
+    assert on.plan.links == []
+    (u,) = on.plan.unlinkable
+    assert "on a diagonal" in u.text
+    assert "needs a diagonal link shifting 4 holes along a strip, more than max_diagonal_shift = 1" in u.text
+    cfg.max_diagonal_shift = 4
+    assert build(tmp_path / "four", DIAGONAL, cfg).plan.ok
+
+
+def test_no_diagonal_hint_when_a_diagonal_would_not_help(tmp_path):
+    # the pieces are too far apart for any link: no diagonal hint
+    res = build(tmp_path, DIAGONAL, BoardConfig(trim_pieces=False, bus_strips=False, max_link_mm=5.0))
+    (u,) = res.plan.unlinkable
+    assert u.diagonal_shift == 0 and "diagonal link (" not in u.text
+
+
+@pytest.mark.parametrize("bad", [0, 33, True, 1.5])
+def test_max_diagonal_shift_is_checked(tmp_path, bad):
+    path = tmp_path / "s.toml"
+    path.write_text(f"max_diagonal_shift = {str(bad).lower()}\n")
+    with pytest.raises(ValueError, match="max_diagonal_shift"):
+        config.load(path)
+
+
+def test_real_fixture_default_config_lays_no_diagonal_links(tmp_path, real_board_path, real_netlist_path):
+    cfg = config.load(real_board_path.parents[1] / "x56.toml")
+    res = writer.build(real_board_path, cfg, tmp_path / "b.kicad_pcb", netlist=str(real_netlist_path))
+    assert res.plan.links and all(lk.kind != "diagonal" for lk in res.plan.links)
+    hints = [u for u in res.plan.unlinkable if u.diagonal_shift]
+    assert hints and all("set diagonal_links = true" in u.text for u in hints)

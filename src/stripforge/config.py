@@ -165,15 +165,18 @@ class BoardConfig:
     trim_pieces: bool = True
     trim_min_free: int = 4
     # Wire links (M2): the longest link the planner may propose, in mm (the Link_P* footprints go
-    # up to 32 pitches, 81.28 mm). Links run down a column, along a strip (bridging a cut), or on a
-    # diagonal from any free hole to any free hole (a rotated Link_P* when the length is a whole
-    # number of pitches, 3-4-5 and friends, else a rotated off-pitch Link_D*; off_pitch_links = false
-    # keeps to whole-pitch diagonals); with bus_strips, two links may meet on an unused bare strip.
+    # up to 32 pitches, 81.28 mm). Links run down a column or along a strip (bridging a cut); with
+    # bus_strips, two links may meet on an unused bare strip. Diagonal links are off by default
+    # (M4c): with diagonal_links = true a link may also drop to another strip and move at most
+    # max_diagonal_shift holes along it (a rotated Link_P* when the length is a whole number of
+    # pitches, 3-4-5 and friends, else a rotated off-pitch Link_D*; off_pitch_links = false keeps to
+    # whole-pitch diagonals, which need a shift of 3 or more).
     max_link_mm: float = 81.28
     # The link cut list gives pad-to-pad lengths; set this (inches a leg, e.g. 0.15) to add a
     # "cut" column: pad-to-pad + 2 x allowance for the legs through the holes. 0 = no column.
     link_lead_allowance_in: float = 0.0
-    diagonal_links: bool = True
+    diagonal_links: bool = False
+    max_diagonal_shift: int = 1
     off_pitch_links: bool = True
     bus_strips: bool = True
     # Build: draw every stripboard hole (a plated pad on its strip's net) in the built board, so it
@@ -309,6 +312,9 @@ def from_dict(data: dict) -> BoardConfig:
     if isinstance(v, bool) or not isinstance(v, (int, float)) or not 0 <= v <= 1:
         raise ValueError(f"link_lead_allowance_in must be inches a leg, 0 to 1, got {v!r}")
     cfg.link_lead_allowance_in = float(v)
+    v = cfg.max_diagonal_shift
+    if isinstance(v, bool) or not isinstance(v, int) or not 1 <= v <= 32:
+        raise ValueError(f"max_diagonal_shift must be a whole number of holes, 1 to 32, got {v!r}")
     v = cfg.backup_keep
     if isinstance(v, bool) or not isinstance(v, int) or v < 0:
         raise ValueError(f"backup_keep must be a whole number of backups, 0 for all of them, got {v!r}")

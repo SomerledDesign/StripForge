@@ -51,10 +51,11 @@ slot_max_mm = 1.0
 # SW2 = 0.16   # DPDT slide switch: 312 mil rows on 300 mil holes, 6 mil off per row
 
 # Wire links: the longest link the planner may propose (mm; default 81.28 = 32 pitches). Links run
-# from any free hole: down a column, along a strip, on a diagonal (a rotated Link_P* when the
+# from any free hole: down a column, along a strip, on a diagonal if turned on (a rotated Link_P* when the
 # length is whole pitches, else an off-pitch Link_D*), or two links meeting on a bare bus strip.
 # max_link_mm = 81.28
-# diagonal_links = true
+# diagonal_links = false     # the default; true: diagonals when nothing straight fits
+# max_diagonal_shift = 1      # with diagonal_links: at most this many holes sideways (1 to 32)
 # off_pitch_links = true      # false: diagonals only when the length is a whole number of pitches
 # bus_strips = true
 # Build draws every free stripboard hole (plated, on its strip's net; hole cuts bare).

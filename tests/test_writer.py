@@ -4,6 +4,7 @@ import shutil
 import pytest
 
 import pass2_sim
+from conftest import X56_DIAGONALS
 from sfbuild import footprints, one_pad_board, segments, xy
 from stripforge import config, writer
 from stripforge.config import BoardConfig, CutStyle
@@ -155,7 +156,7 @@ def test_pass2_reports_missing_extra_and_wrong_net(tmp_path):
 
 
 def test_real_fixture_build(tmp_path, real_board_path, real_netlist_path):
-    cfg = config.load(real_board_path.parents[1] / "x56.toml")
+    cfg = config.load(X56_DIAGONALS)
     cfg.place_links = False  # pass 1 of the two-pass flow
     out = tmp_path / "b.kicad_pcb"
     res = writer.build(real_board_path, cfg, out, netlist=str(real_netlist_path))

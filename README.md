@@ -234,7 +234,8 @@ rows = 24                    # strips (A..X)
 cols = 56                    # holes along each strip
 origin_mm = [51.27, 51.27]   # the centre of hole A1 in the board file
 strip_width_mm = 1.8         # measure your board
-diagonal_links = false       # true: allow diagonal links when nothing straight fits
+diagonal_links = false       # the default; true: allow diagonal links when nothing straight fits
+max_diagonal_shift = 1       # with diagonal_links: at most this many holes sideways
 bus_strips = true            # join two pieces through a spare bare strip
 max_link_mm = 81.28          # the longest link (32 holes)
 knife_cuts = ["SW2"]         # parts with big pads: cut between holes, not at a hole
@@ -265,10 +266,11 @@ explains each one.
 - **Never put a link on a cut.** A wire in a cut hole has no copper to solder to. If you do,
   StripForge drops the cut and warns you, and cuts the strip elsewhere only if two nets would
   short (if the cut is needed exactly there, it keeps the cut and doesn't use the link).
-- **Diagonal links: your choice.** StripForge's default allows them when nothing straight fits.
-  The test board's config turns them off (`diagonal_links = false`, as in the example above),
-  because straight links are easier to fit and check. With diagonals off, a net that needs one is
-  joined through a spare strip (two straight links) or reported.
+- **Diagonal links: your choice.** They are off by default (`diagonal_links = false`), because
+  straight links are easier to fit and check: a net that would need one is joined through a spare
+  strip (two straight links) or reported. The report then says when a diagonal would have joined
+  it and which setting to change. With `diagonal_links = true` a link may drop to another strip and
+  move at most one hole along it; raise `max_diagonal_shift` for longer diagonals.
 - **Read the build report.** Anything StripForge couldn't join is listed with its pieces: move or
   turn a part so they come closer, or free some holes.
 
@@ -297,7 +299,7 @@ API is avoided because KiCad 11 removes it. Python 3.9+ (KiCad 10's bundled Pyth
 | **M1: Model and splitting** | Pure-Python grid snap, strip model, cut placement, net per piece, link proposals and validation, with unit tests and a JSON plan output. |
 | **M2: Board output and DRC** | File-backend `.kicad_pcb` writer, `kicad-cli` DRC wrapper and classifier, the two-pass link flow, and mutation tests proving DRC guards the layout. |
 | **M3: Build sheet and IPC** | Mirrored SVG/PDF build sheet with cut and link lists; the KiCad plugin. Done in 0.1.0; 0.2.0 is the first beta. |
-| **M4** (in progress) | Done: fail loudly (0.2.1); the `stripforge/` folder with save-point zips and Restore last (M4b). Planned: one StripForge button and dialog (settings, actions, Analyze, a built-in sheet view); diagonal links off by default, at most a one-hole shift. See [Sketch.md](Sketch.md) §7. |
+| **M4** (in progress) | Done: fail loudly (0.2.1); the `stripforge/` folder with save-point zips and Restore last (M4b); diagonal links off by default, at most `max_diagonal_shift` holes sideways (M4c). Planned: one StripForge button and dialog (settings, actions, Analyze, a built-in sheet view). See [Sketch.md](Sketch.md) §7. |
 | **Later** | More boards tested, pre-drilled mounting holes, the official PCM. |
 
 ## Reference
@@ -441,10 +443,25 @@ link's hole). In order of preference a link runs:
    bare strip that the net takes over, with a straight drop from each piece (a cut may slide to line
    one up); hole cuts isolate the bus from the rest of that strip where that leaves a useful
    remainder (the report says "hole cut at R5 isolates a bus strip");
-4. only when nothing straight fits, on a diagonal (`diagonal_links`, default on), rotated: a
+4. only when nothing straight fits and you turned them on, on a diagonal (`diagonal_links`, default
+   **off**; at most `max_diagonal_shift` holes sideways, default 1), rotated: a
    `Link_P*` when the length is a whole number of pitches (3-4-5 and friends), otherwise an
    off-pitch `Link_D<mm>` (`Link_D3.59` for a 1x1 offset … `Link_D81.16`; 305 footprints in the
    library; `off_pitch_links = false` keeps to whole-pitch diagonals).
+
+| toml key | what it does | default |
+|---|---|---|
+| `diagonal_links` | allow diagonal links when nothing straight fits | `false` |
+| `max_diagonal_shift` | with `diagonal_links`: how many holes a diagonal may move along the strip it drops to (1 to 32) | `1` |
+| `off_pitch_links` | with `diagonal_links`: also use the off-pitch `Link_D*` (`false`: whole-pitch diagonals only, which need a shift of 3 or more) | `true` |
+| `bus_strips` | join two pieces through a spare bare strip | `true` |
+| `max_link_mm` | the longest link | `81.28` (32 holes) |
+
+When a net is left unjoined and a diagonal (or a longer one than `max_diagonal_shift` allows) would
+have joined it, the report says so and names the setting, e.g. "It can't be joined without a
+diagonal link (shifting 4 holes along a strip): set diagonal_links = true in the config with
+max_diagonal_shift = 4". (StripForge plans once more with any diagonal allowed to find out; a net
+that only gets room because *other* nets use diagonals is reported that way.)
 
 A straight link always beats a diagonal, however long; then fewer crossings under parts, fewer
 moved cuts, shorter wire.

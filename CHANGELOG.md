@@ -22,6 +22,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Diagonal links are off by default (M4c).** `diagonal_links` now defaults to `false`: a net that
+  needs a diagonal is joined through a spare bus strip or reported. When it is reported and a
+  diagonal would have joined it, the report says so with the shift needed and the setting to change
+  ("It can't be joined without a diagonal link (shifting 4 holes along a strip): set
+  diagonal_links = true in the config with max_diagonal_shift = 4"). With `diagonal_links = true`
+  a diagonal may move at most `max_diagonal_shift` holes along the strip it drops to (new key,
+  default 1, up to 32; 32 gives the 0.2.x behaviour). To keep 0.2.x plans, set both.
 - **Everything StripForge writes goes into a `stripforge/` folder** next to the `.kicad_pro`
   (`${KIPRJMOD}`), named after the project: `<Project>-stripforge.links.json/.csv/.txt`,
   `.sheet.html` (and its PDF, SVGs, CSV, PNGs), `.log`, and with `output = "separate"` the built
