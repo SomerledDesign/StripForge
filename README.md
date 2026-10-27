@@ -457,6 +457,11 @@ link's hole). In order of preference a link runs:
 | `bus_strips` | join two pieces through a spare bare strip | `true` |
 | `max_link_mm` | the longest link | `81.28` (32 holes) |
 
+> [!WARNING]
+> With `off_pitch_links = false`, a `max_diagonal_shift` of 1 or 2 rules out **every** diagonal:
+> the shortest whole-pitch diagonal (3-4-5) needs a shift of 3. Use `max_diagonal_shift = 3` or
+> more, or leave `off_pitch_links = true`.
+
 When a net is left unjoined and a diagonal (or a longer one than `max_diagonal_shift` allows) would
 have joined it, the report says so and names the setting, e.g. "It can't be joined without a
 diagonal link (shifting 4 holes along a strip): set diagonal_links = true in the config with

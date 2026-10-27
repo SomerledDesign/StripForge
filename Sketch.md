@@ -707,7 +707,7 @@ Docs only so far: nothing here is built yet.
   - Related, small: warn (or refuse) when Build strips runs on a backup board
     (`*-pre-stripbuild*.kicad_pcb`), which is how the nested files above were made.
 
-- **M4c: diagonal links off by default, and at most a one-hole shift.** Change the default to
+- **M4c (done, branch m4c-no-diagonals): diagonal links off by default, and at most a one-hole shift.** Change the default to
   `diagonal_links = false` (the TPI fixture already builds with it off: 34 straight links, joined
   through spare strips where needed), and when diagonals are turned on, allow only a **one-hole
   sideways shift** (a link that drops to another strip and moves at most one hole along it). A
