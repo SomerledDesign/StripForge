@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "stripforge"
-version = "0.2.0"
+version = "0.2.1"
 description = "StripForge: stripboard (Veroboard) copper, cuts and links as a normal KiCad .kicad_pcb (beta)"
 readme = "README.md"
 requires-python = ">=3.9"  # 3.9: KiCad 10's bundled Python on macOS runs the plugin

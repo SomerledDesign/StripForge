@@ -9,7 +9,7 @@
 ![KiCad 10](https://img.shields.io/badge/KiCad-10-314CB0)
 ![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)
 
-> **Beta (0.2.0).** KiCad 10 only. So far it has been tested on one real board (an ATtiny10
+> **Beta (0.2.1).** KiCad 10 only. So far it has been tested on one real board (an ATtiny10
 > programming fixture on a 24 × 56 hole stripboard). It works well there, but expect rough
 > edges on other boards. Keep backups, check the DRC, and please report what you find.
 
@@ -59,7 +59,7 @@ StripForge is a KiCad 10 **IPC plugin**. It is not in KiCad's official Plugin an
 
 1. KiCad > Preferences > Plugins: tick **Enable KiCad API**, and check that the Python interpreter
    is KiCad's own (the default on macOS).
-2. Get the package `StripForge-0.2.0-pcm.zip` (from the release, or build it yourself with
+2. Get the package `StripForge-0.2.1-pcm.zip` (from the release, or build it yourself with
    `python tools/make_pcm_zip.py`, which writes it to `dist/`). In KiCad, open the Plugin and
    Content Manager, click **Install from File…** at the bottom left, and pick the zip:
 
@@ -67,7 +67,7 @@ StripForge is a KiCad 10 **IPC plugin**. It is not in KiCad's official Plugin an
 
    <img src="docs/images/install-pick-zip-dist.png" alt="The file dialog open on the dist folder, showing StripForge-0.1.0-pcm.zip and StripForge-0.2.0-pcm.zip" width="330"> <img src="docs/images/install-zip-selected.png" alt="StripForge-0.2.0-pcm.zip selected in the file dialog" width="210">
 
-   StripForge then shows on the **Installed** tab as version 0.2.0:
+   StripForge then shows on the **Installed** tab as version 0.2.1:
 
    <img src="docs/images/install-pcm-installed.png" alt="The Installed tab of the Plugin and Content Manager: StripForge 0.2.0, compatible, with its description and metadata" width="640">
 
@@ -242,7 +242,7 @@ explains each one.
 
 ## Status
 
-**Beta, 0.2.0.** StripForge runs inside KiCad 10's PCB editor (the IPC plugin above) and as a
+**Beta, 0.2.1.** StripForge runs inside KiCad 10's PCB editor (the IPC plugin above) and as a
 command line (`stripforge analyze | snap | build | link-symbols | drc | sheet`, see
 [Development](#development)). Tested with KiCad 10.0.4 on macOS, on one real board. Not yet in the
 official PCM.

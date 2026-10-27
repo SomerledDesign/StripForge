@@ -2,6 +2,6 @@
 # Copyright (C) 2026 Somerled Design
 """StripForge: stripboard copper generator for KiCad (beta)."""
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 PITCH_NM = 2_540_000  # 2.54 mm in KiCad internal units (nanometres)
