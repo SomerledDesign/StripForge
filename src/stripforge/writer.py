@@ -32,16 +32,14 @@ a strip row is replaced too (the cut markers decide where the strips are cut). U
 deterministic (uuid5), so rebuilding an unchanged board gives a byte-identical file.
 
 Output (``output`` in the config): ``"in_place"`` (default) writes into the board itself, the
-project's own ``<name>.kicad_pcb``, after saving it as it is to ``<name>-pre-stripbuild.kicad_pcb``
-(older backups rotate to ``-1``, ``-2``, ...; to undo the latest build, delete the built board and
-rename the unnumbered backup back);
-``"separate"`` writes ``<name>-stripforge.kicad_pcb`` and leaves the board alone. The link files
-are ``<name>-stripforge.links.json/.csv/.txt`` either way.
+project's own ``<name>.kicad_pcb``; ``"separate"`` writes ``stripforge/<Project>-stripforge.kicad_pcb``
+and leaves the board alone. Either way the build first makes a save point (a new zip in
+``stripforge/<Project>-stripforge-backups/``, see :mod:`stripforge.layout`) of every file it is
+about to write, and the link files are ``stripforge/<Project>-stripforge.links.json/.csv/.txt``.
 """
 
 from __future__ import annotations
 
-import os
 import re
 import shutil
 import uuid
@@ -88,14 +86,15 @@ def base_stem(board: str | Path) -> str:
     return s
 
 
-def separate_output(board: str | Path) -> Path:
-    """``<name>-stripforge.kicad_pcb`` next to ``board`` (output = "separate")."""
-    p = Path(board)
-    return p.with_name(base_stem(p) + BUILT_SUFFIX + ".kicad_pcb")
+def separate_output(board: str | Path, cfg: BoardConfig | None = None) -> Path:
+    """``stripforge/<Project>-stripforge.kicad_pcb`` (output = "separate")."""
+    from .layout import out_file
+
+    return out_file(board, "kicad_pcb", cfg)
 
 
 def backup_path(board: str | Path, n: int = 0, suffix: str = BACKUP_SUFFIX) -> Path:
-    """``<name>-pre-stripbuild.kicad_pcb`` (the board just before the latest in-place build), or
+    """0.2.x backups (read only, for the link history): ``<name>-pre-stripbuild.kicad_pcb`` and
     ``<name>-pre-stripbuild-<n>.kicad_pcb`` (n builds further back)."""
     p = Path(board)
     return p.with_name(p.stem + suffix + (f"-{n}" if n else "") + p.suffix)
@@ -115,69 +114,15 @@ def numbered_backups(board: str | Path, suffix: str = BACKUP_SUFFIX) -> dict[int
 
 
 def backup_note(res: BuildResult, board: str | Path) -> str:
-    """How the backups rotated and how to undo, for the CLI and plugin reports."""
-    name = Path(board).name
+    """The save point and how to undo, for the CLI and plugin reports."""
     parts = []
-    if res.backups_shifted:
-        older = [new for _, new in res.backups_shifted]
-        parts.append(f"Older backups moved up one: {', '.join(reversed(older))}.")
     if res.backups_pruned:
         parts.append(f"Deleted by backup_keep: {', '.join(res.backups_pruned)}.")
     parts.append(
-        f"To undo this build: delete {name} and rename {Path(res.backup).name} to {name} "
-        f"(-1 is the board before the previous build, and so on)."
+        "To undo this build: Restore last (the plugin button, or 'stripforge restore <board>') "
+        "loads this save point."
     )
     return " ".join(parts)
-
-
-@dataclass
-class Rotation:
-    backup: Path  # the new unnumbered backup
-    shifted: list[tuple[str, str]] = field(default_factory=list)  # (old name, new name), in order
-    pruned: list[str] = field(default_factory=list)  # deleted by backup_keep
-    warnings: list[str] = field(default_factory=list)
-
-
-def rotate_backups(board: str | Path, keep: int = 0, suffix: str = BACKUP_SUFFIX) -> Rotation:
-    """Back ``board`` up like logrotate before an in-place build: shift ``-pre-stripbuild-<n>`` to
-    ``-<n+1>`` (highest first), the unnumbered backup to ``-1``, then copy the board as it is now
-    to the unnumbered name. ``keep`` > 0 then deletes the oldest numbered backups beyond ``keep``
-    files in all. Nothing is ever overwritten: a rename whose target exists, or that fails, raises
-    :class:`BuildError` before the board is copied (or written)."""
-    board = Path(board)
-    head_backup = backup_path(board, 0, suffix)
-    rot = Rotation(backup=head_backup)
-    if head_backup.exists():
-        chain = numbered_backups(board, suffix)
-        moves = [(chain[n], backup_path(board, n + 1, suffix)) for n in sorted(chain, reverse=True)]
-        moves.append((head_backup, backup_path(board, 1, suffix)))
-        for src, dst in moves:
-            if dst.exists():
-                raise BuildError(
-                    f"backup rotation: {dst.name} already exists; not overwriting it (nothing built)"
-                )
-            try:
-                os.rename(src, dst)
-            except OSError as exc:
-                raise BuildError(
-                    f"backup rotation: could not rename {src.name} to {dst.name} ({exc}); stopped before "
-                    "writing the board"
-                ) from exc
-            rot.shifted.append((src.name, dst.name))
-    try:
-        shutil.copy2(board, head_backup)
-    except OSError as exc:
-        raise BuildError(f"could not back the board up to {head_backup.name} ({exc}); nothing built") from exc
-    if keep > 0:
-        for n, f in sorted(numbered_backups(board, suffix).items(), reverse=True):
-            if n < keep:
-                break
-            try:
-                f.unlink()
-                rot.pruned.append(f.name)
-            except OSError as exc:
-                rot.warnings.append(f"backup_keep: could not delete {f.name} ({exc})")
-    return rot
 
 
 def resolve_output(
@@ -192,7 +137,7 @@ def resolve_output(
         return out, out.resolve() == board.resolve()
     if cfg.output == "in_place" or board.stem.endswith(BUILT_SUFFIX):
         return board, True
-    return separate_output(board), False
+    return separate_output(board, cfg), False
 
 
 class BuildError(ValueError):
@@ -218,8 +163,7 @@ class BuildResult:
     removed_previous: tuple[int, int] = (0, 0)  # (tracks, cut markers) from an earlier build
     holes_drawn: int = 0  # stripboard hole pads (plated and bare) written
     stretches: list = field(default_factory=list)  # lead-stretch suggestions (report only)
-    backup: str | None = None  # in-place build: <name>-pre-stripbuild.kicad_pcb (made by this build)
-    backups_shifted: list = field(default_factory=list)  # (old, new) names rotated up by one
+    backup: str | None = None  # the save point zip made by this build
     backups_pruned: list = field(default_factory=list)  # deleted by backup_keep
     warnings: list[str] = field(default_factory=list)
     outputs: list[str] = field(default_factory=list)
@@ -741,7 +685,7 @@ def _mark_own_links(
     recorded = False
     if board_path:
         try:
-            data = json.loads(link_file(board_path, ".json").read_text(encoding="utf-8"))
+            data = json.loads(saved_link_file(board_path, ".json", cfg).read_text(encoding="utf-8"))
             saved = {d["ref"]: d for d in data["links"] if isinstance(d, dict)}
             recorded = data.get("yours_record") == 1
         except (OSError, ValueError, KeyError, TypeError, AttributeError):
@@ -770,9 +714,11 @@ def _mark_own_links(
         lk.yours_why = why
 
 
-def _link_holes(path: Path, cfg: BoardConfig) -> dict[str, frozenset]:
-    """``{ref: {hole, hole}}`` for the W links of board ``path`` whose two pads sit on holes."""
-    b = load_board(path)
+def _link_holes(path: Path | str, cfg: BoardConfig, text: str | None = None) -> dict[str, frozenset]:
+    """``{ref: {hole, hole}}`` for the W links of board ``path`` (or its ``text``) on holes."""
+    from .board import parse_board
+
+    b = parse_board(text, str(path)) if text is not None else load_board(path)
     grid, _ = make_grid(b, cfg)
     tol = mm_to_nm(cfg.snap_tol_mm)
     out = {}
@@ -792,19 +738,31 @@ def _link_holes(path: Path, cfg: BoardConfig) -> dict[str, frozenset]:
 
 
 def moved_in_backups(board_path, cfg: BoardConfig) -> dict[str, frozenset]:
-    """The links you moved by hand, going by the ``-pre-stripbuild`` backups (oldest first, the
-    unnumbered one newest): ``{ref: holes}`` for a link that was on holes in one backup and on
-    other holes in the next (a build keeps a placed link where it is, so the move was yours), and
-    stayed on those holes in every later backup. A link that only appears (placed by a build or
+    """The links you moved by hand, going by the board's backups (0.2.x ``-pre-stripbuild`` files,
+    then the save-point zips, oldest first): ``{ref: holes}`` for a link that was on holes in one
+    backup and on other holes in the next (a build keeps a placed link where it is, so the move was
+    yours), and stayed on those holes in every later backup. A link that only appears (placed by a build or
     by you, which the backups can't tell apart) or goes off the holes is not counted."""
     chain = [p for _, p in sorted(numbered_backups(board_path).items(), reverse=True)]
     head_backup = backup_path(board_path)
     if head_backup.is_file():
         chain.append(head_backup)
+    from . import layout
+
+    texts: list = [(p, None) for p in chain]
+    try:
+        rel = Path(board_path).absolute().relative_to(layout.project_dir(board_path).absolute()).as_posix()
+        for z in layout.backups(board_path, cfg):
+            if layout.read_manifest(z).get("action") == "build":
+                t = layout.read_member(z, rel)
+                if t is not None:
+                    texts.append((z, t))
+    except (OSError, ValueError, KeyError):
+        pass
     states = []
-    for p in chain:
+    for p, t in texts:
         try:
-            states.append(_link_holes(p, cfg))
+            states.append(_link_holes(p, cfg, t))
         except Exception:  # an unreadable backup ends the evidence there
             states = []
     moved: dict[str, frozenset] = {}
@@ -906,7 +864,7 @@ def build(
     ``in_place`` allows ``out_path`` to be ``board_path``: build into the board itself (the default
     ``output = "in_place"``) or rebuild a built board after editing it (your cuts and links are
     kept; see :mod:`stripforge.edits`). Before an in-place write the board is backed up with
-    :func:`rotate_backups` (``cfg.backup_keep``)."""
+    a save point (:func:`stripforge.layout.save_point`, ``cfg.backup_keep``)."""
 
     board_path, out_path = Path(board_path), Path(out_path)
     if out_path.resolve() == board_path.resolve() and not in_place:
@@ -1054,31 +1012,35 @@ def build(
     root[tail:tail] = new_nodes
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    res.warnings += _compare_saved(link_file(out_path, ".json"), plan)
+    res.warnings += _compare_saved(saved_link_file(out_path, ".json", cfg), plan)
     dru = out_path.with_suffix(".kicad_dru")
-    if out_path.resolve() == board_path.resolve() and not board_path.stem.endswith(BUILT_SUFFIX):
-        # in place: back up the board as it is now, rotating older backups (a -stripforge board is
-        # itself a copy made by output = "separate", so it gets none)
-        rot = rotate_backups(board_path, cfg.backup_keep)
-        res.backup = str(rot.backup)
-        res.backups_shifted, res.backups_pruned = rot.shifted, rot.pruned
-        res.warnings += rot.warnings
-        rules_text = rules.read_bytes()
-        theirs = dru.read_bytes() if dru.is_file() else rules_text
-        if theirs != rules_text and b"SF strip width" not in theirs:  # not an older StripForge copy
-            dru_backup = backup_path(dru)
-            if not dru_backup.exists():
-                shutil.copy2(dru, dru_backup)
-                res.warnings.append(
-                    f"build: {dru.name} had other DRC rules; they were copied to {dru_backup.name} "
-                    "and replaced by the StripForge rules"
-                )
+    from . import layout
+
+    # a save point of everything this build writes (a new zip; nothing is renamed)
+    touched = [out_path, dru] + [link_file(out_path, sx, cfg) for sx in (".json", ".csv", ".txt")]
+    try:
+        sp = layout.save_point(out_path, touched, cfg, "build")
+    except (OSError, ValueError) as exc:
+        raise BuildError(f"could not make the save point ({exc}); nothing built") from exc
+    res.backup = str(sp.path)
+    res.backups_pruned = sp.pruned
+    res.warnings += sp.warnings
+    rules_text = rules.read_bytes()
+    theirs = dru.read_bytes() if dru.is_file() else rules_text
+    if theirs != rules_text and b"SF strip width" not in theirs:  # not an older StripForge copy
+        res.warnings.append(
+            f"build: {dru.name} had other DRC rules; they are kept in the save point {sp.path.name} "
+            "and were replaced by the StripForge rules"
+        )
+    note = layout.legacy_note(board_path)
+    if note:
+        res.warnings.append(note)
     save_board(board, out_path)
     res.outputs.append(str(out_path))
     shutil.copyfile(rules, dru)
     res.outputs.append(str(dru))
     placed = [p.ref for p in res.placements if p.status == "placed" and p.detail.endswith("(new)")]
-    res.outputs += write_link_files(plan, out_path, res.stretches, cfg.link_lead_allowance_in, placed)
+    res.outputs += write_link_files(plan, out_path, res.stretches, cfg.link_lead_allowance_in, placed, cfg)
 
     # re-read what was written: it must parse and carry exactly the tracks we meant to write
     check = load_board(out_path)
@@ -1091,17 +1053,30 @@ def build(
 # --- link files --------------------------------------------------------------------------------
 
 
-def link_file(out_path: str | Path, suffix: str) -> Path:
-    """``<name>-stripforge.links.json`` / ``.csv`` / ``.txt`` next to the built board (the same
-    name whether the board was built in place, ``<name>.kicad_pcb``, or separately,
-    ``<name>-stripforge.kicad_pcb``)."""
-    p = Path(out_path)
-    stem = p.stem if p.stem.endswith(BUILT_SUFFIX) else p.stem + BUILT_SUFFIX
-    return p.with_name(stem + ".links" + suffix)
+def link_file(out_path: str | Path, suffix: str, cfg: BoardConfig | None = None) -> Path:
+    """``stripforge/<Project>-stripforge.links.json`` / ``.csv`` / ``.txt`` (the same name whether
+    the board was built in place or separately)."""
+    from .layout import out_file
+
+    return out_file(out_path, "links" + suffix, cfg)
+
+
+def saved_link_file(out_path: str | Path, suffix: str, cfg: BoardConfig | None = None) -> Path:
+    """The link file to read: :func:`link_file`, or a 0.2.x one next to the board if only that exists."""
+    from .layout import legacy_file
+
+    new = link_file(out_path, suffix, cfg)
+    old = legacy_file(out_path, "links" + suffix)
+    return old if not new.exists() and old.exists() else new
 
 
 def write_link_files(
-    plan: links_mod.LinkPlan, out_path: str | Path, stretches=(), allowance_in: float = 0.0, placed=()
+    plan: links_mod.LinkPlan,
+    out_path: str | Path,
+    stretches=(),
+    allowance_in: float = 0.0,
+    placed=(),
+    cfg: BoardConfig | None = None,
 ) -> list[str]:
     """Write the link proposal (JSON, CSV, and a text report with schematic instructions), with
     any lead-stretch suggestions in the JSON and the text report."""
@@ -1118,7 +1093,8 @@ def write_link_files(
         (".csv", links_mod.to_csv(plan)),
         (".txt", text),
     ):
-        p = link_file(out_path, suffix)
+        p = link_file(out_path, suffix, cfg)
+        p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(body, encoding="utf-8")
         out.append(str(p))
     return out

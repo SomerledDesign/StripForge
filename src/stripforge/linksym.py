@@ -24,9 +24,9 @@ For each W footprint on the board:
 The schematic is written to a copy (``--out-dir``: every sheet of the hierarchy, the project file
 and the library tables with ``${KIPRJMOD}`` pointing back at the original project, plus the board
 under the project's name, so ``kicad-cli`` netlist/ERC/DRC parity run on the copy), or in place
-(``--in-place``), in which case every sheet that changes is first backed up next to it as
-``<sheet>-pre-links.kicad_sch``, rotating older backups to ``-1``, ``-2``, ... like the board's
-``-pre-stripbuild`` backups (all renames happen before any sheet is written). The
+(``--in-place``), in which case a save point of every sheet that changes is made first (a new
+zip in ``stripforge/<Project>-stripforge-backups/``, see :mod:`stripforge.layout`; "Restore last"
+loads it). The
 ``StripForge:Link`` symbol definition is embedded in each sheet (``lib_symbols``) as KiCad does, so
 the schematic opens without the library configured and needs no sym-lib-table entry."""
 
@@ -47,7 +47,6 @@ NS = uuid.UUID("7b1e6c1a-51f0-4e43-9b3a-5354524950f1")  # the writer's namespace
 LINK_LIB_ID = f"{resources.LIB_NICKNAME}:Link"
 LINK_RE = re.compile(r"^W\d+$")
 GRID = 1.27  # schematic connection grid (mm)
-LINKS_BACKUP_SUFFIX = "-pre-links"  # in place: <sheet>-pre-links.kicad_sch, rotated like the board backups
 # landscape paper sizes (mm) KiCad knows, smallest first
 PAPER = {
     "A4": (297, 210), "USLetter": (279.4, 215.9), "A": (279.4, 215.9), "USLegal": (355.6, 215.9),
@@ -645,9 +644,9 @@ def _planned_refs(board_path: Path) -> set[str] | None:
     """The W refs in the board's latest link plan (``<name>-stripforge.links.json``), or None."""
     import json
 
-    from .writer import link_file
+    from .writer import saved_link_file
 
-    path = link_file(board_path, ".json")
+    path = saved_link_file(board_path, ".json")
     try:
         return {d["ref"] for d in json.loads(path.read_text(encoding="utf-8"))["links"]}
     except (OSError, ValueError, KeyError, TypeError):
@@ -703,6 +702,7 @@ def add_link_symbols(
     in_place: bool = False,
     symbol_lib: str | Path | None = None,
     backup_keep: int = 0,
+    cfg=None,
 ) -> LinkSymbolResult:
     """Add a StripForge:Link symbol for every W footprint on ``board_path`` that the schematic
     (root sheet ``schematic``) lacks. See the module docstring. Raises LinkSymbolError."""
@@ -917,16 +917,16 @@ def add_link_symbols(
     if not any(sh.changed for sh in sheets):
         return res
     if in_place:
-        from .writer import BuildError, rotate_backups
+        from . import layout
 
         changed = [sh for sh in sheets if sh.changed]
-        for sh in changed:  # every backup first, then the writes
-            try:
-                rot = rotate_backups(sh.file, backup_keep, LINKS_BACKUP_SUFFIX)
-            except BuildError as exc:
-                raise LinkSymbolError(str(exc).replace("nothing built", "no sheet written")) from exc
-            res.backups.append(str(rot.backup))
-            res.warnings += rot.warnings
+        try:  # the save point first, then the writes
+            files = [sh.file for sh in changed]
+            sp = layout.save_point(board_path, files, cfg, "links", keep=backup_keep or None)
+        except (OSError, ValueError) as exc:
+            raise LinkSymbolError(f"could not make the save point ({exc}); no sheet written") from exc
+        res.backups.append(str(sp.path))
+        res.warnings += sp.warnings
         for sh in changed:
             sh.doc.save(sh.file)
             res.outputs.append(str(sh.file))

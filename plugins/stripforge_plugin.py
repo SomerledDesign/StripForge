@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Somerled Design
-"""StripForge inside KiCad 10's PCB editor: the shared code behind the four IPC plugin actions.
+"""StripForge inside KiCad 10's PCB editor: the shared code behind the IPC plugin actions.
 
 KiCad starts ``sf_<action>.py`` in this plugin's own virtual environment (``requirements.txt``;
 created with ``--system-site-packages``, so KiCad's wxPython is there for dialogs) with
@@ -9,18 +9,19 @@ created with ``--system-site-packages``, so KiCad's wxPython is there for dialog
 1. connects to KiCad with kicad-python (``kipy``) and asks for the open board's file name;
 2. offers to save the board first (StripForge works on the saved ``.kicad_pcb``; KiCad 10's API has
    no "modified" flag, so it always asks; "Build strips" in place requires it);
-3. uses ``stripboard.toml`` next to the board if there is one, else derives the grid from
-   Edge.Cuts; exports a fresh netlist from ``<name>.kicad_sch`` with kicad-cli when it exists;
+3. uses ``stripforge/stripboard.toml`` (or ``stripboard.toml`` in the project folder) if there is
+   one, else derives the grid from Edge.Cuts; exports a fresh netlist from ``<name>.kicad_sch``
+   with kicad-cli when it exists;
 4. runs the same code as the ``stripforge`` command line and shows its report.
 
 "Build strips" (``output = "in_place"``, the default) saves the open board, builds into that same
 file (the project's own ``<name>.kicad_pcb``, so F8 and schematic parity keep working), and reloads
-it in the editor (the API's RevertDocument). Every build first saves the board as it is to
-``<name>-pre-stripbuild.kicad_pcb``, rotating older backups to ``-1``, ``-2``, ... (``backup_keep``);
-a rebuild keeps your cuts and links where you put them. To undo the latest build: delete the built
-board and rename the unnumbered backup back.
-``output = "separate"`` keeps the old behaviour: ``<name>-stripforge.kicad_pcb`` next to the board,
-the open board left alone. "Run DRC" and "Build sheet" work on the built board. Why not live edits
+it in the editor (the API's RevertDocument). Every build first makes a save point, a new zip in
+``stripforge/<Project>-stripforge-backups/`` (``backup_keep``); a rebuild keeps your cuts and links
+where you put them. "Restore last" loads the newest save point and reloads the board.
+``output = "separate"`` writes ``stripforge/<Project>-stripforge.kicad_pcb``, the open board left alone.
+StripForge's other files (link lists, sheet, log) go to ``stripforge/`` too. "Run DRC" and
+"Build sheet" work on the built board. Why not live edits
 through the API: see Sketch.md §4.10.
 
 The helpers at the top are pure (no kipy, no wx) so they can be tested without KiCad.
@@ -43,7 +44,8 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 IDENTIFIER = "com.github.somerleddesign.stripforge"
 BUILT_SUFFIX = "-stripforge"
-BACKUP_SUFFIX = "-pre-stripbuild"
+BACKUP_SUFFIX = "-pre-stripbuild"  # 0.2.x backups (still recognised by base_stem)
+OUTPUT_DIR = "stripforge"
 CONFIG_NAME = "stripboard.toml"
 TITLES = {
     "analyze": "StripForge: Analyze",
@@ -51,6 +53,7 @@ TITLES = {
     "drc": "StripForge: Run DRC",
     "sheet": "StripForge: Build sheet",
     "links": "StripForge: Add links to schematic",
+    "restore": "StripForge: Restore last",
 }
 REOPEN_NOTE = (
     "IMPORTANT: if the Schematic Editor is open, close it WITHOUT saving and open it again. It does "
@@ -88,17 +91,38 @@ def base_stem(board: Path) -> str:
     return s
 
 
-def built_path(board: Path, mode: str = "in_place") -> Path:
+def _out_file(board: Path, kind: str, config: Path | None = None) -> Path:
+    """``<project>/stripforge/<Project>-stripforge.<kind>`` (stripforge.layout; the config's
+    ``output_dir`` when given)."""
+    cfg = None
+    if config is not None:
+        try:
+            from stripforge.config import load
+
+            cfg = load(config)
+        except Exception:  # a broken config is reported by the action itself
+            cfg = None
+    try:
+        from stripforge.layout import out_file
+    except ImportError:  # before bootstrap(): the default layout, without a project lookup
+        return board.parent / OUTPUT_DIR / f"{base_stem(board)}{BUILT_SUFFIX}.{kind}"
+    return out_file(board, kind, cfg)
+
+
+def built_path(board: Path, mode: str = "in_place", config: Path | None = None) -> Path:
     """Where "Build strips" writes: the board itself (``output = "in_place"``) or
-    ``<name>-stripforge.kicad_pcb`` next to it (``"separate"``)."""
+    ``stripforge/<Project>-stripforge.kicad_pcb`` (``"separate"``)."""
     if mode == "in_place" or is_output_name(board):
         return board
-    return board.with_name(base_stem(board) + BUILT_SUFFIX + ".kicad_pcb")
+    return _out_file(board, "kicad_pcb", config)
 
 
-def backup_path(board: Path) -> Path:
-    """``<name>-pre-stripbuild.kicad_pcb``: the board just before the latest in-place build."""
-    return board.with_name(board.stem + BACKUP_SUFFIX + board.suffix)
+def backups_dir(board: Path, config: Path | None = None) -> Path:
+    """``stripforge/<Project>-stripforge-backups``: the save points."""
+    from stripforge.config import load
+    from stripforge.layout import backup_dir
+
+    return backup_dir(board, load(config) if config else None)
 
 
 def output_mode(config: Path | None) -> str:
@@ -118,15 +142,23 @@ def is_output_name(board: Path) -> bool:
 
 
 def find_config(board: Path) -> Path | None:
-    """``stripboard.toml`` next to the board, or None (derive the grid from Edge.Cuts)."""
-    p = board.parent / CONFIG_NAME
-    return p if p.is_file() else None
+    """``stripforge/stripboard.toml``, then ``stripboard.toml`` in the project folder (next to the
+    board), or None (derive the grid from Edge.Cuts)."""
+    for p in (board.parent / OUTPUT_DIR / CONFIG_NAME, board.parent / CONFIG_NAME):
+        if p.is_file():
+            return p
+    try:
+        from stripforge.layout import find_config as layout_find
+    except ImportError:
+        return None
+    return layout_find(board)
 
 
 def fallback_config(board: Path) -> tuple[Path | None, str | None]:
-    """No ``stripboard.toml``: use the only other ``*.toml`` next to the board if it is a valid
-    StripForge config (e.g. ``X56.toml``), else point the other files out. Returns (config, note)."""
-    others = sorted(board.parent.glob("*.toml"))
+    """No ``stripboard.toml``: use the only other ``*.toml`` in ``stripforge/`` or next to the board
+    if it is a valid StripForge config (e.g. ``X56.toml``), else point the other files out.
+    Returns (config, note)."""
+    others = sorted(board.parent.glob(f"{OUTPUT_DIR}/*.toml")) or sorted(board.parent.glob("*.toml"))
     if not others:
         return None, None
     if len(others) == 1:
@@ -167,7 +199,10 @@ def check_target(board: Path) -> tuple[Path | None, str]:
     """The built board that DRC and the sheet should use, and a note (or why there is none)."""
     if has_strips(board):
         return board, ""
-    out = built_path(board, "separate")
+    out = built_path(board, "separate", find_config(board))
+    legacy = board.with_name(base_stem(board) + BUILT_SUFFIX + ".kicad_pcb")  # 0.2.x: next to the board
+    if not out.is_file() and legacy.is_file():
+        out = legacy
     if out == board or not out.is_file():
         return None, (f'No built board yet: run "{TITLES["build"]}" first (it builds into {board.name}).')
     note = ""
@@ -185,7 +220,7 @@ def cli_args(action: str, board: Path, config: Path | None, netlist: Path | None
     if action == "analyze":
         return ["analyze", str(board), *net, *cfg]
     if action == "build":
-        out = built_path(board, mode)
+        out = built_path(board, mode, config)
         in_place = ["--in-place"] if out == board else []
         return ["build", str(board), "-o", str(out), *in_place, *net, *cfg]
     if action == "drc":
@@ -198,11 +233,11 @@ def cli_args(action: str, board: Path, config: Path | None, netlist: Path | None
 
 
 def sheet_path(board: Path) -> Path:
-    """``<name>-stripforge.sheet.html`` (for an in-place built board too)."""
-    return board.with_name(base_stem(board) + BUILT_SUFFIX + ".sheet.html")
+    """``stripforge/<Project>-stripforge.sheet.html`` (for an in-place built board too)."""
+    return _out_file(board, "sheet.html", find_config(board))
 
 
-LOG_SUFFIX = "-stripforge.log"
+LOG_SUFFIX = "-stripforge.log"  # stripforge/<Project>-stripforge.log
 NO_WX_NOTE = (
     "StripForge can't show dialogs: wxPython is not importable in the plugin's Python environment, "
     "so KiCad only shows its messages in the PCB editor's status-bar warnings. Fix: Preferences > "
@@ -212,10 +247,10 @@ NO_WX_NOTE = (
 
 
 def log_path(board: Path | None) -> Path:
-    """``<name>-stripforge.log`` next to the board; without a board, ``stripforge.log`` in the temp dir."""
+    """``stripforge/<Project>-stripforge.log``; without a board, ``stripforge.log`` in the temp dir."""
     if board is None:
         return Path(tempfile.gettempdir()) / "stripforge.log"
-    return board.with_name(base_stem(board) + LOG_SUFFIX)
+    return _out_file(board, "log")
 
 
 def write_log(board: Path | None, title: str, text: str) -> Path | None:
@@ -225,6 +260,7 @@ def write_log(board: Path | None, title: str, text: str) -> Path | None:
     body = f"{title}  ({stamp})\n\n{text.rstrip()}\n"
     for p in dict.fromkeys([log_path(board), log_path(None)]):
         try:
+            p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text(body, encoding="utf-8")
             return p
         except OSError:
@@ -250,7 +286,7 @@ def outline_problem(board: Path, config: Path | None) -> str | None:
         "stripboard is (nothing was changed).\n\n"
         "Draw the board outline first: select the Edge.Cuts layer, draw a rectangle the size of your "
         "stripboard around the parts, save the board, and run this again.\n"
-        f"Or set origin_mm, rows and cols in {CONFIG_NAME} next to the board."
+        f"Or set origin_mm, rows and cols in {OUTPUT_DIR}/{CONFIG_NAME}."
     )
 
 
@@ -320,9 +356,9 @@ class Ui:
             dlg = wx.MessageDialog(
                 None,
                 f"Build strips writes into this board file and then reloads it:\n{board}\n\n"
-                f"The board is saved first and backed up as:\n{backup_path(board).name}\n\n"
-                "Older backups move up to -1, -2, and so on. To undo the build, close the board "
-                f"and rename that backup back to {board.name}.",
+                "The board is saved first, and a save point (a zip of the files the build "
+                f"writes) goes into {OUTPUT_DIR}/{base_stem(board)}{BUILT_SUFFIX}-backups.\n\n"
+                f"To undo the build: {TITLES['restore']}.",
                 "StripForge",
                 wx.OK | wx.CANCEL | wx.ICON_QUESTION,
             )
@@ -340,6 +376,24 @@ class Ui:
         r = dlg.ShowModal()
         dlg.Destroy()
         return {wx.ID_YES: True, wx.ID_NO: False}.get(r)
+
+    def confirm_restore(self, board: Path, save: Path) -> bool:
+        """Restore last: OK to replace the files? Never without a dialog (no wx: False)."""
+        if self.wx is None:
+            return False
+        wx = self.wx
+        dlg = wx.MessageDialog(
+            None,
+            f"Load the last save point?\n{save.name}\n\nStripForge's work since then is removed (the "
+            f"built board, link lists, schematic link edits) and {board.name} is reloaded as it was. "
+            "Unsaved changes in the open board are lost.",
+            "StripForge",
+            wx.OK | wx.CANCEL | wx.ICON_QUESTION,
+        )
+        dlg.SetOKCancelLabels("Restore", "Cancel")
+        r = dlg.ShowModal()
+        dlg.Destroy()
+        return r == wx.ID_OK
 
     def report(self, title: str, text: str, path: Path | None = None, log: Path | None = None) -> None:
         if self.wx is None:
@@ -479,6 +533,8 @@ def run(action: str) -> int:
         if board is None:
             ui.report(title, "Save the board to a .kicad_pcb file first, then run the action again.")
             return 0
+        if action == "restore":
+            return _restore(ui, title, board, board_doc)
         in_place = False
         if action == "build" and bootstrap():
             config = find_config(board) or fallback_config(board)[0]
@@ -542,7 +598,7 @@ def _run_action(
     if fallback_note:
         notes.append(fallback_note)
     mode = output_mode(config)
-    out_board = built_path(board, mode)
+    out_board = built_path(board, mode, config)
     in_place = action == "build" and out_board == board
     rebuild = action == "build" and has_strips(board)
     if rebuild:
@@ -588,7 +644,7 @@ def _run_action(
             notes += [line for line in lines if line.startswith("Backup: ")]
             out = "\n".join(line for line in lines if not line.startswith("Backup: "))
         else:
-            notes.append(f"Wrote {shown.name} next to the board (output = \"separate\"); open it in KiCad to "
+            notes.append(f"Wrote {shown} (output = \"separate\"); open it in KiCad to "
                          "see the strips. The open board was not changed.")  # fmt: skip
     if action == "sheet" and sheet_path(target).is_file():
         shown = sheet_path(target)
@@ -600,8 +656,7 @@ def _run_action(
 
 def _add_links(board: Path, project_name: str, config: Path | None, notes: list) -> tuple[str, Path | None]:
     """ "Add links to schematic": write a StripForge:Link symbol for every placed W footprint into the
-    project's schematic, in place (each changed sheet backed up first as <sheet>-pre-links.kicad_sch,
-    rotated like the board backups)."""
+    project's schematic, in place (a save point of the changed sheets first; "Restore last" undoes it)."""
     from stripforge.linksym import LinkSymbolError, add_link_symbols, board_links, format_text
 
     schematic = find_schematic(board, project_name)
@@ -616,16 +671,16 @@ def _add_links(board: Path, project_name: str, config: Path | None, notes: list)
             "(place_links = true, the default, places them on their holes)."
         )
         return "\n".join([*notes, "", hint]), None
-    keep = 0
+    cfg = None
     if config is not None:
         try:
             from stripforge.config import load
 
-            keep = load(config).backup_keep
+            cfg = load(config)
         except Exception:
             pass
     try:
-        res = add_link_symbols(schematic, board, in_place=True, backup_keep=keep)
+        res = add_link_symbols(schematic, board, in_place=True, cfg=cfg)
     except (LinkSymbolError, OSError, ValueError) as exc:
         return "\n".join([*notes, "Result: refused (nothing written)", "", str(exc)]), None
     if res.added or res.completed or res.removed:
@@ -646,10 +701,8 @@ def _add_links(board: Path, project_name: str, config: Path | None, notes: list)
                 f"they are, not duplicated): {', '.join(res.completed)}. Bare pins got net labels, and each "
                 "symbol was re-linked to its placed footprint where needed (details below)."
             )
-        notes += [
-            f"Backup: {b} (the sheet just before this; older ones move up to -1, -2, ...)"
-            for b in res.backups
-        ]
+        notes += [f"Backup: {b} (save point: the sheets just before this; {TITLES['restore']} undoes it)"
+                  for b in res.backups]  # fmt: skip
         notes.append(REOPEN_NOTE)
         notes.append(
             "Then F8 (Update PCB from Schematic) finds every W footprint already placed and matched "
@@ -663,6 +716,42 @@ def _add_links(board: Path, project_name: str, config: Path | None, notes: list)
         notes += [f"CONFLICT: {c}" for c in res.conflicts]
         status = "finished with conflicts (see the report)"
     return "\n".join([*notes, f"Result: {status}", "", format_text(res)]), schematic
+
+
+def _restore(ui, title: str, board: Path, board_doc) -> int:
+    """ "Restore last": load the newest save point, then reload the board in the editor."""
+    from stripforge import layout
+    from stripforge.config import load
+
+    config = find_config(board)
+    cfg = load(config) if config else None
+    found = layout.backups(board, cfg)
+    if not found:
+        none = f"No save point yet in {layout.backup_dir(board, cfg)}. Build strips or Add links make one."
+        ui.report(title, f"Board: {board}\nResult: nothing to restore\n\n{none}")
+        return 0
+    if not ui.confirm_restore(board, found[-1]):
+        if ui.wx is None:
+            ui.report(title, f"Board: {board}\nResult: refused (nothing changed)\n\nRestore last "
+                      "replaces files and needs you to confirm that in a dialog, which can't be shown "
+                      "without wxPython. From a terminal: stripforge restore <board>.")  # fmt: skip
+            return 2
+        return 0
+    res = layout.restore(board, cfg, found[-1])
+    notes = [f"Board: {board}", "Result: OK", "", layout.format_restore(res)]
+    rel = lambda p: p.absolute().relative_to(layout.project_dir(board).absolute()).as_posix()  # noqa: E731
+    if rel(board) in res.restored or rel(board) in res.removed:
+        try:
+            busy_retry(board_doc.revert, "reloading the restored board")
+            notes.insert(2, "Reloaded the restored board in the PCB editor: respawned where you left off.")
+        except Exception as exc:
+            why = "KiCad was busy" if isinstance(exc, KiCadBusy) else str(exc)
+            notes.insert(2, f"Could not reload it ({why}): use File > Revert now, and don't save the board "
+                         "before that.")  # fmt: skip
+    if any(r.endswith(".kicad_sch") for r in res.restored):
+        notes.append(REOPEN_NOTE.replace("remove the links again", "undo the restore"))
+    ui.report(title, "\n".join(notes), None)
+    return 0
 
 
 if __name__ == "__main__":  # python stripforge_plugin.py <action>, for debugging from a terminal

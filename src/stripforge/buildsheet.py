@@ -1523,24 +1523,40 @@ class SheetResult:
     backups: list[str] = field(default_factory=list)  # the previous sheet (HTML, PDF), when it changed
 
 
-SHEET_BACKUP_SUFFIX = "-prev"  # <name>-stripforge.sheet-prev.html, -prev-1.html, ... (like the boards)
+def _keep_previous(out_path: Path, html: str, cfg: BoardConfig, res: SheetResult, board=None) -> None:
+    """Copy the previous sheet (HTML and, when there is one, its PDF) into the backup folder as
+    ``<sheet stem>-YYYY-MM-DD_HHMMSS.html/.pdf`` before it is overwritten, but only when the new sheet
+    differs. Fresh names each time (nothing is renamed); ``backup_keep`` prunes the oldest."""
+    import shutil
+    import time
 
-
-def _keep_previous(out_path: Path, html: str, keep: int, res: SheetResult) -> None:
-    """Back the previous sheet up before it is overwritten, rotating older copies like the board
-    backups, but only when the new sheet differs from it (the HTML and, when there is one, its PDF)."""
-    from .writer import rotate_backups
+    from . import layout
 
     try:
         if not out_path.is_file() or out_path.read_text(encoding="utf-8") == html:
             return
     except (OSError, UnicodeDecodeError):
         return
-    for p in (out_path, out_path.with_suffix(".pdf")):
-        if p.is_file():
-            rot = rotate_backups(p, keep, SHEET_BACKUP_SUFFIX)
-            res.backups.append(str(rot.backup))
-            res.notes += rot.warnings
+    d = layout.backup_dir(board or out_path, cfg)
+    stamp = time.strftime("%Y-%m-%d_%H%M%S", time.localtime(out_path.stat().st_mtime))
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+        for p in (out_path, out_path.with_suffix(".pdf")):
+            if not p.is_file():
+                continue
+            dest, n = d / f"{out_path.stem}-{stamp}{p.suffix}", 1
+            while dest.exists():
+                n += 1
+                dest = d / f"{out_path.stem}-{stamp}-{n}{p.suffix}"
+            shutil.copy2(p, dest)
+            res.backups.append(str(dest))
+            if cfg.backup_keep > 0:
+                pat = layout.glob_escape(out_path.stem) + "-[0-9]*" + p.suffix
+                olds = sorted(d.glob(pat), key=lambda f: (f.stat().st_mtime_ns, f.name))
+                for old in olds[: -cfg.backup_keep]:
+                    old.unlink()
+    except OSError as exc:
+        res.notes.append(f"could not keep the previous sheet ({exc})")
 
 
 def write_sheet(
@@ -1561,7 +1577,7 @@ def write_sheet(
     out_path.parent.mkdir(parents=True, exist_ok=True)
     res = SheetResult(model)
     html = render_html(model)
-    _keep_previous(out_path, html, cfg.backup_keep, res)
+    _keep_previous(out_path, html, cfg, res, board_path)
     out_path.write_text(html, encoding="utf-8")
     res.outputs.append(str(out_path))
     svgs = {

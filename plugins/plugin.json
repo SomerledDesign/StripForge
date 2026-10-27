@@ -29,7 +29,7 @@
         {
             "identifier": "stripforge.build",
             "name": "StripForge: Build strips",
-            "description": "Save the board, back it up as <name>-pre-stripbuild.kicad_pcb (older backups rotate), write the strip copper, cuts, holes and W link footprints into it, and reload it",
+            "description": "Save the board, make a save point (a zip in stripforge/<Project>-stripforge-backups), write the strip copper, cuts, holes and W link footprints into it, and reload it",
             "show-button": true,
             "scopes": [
                 "pcb"
@@ -47,7 +47,7 @@
         {
             "identifier": "stripforge.links",
             "name": "StripForge: Add links to schematic",
-            "description": "Add a StripForge:Link symbol (with its footprint, schematic path and net labels) to the project's schematic for every W link footprint placed on the board; each changed sheet is backed up first",
+            "description": "Add a StripForge:Link symbol (with its footprint, schematic path and net labels) to the project's schematic for every W link footprint placed on the board; a save point of the changed sheets is made first",
             "show-button": true,
             "scopes": [
                 "pcb"
@@ -96,6 +96,24 @@
             "icons-dark": [
                 "icons/sheet-24.png",
                 "icons/sheet-48.png"
+            ]
+        },
+        {
+            "identifier": "stripforge.restore",
+            "name": "StripForge: Restore last",
+            "description": "Load the last save point: remove StripForge's work since then (built board, link files, schematic link edits) and reload the board, so you respawn right where you left off",
+            "show-button": true,
+            "scopes": [
+                "pcb"
+            ],
+            "entrypoint": "sf_restore.py",
+            "icons-light": [
+                "icons/restore-24.png",
+                "icons/restore-48.png"
+            ],
+            "icons-dark": [
+                "icons/restore-24.png",
+                "icons/restore-48.png"
             ]
         }
     ]

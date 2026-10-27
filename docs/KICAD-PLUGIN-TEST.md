@@ -20,24 +20,25 @@ KiCad"). Use a **copy** of a project, because Build strips writes files next to 
    - The report lists the cuts and the links needed, using hole labels (A1…).
 7. Click **StripForge: Build strips** (open the board from the KiCad project manager, so F8 works).
    - Expect a "Save and build" dialog (OK/Cancel), then the report with "Built <name>.kicad_pcb in
-     place. Reloaded the built board in the PCB editor." and "Backup: …/<name>-pre-stripbuild.kicad_pcb
-     (the board just before this build)".
+     place. Reloaded the built board in the PCB editor." and "Backup: …/stripforge/<Project>-stripforge-backups/
+     <Project>-stripforge-YYYY-MM-DD_HHMMSS.zip (save point: …)".
    - The open board now shows B.Cu strips, the cut markers on User.1 and the hole pads.
    - With `place_links = true` (the default) the W links are already on their holes. Click
      **StripForge: Add links to schematic**: expect "Added N StripForge:Link symbol(s)", a
-     "Backup: …-pre-links.kicad_sch" line and the "close the Schematic Editor WITHOUT saving and
+     "Backup: ….zip (save point: the sheets just before this …)" line and the "close the Schematic Editor WITHOUT saving and
      open it again" note. Reopen the schematic and check the W symbols (right of the drawing),
      then press F8: expect no new or moved footprints.
-   - Click **Build strips** again (a rebuild). The report says "Older backups moved up one: <name>-pre-stripbuild-1.kicad_pcb"
-     (that is the first build's placement board; the unnumbered one is the board just before this
-     build).
-   - To undo the latest build: close the board, delete `<name>.kicad_pcb`, rename
-     `<name>-pre-stripbuild.kicad_pcb` back (or `-1`, `-2`, … to go further back).
+   - Click **Build strips** again (a rebuild). A second zip appears in the backups folder; the
+     first is unchanged (nothing is renamed).
+   - Click **StripForge: Restore last**. Expect a "Restore" confirmation naming the newest zip,
+     then "Loaded save point …" and "Reloaded the restored board in the PCB editor: respawned where
+     you left off". The board is back to just before the rebuild. Click it again: the same save
+     loads again. `stripforge restore <board> --list` / `--backup <zip>` goes further back.
 8. Click **StripForge: Run DRC**.
    - Expect "parity: checked against the schematic" (the board is `<name>.kicad_pcb`, so kicad-cli
      uses `<name>.kicad_sch` directly).
    - After pass 1, unconnected equals the links still to add. After pass 2 it should be 0.
-9. Click **StripForge: Build sheet**. Expect the browser to open `<name>-stripforge.sheet.html`,
+9. Click **StripForge: Build sheet**. Expect the browser to open `stripforge/<Project>-stripforge.sheet.html`,
    with a `.pdf` beside it if Google Chrome is installed. Print one page to check the scale ruler.
 10. Error path: close the board (or start the action from an unsaved new board). Expect a readable
     message, not a silent failure.

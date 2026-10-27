@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Restore last (M4b).** Build strips and Add links to schematic each make a *save point* first:
+  a new zip `stripforge/<Project>-stripforge-backups/<Project>-stripforge-YYYY-MM-DD_HHMMSS.zip`
+  of every file they are about to write (with a `stripforge-backup.json` listing them and the
+  files that didn't exist yet). The new **StripForge: Restore last** action (and
+  `stripforge restore <board>`, with `--list` and `--backup <zip>`) removes StripForge's work since
+  the newest save point, unzips the saved files under their own names and reloads the board: you
+  respawn right where you left off. The zip is kept, so restoring twice loads the same save.
+- `output_dir` and `backup_dir` config keys (optional, always relative to the project folder).
+- `plugins/templates/project.gitignore`: a `.gitignore` for a KiCad + StripForge project
+  (`*-backups/`, `*.lck`, `*.kicad_prl`, `*.bak`, `fp-info-cache`, `.DS_Store`).
+
+### Changed
+
+- **Everything StripForge writes goes into a `stripforge/` folder** next to the `.kicad_pro`
+  (`${KIPRJMOD}`), named after the project: `<Project>-stripforge.links.json/.csv/.txt`,
+  `.sheet.html` (and its PDF, SVGs, CSV, PNGs), `.log`, and with `output = "separate"` the built
+  `.kicad_pcb`. The board and its `.kicad_dru` stay next to the `.kicad_pro`. The config is read
+  from `stripforge/stripboard.toml` first, then `stripboard.toml` in the project folder.
+- Backups are never renamed any more (renames make Dropbox create conflicted copies): the rotating
+  `<name>-pre-stripbuild.kicad_pcb`, `<sheet>-pre-links.kicad_sch` and `.sheet-prev.html` chains
+  are replaced by save-point zips and timestamped sheet copies. `backup_keep` now counts zips.
+- Files from 0.2.x next to the board are left where they are; the build report lists them. Old
+  `-pre-stripbuild` backups and link files are still read (manual-link history, DRC link count,
+  a 0.2.x separate output for Run DRC / Build sheet).
+
 ## [0.2.1] - 2026-10-26
 
 ### Added

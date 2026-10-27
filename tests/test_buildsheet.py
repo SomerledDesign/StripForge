@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+from pathlib import Path
 
 import pytest
 
@@ -28,7 +29,7 @@ def real(tmp_path_factory):
     cfg.place_links = False  # the two-pass flow: links proposed, then added by (simulated) F8
     p1 = tmp / "p1" / "fixture.kicad_pcb"
     writer.build(board, cfg, p1, netlist=str(net))
-    links = json.loads(p1.with_name("fixture-stripforge.links.json").read_text())["links"]
+    links = json.loads((p1.parent / "stripforge" / "fixture-stripforge.links.json").read_text())["links"]
     f8 = tmp / "f8"
     f8.mkdir()
     pass2_sim.add_links_to_board(board, links, f8 / "fixture.kicad_pcb")
@@ -313,14 +314,17 @@ def test_sheet_keeps_the_previous_one_only_when_it_changes(tmp_path):
     assert not res.backups  # same sheet: nothing to keep
     first = out.read_text()
     res = buildsheet.write_sheet(board, cfg, out, pdf=False, date="2026-09-29")
-    prev = tmp_path / "b-stripforge.sheet-prev.html"
-    assert res.backups == [str(prev), str(tmp_path / "b-stripforge.sheet-prev.pdf")]
-    assert prev.read_text() == first and (tmp_path / "b-stripforge.sheet-prev.pdf").read_text() == "old pdf"
+    bak = tmp_path / "stripforge" / "b-stripforge-backups"
+    prev_html, prev_pdf = (Path(b) for b in res.backups)
+    assert prev_html.parent == bak and prev_pdf.parent == bak
+    assert prev_html.name.startswith("b-stripforge.sheet-20") and prev_html.suffix == ".html"
+    assert prev_html.read_text() == first and prev_pdf.read_text() == "old pdf"
     buildsheet.write_sheet(board, cfg, out, pdf=False, date="2026-09-30")
-    assert (tmp_path / "b-stripforge.sheet-prev-1.html").read_text() == first
+    assert len(list(bak.glob("*.html"))) == 2 and prev_html.read_text() == first  # a new name; never renamed
     keep1 = BoardConfig(trim_pieces=False, backup_keep=1)
     buildsheet.write_sheet(board, keep1, out, pdf=False, date="2026-10-01")
-    assert not (tmp_path / "b-stripforge.sheet-prev-1.html").exists()  # backup_keep = 1: just -prev
+    assert len(list(bak.glob("*.html"))) == 1 and not prev_html.exists()  # backup_keep = 1: the newest
+    assert not list(bak.glob("*.zip")) or all("sheet" not in z.name for z in bak.glob("*.zip"))
 
 
 # --- clickable checklists (Kevin 2026-10-02, building the TPI fixture) --------------------------

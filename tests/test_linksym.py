@@ -212,7 +212,11 @@ def test_link_symbols_in_place_keeps_a_backup(tmp_path):
         add_link_symbols(src / "demo.kicad_sch", board, out_dir=src)
     res = add_link_symbols(src / "demo.kicad_sch", board, in_place=True)
     (bak,) = res.backups
-    assert Path(bak).read_text() == SUB_SCH and Path(bak).name == "sub-pre-links.kicad_sch"
+    from stripforge import layout
+
+    assert layout.read_member(Path(bak), "sub.kicad_sch") == SUB_SCH
+    assert Path(bak).parent.name.endswith("-stripforge-backups") and Path(bak).suffix == ".zip"
+    assert layout.read_manifest(Path(bak))["files"] == ["sub.kicad_sch"]
     assert "W3" in _symbols(src / "sub.kicad_sch")
     assert (src / "demo.kicad_sch").read_text() == ROOT_SCH  # unchanged sheets are not rewritten
 
@@ -339,7 +343,10 @@ def test_stale_link_symbols_are_removed_and_description_updated(tmp_path):
         cut,
     )  # W3 is gone from the built board
     board.write_text(text, encoding="utf-8")
-    plan = board.with_name("demo-built-stripforge.links.json")
+    from stripforge.writer import link_file
+
+    plan = link_file(board, ".json")
+    plan.parent.mkdir(parents=True, exist_ok=True)
     plan.write_text('{"links": [{"ref": "W1"}, {"ref": "W2"}]}', encoding="utf-8")
     res = add_link_symbols(src / "demo.kicad_sch", board, in_place=True)
     assert res.removed == ["W3 [sub.kicad_sch]"] and "W3" not in _symbols(src / "sub.kicad_sch")
@@ -349,7 +356,11 @@ def test_stale_link_symbols_are_removed_and_description_updated(tmp_path):
     assert "removed 1 stale StripForge:Link symbol(s)" in format_text(res) and res.backups
     # a board that isn't built (no cut markers) removes nothing: its links may not be placed yet
     board.write_text(text.replace(cut, ""), encoding="utf-8")
-    shutil.copyfile(res.backups[0], src / "sub.kicad_sch")
+    from stripforge import layout
+
+    zp = Path(res.backups[0])
+    rel = next(f for f in layout.read_manifest(zp)["files"] if f.endswith("sub.kicad_sch"))
+    (src / "sub.kicad_sch").write_text(layout.read_member(zp, rel), encoding="utf-8")
     again = add_link_symbols(src / "demo.kicad_sch", board, in_place=True)
     assert not again.removed and "W3" in _symbols(src / "sub.kicad_sch")
 

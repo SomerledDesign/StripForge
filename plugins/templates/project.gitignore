@@ -1,0 +1,14 @@
+# StripForge project .gitignore template: copy it into your KiCad project as .gitignore
+# (or append it to the one you have).
+
+# StripForge save points (stripforge/<Project>-stripforge-backups/) and KiCad's own backups
+*-backups/
+
+# KiCad lock files, local settings and caches
+*.lck
+*.kicad_prl
+*.bak
+fp-info-cache
+
+# macOS
+.DS_Store

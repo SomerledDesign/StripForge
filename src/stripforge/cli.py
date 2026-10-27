@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Somerled Design
-"""StripForge command line: analyze, snap, build, link-symbols, drc and sheet (plan is a stub).
+"""StripForge command line: analyze, snap, build, link-symbols, drc, sheet and restore (plan is a stub).
 
 See Sketch.md §7.
 """
@@ -137,7 +137,7 @@ def _build(args: argparse.Namespace) -> int:
     hole = sum(1 for c in a.split.cuts if c.style == "hole")
     print(f"StripForge build: {args.board} -> {out}" + (" (in place)" if in_place else ""))
     if res.backup:
-        print(f"Backup: {res.backup} (the board just before this build). {backup_note(res, out)}")
+        print(f"Backup: {res.backup} (save point: the files just before this build). {backup_note(res, out)}")
     print(
         f"Parts: {len(a.snapped)} snapped, {len(res.moves)} moved by their best-fit shift, "
         f"{len(a.rejected)} rejected"
@@ -205,9 +205,10 @@ def _drc(args: argparse.Namespace) -> int:
     except (OSError, ValueError):
         pass
     if args.schematic is None and not args.no_parity:
+        from .layout import project_dir
         from .writer import base_stem
 
-        sch = Path(args.board).with_name(base_stem(args.board) + ".kicad_sch")
+        sch = project_dir(args.board) / (base_stem(args.board) + ".kicad_sch")
         if sch.is_file() and sch.stem != Path(args.board).stem:
             args.schematic = str(sch)  # a -stripforge board: check parity against <name>.kicad_sch
     try:
@@ -234,9 +235,9 @@ def _drc(args: argparse.Namespace) -> int:
         sys.stdout.write("\n")
     else:
         expected = None
-        from .writer import link_file
+        from .writer import saved_link_file
 
-        links_json = link_file(args.board, ".json")
+        links_json = saved_link_file(args.board, ".json")
         if links_json.exists():
             try:
                 expected = json.loads(links_json.read_text(encoding="utf-8")).get("links_needed")
@@ -278,8 +279,33 @@ def _sheet(args: argparse.Namespace) -> int:
     for n in res.notes:
         print(f"note: {n}")
     for b in res.backups:
-        print(f"Backup: {b} (the previous sheet; older ones move up to -1, -2, ...)")
+        print(f"Backup: {b} (the previous sheet)")
     print("Wrote: " + ", ".join(res.outputs))
+    return 0
+
+
+def _restore(args: argparse.Namespace) -> int:
+    from . import config as config_mod
+    from . import layout
+
+    try:
+        cfg_path = args.config or layout.find_config(args.board)
+        cfg = config_mod.load(cfg_path) if cfg_path else config_mod.BoardConfig()
+        if args.list:
+            found = layout.backups(args.board, cfg)
+            if not found:
+                print(f"No save point yet in {layout.backup_dir(args.board, cfg)}")
+            for z in found:
+                print(f"{z}  ({layout.read_manifest(z).get('action', 'unknown')})")
+            return 0
+        res = layout.restore(args.board, cfg, args.backup)
+    except FileNotFoundError as exc:
+        print(f"stripforge restore: {exc}; nothing changed", file=sys.stderr)
+        return 1
+    except (OSError, ValueError, KeyError) as exc:
+        print(f"stripforge restore: error: {exc}", file=sys.stderr)
+        return 2
+    print(layout.format_restore(res))
     return 0
 
 
@@ -322,12 +348,13 @@ def main(argv: list[str] | None = None) -> int:
         description="Snap the parts, split the strips by net, propose wire links and write the built board: "
         "B.Cu strip tracks on their nets, real gaps at the cuts with embedded StripForge:CUT_* markers, "
         'and any W link footprints (after F8) placed on their holes. By default (output = "in_place") '
-        "the board itself is rewritten, after saving it as it is to <name>-pre-stripbuild.kicad_pcb; "
-        "older backups rotate to -1, -2, ... like logrotate (backup_keep = N keeps N in all, 0 = all); "
-        "undo the latest build = delete the built board, rename the unnumbered backup back); "
-        '--separate / output = "separate" writes <name>-stripforge.kicad_pcb instead. Also writes '
-        "<out>.kicad_dru (the StripForge rules) and <name>-stripforge.links.json/.csv/.txt (the link "
-        "proposal and schematic instructions). "
+        "the board itself is rewritten, after a save point: a new zip "
+        "stripforge/<Project>-stripforge-backups/<Project>-stripforge-YYYY-MM-DD_HHMMSS.zip of every file "
+        "the build writes (backup_keep = N keeps the newest N, 0 = all; undo = 'stripforge restore'); "
+        '--separate / output = "separate" writes stripforge/<Project>-stripforge.kicad_pcb instead. Also '
+        "writes <out>.kicad_dru (the StripForge rules) and "
+        "stripforge/<Project>-stripforge.links.json/.csv/.txt (the link proposal and schematic "
+        "instructions). "
         "Exit code 0 = written and complete, 1 = written but nets still need links or W parts are "
         "missing/wrong, 2 = refused or input error (nothing written).",
     )
@@ -335,13 +362,13 @@ def main(argv: list[str] | None = None) -> int:
     bu.add_argument(
         "-o",
         "--output",
-        help='the .kicad_pcb to write (default, output = "in_place": the board itself, after a rotating '
-        'backup to <name>-pre-stripbuild.kicad_pcb; output = "separate": <name>-stripforge.kicad_pcb)',
+        help='the .kicad_pcb to write (default, output = "in_place": the board itself, after a save '
+        'point; output = "separate": stripforge/<Project>-stripforge.kicad_pcb)',
     )
     bu.add_argument(
         "--separate",
         action="store_true",
-        help='write <name>-stripforge.kicad_pcb and leave the board alone (output = "separate")',
+        help='write stripforge/<Project>-stripforge.kicad_pcb, leave the board alone (output = "separate")',
     )
     bu.add_argument("--netlist", help="kicadsexpr .net file to cross-check pad nets against")
     bu.add_argument("--config", help="stripboard.toml (default: derive the grid from Edge.Cuts)")
@@ -381,7 +408,7 @@ def main(argv: list[str] | None = None) -> int:
         "lacks (KiCad's Update Schematic from PCB can't add symbols): reference, Footprint field, and a "
         "label with the net's name on both pins, on the sheet of the net. Written to a copy of the whole "
         "schematic (--out-dir, with the project file, library tables and the board, ready for kicad-cli) "
-        "or in place (--in-place; every changed sheet is first copied to a timestamped .bak).",
+        "or in place (--in-place; a save point of every changed sheet is made first).",
     )
     ls.add_argument("board", help="the built .kicad_pcb with the W link footprints placed")
     ls.add_argument(
@@ -441,6 +468,22 @@ def main(argv: list[str] | None = None) -> int:
     )
     sh.add_argument("--date", help="date printed in the header (default: today, YYYY-MM-DD)")
     sh.set_defaults(func=_sheet)
+
+    rs = sub.add_parser(
+        "restore",
+        help="Restore last: load the newest save point (undo StripForge's last build or link edit)",
+        description="Restore your last save and respawn right where you left off: delete what StripForge "
+        "wrote since the newest save point (build outputs, link files) and unzip the files it saved under "
+        "their own names. The zip is kept, so running it twice loads the same save; --backup picks an "
+        "older one, --list shows them. Exit code 0 = restored, 1 = no save point yet, 2 = error.",
+    )
+    rs.add_argument("board", help="the project's .kicad_pcb")
+    rs.add_argument(
+        "--config", help="stripboard.toml (default: stripforge/stripboard.toml, then the project's)"
+    )
+    rs.add_argument("--backup", help="the save point zip to load (default: the newest)")
+    rs.add_argument("--list", action="store_true", help="list the save points, oldest first; change nothing")
+    rs.set_defaults(func=_restore)
 
     for name, help_ in [
         ("plan", "snap + split + cut/link proposal, JSON report only"),

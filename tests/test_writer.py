@@ -70,7 +70,7 @@ def test_rules_and_link_files_are_written_next_to_the_board(tmp_path):
     res, out = build(tmp_path)
     assert (tmp_path / "out.kicad_dru").read_text() == writer.resources.rules_file().read_text()
     for suffix in (".links.json", ".links.csv", ".links.txt"):
-        assert (tmp_path / f"out-stripforge{suffix}").exists()
+        assert (tmp_path / "stripforge" / f"out-stripforge{suffix}").exists()
 
 
 def test_rules_width_mismatch_warns(tmp_path):
@@ -127,7 +127,7 @@ def _pass2_board(tmp_path, links):
 
 def test_pass2_places_links_on_their_holes(tmp_path):
     res, out = build(tmp_path)
-    links = json.loads((tmp_path / "out-stripforge.links.json").read_text())["links"]
+    links = json.loads((tmp_path / "stripforge" / "out-stripforge.links.json").read_text())["links"]
     p2 = _pass2_board(tmp_path, links)
     res2 = writer.build(p2, BoardConfig(trim_pieces=False, place_links=False), tmp_path / "p2.kicad_pcb")
     assert res2.pass2 and [p.status for p in res2.placements] == ["placed"]
@@ -143,7 +143,7 @@ def test_pass2_places_links_on_their_holes(tmp_path):
 def test_pass2_reports_missing_extra_and_wrong_net(tmp_path):
     parts = SPLIT + [("P4", 0, 4, "A"), ("P5", 6, 4, "C")]
     res, _ = build(tmp_path, parts)
-    links = json.loads((tmp_path / "out-stripforge.links.json").read_text())["links"]
+    links = json.loads((tmp_path / "stripforge" / "out-stripforge.links.json").read_text())["links"]
     assert [lk["ref"] for lk in links] == ["W1", "W2"]
     extra = dict(links[0], ref="W9")
     wrong = dict(links[1], net="B")
@@ -168,7 +168,7 @@ def test_real_fixture_build(tmp_path, real_board_path, real_netlist_path):
     assert res.segments == 1154 and res.segments_no_net == 718
     assert res.holes_drawn == 1256  # every free grid hole (pass 1: link holes still empty)
     # pass 2 on a copy: every proposed link is placed
-    links = json.loads((tmp_path / "b-stripforge.links.json").read_text())["links"]
+    links = json.loads((tmp_path / "stripforge" / "b-stripforge.links.json").read_text())["links"]
     shutil.copy(real_board_path, tmp_path / "in.kicad_pcb")
     p2 = _pass2_board(tmp_path, links)
     res2 = writer.build(p2, cfg, tmp_path / "p2.kicad_pcb", netlist=str(real_netlist_path))
@@ -183,101 +183,24 @@ def test_real_fixture_build(tmp_path, real_board_path, real_netlist_path):
     assert next(lk for lk in res.plan.links if lk.ref_hint == "W24").footprint == "StripForge:Link_D18.49"
 
 
-# --- rotating backups (output = "in_place") --------------------------------------------------
+# --- save points (stripforge.layout) ----------------------------------------------------------
 
 
-def _chain(tmp_path, n):
-    board = tmp_path / "b.kicad_pcb"
-    board.write_text("now")
-    writer.backup_path(board).write_text("b0")
-    for i in range(1, n + 1):
-        writer.backup_path(board, i).write_text(f"b{i}")
-    return board
+def test_build_makes_a_save_point_zip_of_what_it_writes(tmp_path):
+    import zipfile
 
+    from stripforge import layout
 
-def _contents(tmp_path):
-    return {p.name: p.read_text() for p in sorted(tmp_path.iterdir())}
-
-
-def test_rotate_backups_first_time(tmp_path):
-    board = tmp_path / "b.kicad_pcb"
-    board.write_text("now")
-    rot = writer.rotate_backups(board)
-    assert rot.backup == tmp_path / "b-pre-stripbuild.kicad_pcb" and not rot.shifted
-    assert _contents(tmp_path) == {"b-pre-stripbuild.kicad_pcb": "now", "b.kicad_pcb": "now"}
-
-
-def test_rotate_backups_shifts_highest_first(tmp_path):
-    board = _chain(tmp_path, 2)
-    (tmp_path / "b-pre-stripbuild-x.kicad_pcb").write_text("other")  # not part of the chain
-    rot = writer.rotate_backups(board)
-    assert rot.shifted == [
-        ("b-pre-stripbuild-2.kicad_pcb", "b-pre-stripbuild-3.kicad_pcb"),
-        ("b-pre-stripbuild-1.kicad_pcb", "b-pre-stripbuild-2.kicad_pcb"),
-        ("b-pre-stripbuild.kicad_pcb", "b-pre-stripbuild-1.kicad_pcb"),
-    ]
-    assert _contents(tmp_path) == {
-        "b-pre-stripbuild-1.kicad_pcb": "b0",
-        "b-pre-stripbuild-2.kicad_pcb": "b1",
-        "b-pre-stripbuild-3.kicad_pcb": "b2",
-        "b-pre-stripbuild-x.kicad_pcb": "other",
-        "b-pre-stripbuild.kicad_pcb": "now",
-        "b.kicad_pcb": "now",
-    }
-    assert writer.base_stem(tmp_path / "b-pre-stripbuild-3.kicad_pcb") == "b"
-
-
-def test_rotate_backups_with_a_gap_and_unlimited(tmp_path):
-    board = _chain(tmp_path, 0)
-    writer.backup_path(board, 5).write_text("b5")  # a gap: -1..-4 missing
-    for _ in range(3):
-        writer.rotate_backups(board)
-    names = _contents(tmp_path)
-    assert names["b-pre-stripbuild-8.kicad_pcb"] == "b5" and names["b-pre-stripbuild-3.kicad_pcb"] == "b0"
-    assert len([n for n in names if "pre-stripbuild" in n]) == 5  # nothing lost, nothing overwritten
-
-
-def test_rotate_backups_keep(tmp_path):
-    board = _chain(tmp_path, 3)
-    rot = writer.rotate_backups(board, keep=3)  # the unnumbered one, -1 and -2
-    assert rot.pruned == ["b-pre-stripbuild-4.kicad_pcb", "b-pre-stripbuild-3.kicad_pcb"]
-    assert _contents(tmp_path) == {
-        "b-pre-stripbuild-1.kicad_pcb": "b0",
-        "b-pre-stripbuild-2.kicad_pcb": "b1",
-        "b-pre-stripbuild.kicad_pcb": "now",
-        "b.kicad_pcb": "now",
-    }
-    writer.rotate_backups(board, keep=1)
-    assert _contents(tmp_path) == {"b-pre-stripbuild.kicad_pcb": "now", "b.kicad_pcb": "now"}
-
-
-def test_rotate_backups_stops_before_writing_when_a_rename_fails(tmp_path, monkeypatch):
-    board = _chain(tmp_path, 2)
-    real_rename = writer.os.rename
-
-    def flaky(src, dst):
-        if str(dst).endswith("-2.kicad_pcb"):
-            raise PermissionError("locked")
-        real_rename(src, dst)
-
-    monkeypatch.setattr(writer.os, "rename", flaky)
-    with pytest.raises(writer.BuildError, match="could not rename b-pre-stripbuild-1.kicad_pcb"):
-        writer.rotate_backups(board)
-    # -2 moved to -3 first; nothing was overwritten and the unnumbered backup was not replaced
-    assert _contents(tmp_path) == {
-        "b-pre-stripbuild-1.kicad_pcb": "b1",
-        "b-pre-stripbuild-3.kicad_pcb": "b2",
-        "b-pre-stripbuild.kicad_pcb": "b0",
-        "b.kicad_pcb": "now",
-    }
-
-
-def test_rotate_backups_never_overwrites(tmp_path, monkeypatch):
-    board = _chain(tmp_path, 1)
-    monkeypatch.setattr(writer, "numbered_backups", lambda b, s=None: {})  # e.g. -1 appeared meanwhile
-    with pytest.raises(writer.BuildError, match="b-pre-stripbuild-1.kicad_pcb already exists"):
-        writer.rotate_backups(board)
-    assert _contents(tmp_path)["b-pre-stripbuild-1.kicad_pcb"] == "b1"
+    res, out = build(tmp_path)
+    zips = layout.backups(out)
+    assert [str(z) for z in zips] == [res.backup]
+    z = zips[0]
+    assert z.parent == tmp_path / "stripforge" / "out-stripforge-backups"
+    assert layout.ZIP_RE.match(z.name) and z.name.startswith("out-stripforge-20")
+    man = layout.read_manifest(z)
+    assert man["action"] == "build" and "stripforge/out-stripforge.links.json" in man["absent"]
+    with zipfile.ZipFile(z) as zf:
+        assert layout.MANIFEST in zf.namelist()
 
 
 def test_backup_keep_config():

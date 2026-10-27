@@ -18,7 +18,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parents[1]
 ACTIONS = [("analyze", "A", (40, 120, 220)), ("build", "B", (30, 150, 60)), ("drc", "D", (210, 40, 40)),
-           ("sheet", "S", (120, 60, 180))]  # fmt: skip
+           ("sheet", "S", (120, 60, 180)), ("restore", "R", (230, 140, 20))]  # fmt: skip
 TOOLBAR_CROP = (10, 2, 54, 46)  # left, top, right, bottom in the 64 x 64 icon: the S and its traces
 FONTS = ["/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", "/Library/Fonts/Arial Bold.ttf"]
 

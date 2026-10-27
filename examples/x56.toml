@@ -5,10 +5,12 @@
 # rows, cols and origin_mm are all given, so the grid does not come from Edge.Cuts. The origin
 # is the TPI fixture's first hole; move it to wherever hole A1 sits in your board file. Parts
 # outside A1-X56 are reported as off board.
-# Where Build strips goes: "in_place" (default) builds into <name>.kicad_pcb after saving it as it is
-# to <name>-pre-stripbuild.kicad_pcb (older backups rotate to -1, -2, ...; undo the latest build:
-# delete the board, rename the unnumbered backup back); "separate" writes <name>-stripforge.kicad_pcb
-# and leaves the board alone. backup_keep = N keeps N backups in all (0 = keep every one).
+# Put this file in <project>/stripforge/stripboard.toml (or stripboard.toml next to the .kicad_pro).
+# Where Build strips goes: "in_place" (default) builds into <name>.kicad_pcb; "separate" writes
+# stripforge/<Project>-stripforge.kicad_pcb and leaves the board alone. Every build first makes a
+# save point, a new zip in stripforge/<Project>-stripforge-backups/; "Restore last" (or
+# stripforge restore <board>) loads the newest. backup_keep = N keeps the newest N zips (0 = all).
+# output_dir / backup_dir (optional, relative to the project folder) move those folders.
 output = "in_place"
 backup_keep = 0
 # place_links = true (default): the build places the W link footprints on their holes; then

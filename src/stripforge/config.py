@@ -189,16 +189,17 @@ class BoardConfig:
     place_links: bool = True
     # Build: where the built board goes. "in_place" (default): into the board itself, i.e. the
     # project's own <name>.kicad_pcb, so F8 (Update PCB from Schematic) works in it and DRC parity
-    # checks <name>.kicad_sch directly. Every in-place build first saves the board as it is to
-    # <name>-pre-stripbuild.kicad_pcb, rotating older backups like logrotate: -pre-stripbuild-2
-    # becomes -3, -1 becomes -2, the unnumbered one becomes -1. So the unnumbered backup is always
-    # the board just before the latest build and the highest number is the oldest. To undo the
-    # latest build: delete the built board and rename the unnumbered backup back.
-    # "separate": the old way, a new <name>-stripforge.kicad_pcb next to the board.
+    # checks <name>.kicad_sch directly. Every build first makes a save point: a new zip
+    # stripforge/<Project>-stripforge-backups/<Project>-stripforge-YYYY-MM-DD_HHMMSS.zip of the
+    # files it is about to write. "Restore last" (stripforge restore) loads the newest one.
+    # "separate": a new stripforge/<Project>-stripforge.kicad_pcb; the board is left alone.
     output: str = "in_place"
-    # How many -pre-stripbuild backups to keep in all (the unnumbered one counts as 1; the
-    # oldest numbered ones beyond that are deleted after rotating). 0 = keep them all.
+    # How many save points (backup zips) to keep: the newest N; 0 = keep them all.
     backup_keep: int = 0
+    # Where StripForge's files go, relative to the project folder (the .kicad_pro's, ${KIPRJMOD});
+    # never absolute. None: "stripforge" and "stripforge/<Project>-stripforge-backups".
+    output_dir: str | None = None
+    backup_dir: str | None = None
     hole_drill_mm: float = 1.0
     # Your own cuts and links. Building from a board with StripForge cut markers and placed W links
     # (e.g. the built board after moving them in pcbnew) keeps them where they are and only fills
@@ -311,6 +312,11 @@ def from_dict(data: dict) -> BoardConfig:
     v = cfg.backup_keep
     if isinstance(v, bool) or not isinstance(v, int) or v < 0:
         raise ValueError(f"backup_keep must be a whole number of backups, 0 for all of them, got {v!r}")
+    from .layout import check_relative
+
+    for name in ("output_dir", "backup_dir"):
+        if getattr(cfg, name) is not None:
+            setattr(cfg, name, check_relative(getattr(cfg, name), name))
     if cfg.output not in OUTPUT_MODES:
         raise ValueError(f'output must be "in_place" or "separate", got {cfg.output!r}')
     if cfg.hole_drill_mm >= cfg.strip_width_mm:
