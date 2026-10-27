@@ -107,7 +107,9 @@ a half-built environment with no pip, and it keeps reusing it even after you ins
    right end of the top toolbar; maximise the window if only the first one shows.
 
 (The folder is `~/.cache/kicad/10.0/python-environments/` on a standard Linux install; check the
-exact name and case with `ls ~/.cache | grep -i kicad` if yours differs.)
+exact name and case with `ls ~/.cache | grep -i kicad` if yours differs. On macOS it is
+`~/Library/Caches/KiCad/10.0/python-environments/com.github.somerleddesign.stripforge`; macOS
+file names are case-insensitive, so the case doesn't matter there.)
 
 ### NixOS, or no dialogs (only status-bar warnings)
 
