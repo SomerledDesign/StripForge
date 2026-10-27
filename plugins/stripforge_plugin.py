@@ -343,7 +343,8 @@ class Ui:
 
     def report(self, title: str, text: str, path: Path | None = None, log: Path | None = None) -> None:
         if self.wx is None:
-            print(f"{title}: no wxPython, so no dialog; the report is in {log}" if log else f"{title}\n{text}")
+            print(f"{title}: no wxPython, so no dialog; the report is in {log}"
+                  if log else f"{title}\n{text}")  # fmt: skip
             return
         wx = self.wx
         dlg = wx.Dialog(None, title=title, size=(900, 640), style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
