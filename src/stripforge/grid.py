@@ -370,7 +370,10 @@ def snap_footprint(
             # the pins match the pitch; the part is just not on the holes
             res.reason += (
                 f"; its pins match the hole pitch, so it is just off the grid: move it by "
-                f"({sx / 1e6:.3f}, {sy / 1e6:.3f}) mm (KiCad: Move Exactly) to put every pin on a hole"
+                f"({sx / 1e6:.3f}, {sy / 1e6:.3f}) mm (KiCad: Move Exactly) to put every pin on a hole. "
+                f"In KiCad: select {fp.ref}, press Shift+M (Move Exactly), enter X = {sx / 1e6:.3f} "
+                f"and Y = {sy / 1e6:.3f} mm (a relative offset, Polar coordinates unticked), OK; or set "
+                "a 2.54 mm grid with its origin on a hole (Place > Grid Origin) and drag it to snap"
             )
         elif across:
             # an across-strip miss: legs can often be bent that far (the Beckham tolerance)

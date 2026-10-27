@@ -29,6 +29,7 @@ The helpers at the top are pure (no kipy, no wx) so they can be tested without K
 from __future__ import annotations
 
 import contextlib
+import inspect
 import io
 import re
 import subprocess
@@ -201,6 +202,58 @@ def sheet_path(board: Path) -> Path:
     return board.with_name(base_stem(board) + BUILT_SUFFIX + ".sheet.html")
 
 
+LOG_SUFFIX = "-stripforge.log"
+NO_WX_NOTE = (
+    "StripForge can't show dialogs: wxPython is not importable in the plugin's Python environment, "
+    "so KiCad only shows its messages in the PCB editor's status-bar warnings. Fix: Preferences > "
+    "Plugins > Python interpreter: pick a Python that has wxPython (on NixOS, one with wxpython in "
+    "its packages), then 'Recreate Plugin Environment' and restart KiCad."
+)
+
+
+def log_path(board: Path | None) -> Path:
+    """``<name>-stripforge.log`` next to the board; without a board, ``stripforge.log`` in the temp dir."""
+    if board is None:
+        return Path(tempfile.gettempdir()) / "stripforge.log"
+    return board.with_name(base_stem(board) + LOG_SUFFIX)
+
+
+def write_log(board: Path | None, title: str, text: str) -> Path | None:
+    """Write the run report (overwriting the previous run's); falls back to the temp dir. Returns
+    the path written, or None if nothing could be written."""
+    stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+    body = f"{title}  ({stamp})\n\n{text.rstrip()}\n"
+    for p in dict.fromkeys([log_path(board), log_path(None)]):
+        try:
+            p.write_text(body, encoding="utf-8")
+            return p
+        except OSError:
+            continue
+    return None
+
+
+def outline_problem(board: Path, config: Path | None) -> str | None:
+    """Why a build/analyze can't derive a grid (no Edge.Cuts and no origin_mm/rows/cols), or None."""
+    try:
+        from stripforge.board import load_board
+        from stripforge.config import load
+
+        cfg = load(config) if config else None
+        if cfg is not None and cfg.origin_mm is not None and cfg.rows and cfg.cols:
+            return None
+        if load_board(board).outline is not None:
+            return None
+    except Exception:  # unreadable board or config: the CLI reports it in full
+        return None
+    return (
+        f"{board.name} has no board outline on Edge.Cuts, so StripForge can't tell where the "
+        "stripboard is (nothing was changed).\n\n"
+        "Draw the board outline first: select the Edge.Cuts layer, draw a rectangle the size of your "
+        "stripboard around the parts, save the board, and run this again.\n"
+        f"Or set origin_mm, rows and cols in {CONFIG_NAME} next to the board."
+    )
+
+
 def run_cli(argv: list[str]) -> tuple[int, str]:
     """Run ``stripforge <argv>`` in-process; return its exit code and everything it printed."""
     from stripforge import cli
@@ -257,6 +310,10 @@ class Ui:
         """True: save first; False: use the file on disk; None: cancel. ``required``: building in
         place, so the only choices are save (then build and reload) or cancel."""
         if self.wx is None:
+            # no dialog possible (M4d, issue #1): never write into the board silently
+            if required:
+                return None
+            print(f"StripForge: no wxPython for a dialog, so the board is saved first: {board}")
             return True
         wx = self.wx
         if required:
@@ -284,9 +341,9 @@ class Ui:
         dlg.Destroy()
         return {wx.ID_YES: True, wx.ID_NO: False}.get(r)
 
-    def report(self, title: str, text: str, path: Path | None = None) -> None:
+    def report(self, title: str, text: str, path: Path | None = None, log: Path | None = None) -> None:
         if self.wx is None:
-            print(f"{title}\n{text}")
+            print(f"{title}: no wxPython, so no dialog; the report is in {log}" if log else f"{title}\n{text}")
             return
         wx = self.wx
         dlg = wx.Dialog(None, title=title, size=(900, 640), style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
@@ -394,12 +451,30 @@ def run(action: str) -> int:
     """Entry point for ``sf_<action>.py``."""
     title = TITLES[action]
     ui = Ui()
+    state: dict = {"board": None}
+    raw_report = ui.report
+
+    def report(title: str, text: str, path: Path | None = None) -> None:
+        first = next((ln for ln in text.splitlines() if ln.startswith("Result:")), text.split("\n", 1)[0])
+        if ui.wx is None:
+            text = f"{NO_WX_NOTE}\n\n{text}"
+        log = write_log(state["board"], title, text)
+        if log is not None:
+            text = f"{text.rstrip()}\n\nLog: {log}"
+        print(f"{title}: {first} (full report: {log})", file=sys.stderr)
+        if "log" in inspect.signature(raw_report).parameters:
+            raw_report(title, text, path, log=log)
+        else:  # a replaced report() without the log argument (tests)
+            raw_report(title, text, path)
+
+    ui.report = report  # type: ignore[method-assign]
     try:
         if bootstrap() is None:
             raise RuntimeError(f"the stripforge package is missing next to {HERE}")
         kicad, board_doc = connect()
         project = busy_retry(board_doc.get_project, "reading the project")
         board = board_path(project.path, board_doc.name)
+        state["board"] = board
         if board is None:
             ui.report(title, "Save the board to a .kicad_pcb file first, then run the action again.")
             return 0
@@ -407,8 +482,19 @@ def run(action: str) -> int:
         if action == "build" and bootstrap():
             config = find_config(board) or fallback_config(board)[0]
             in_place = built_path(board, output_mode(config)) == board
+        if action in ("build", "analyze") and board.is_file() and bootstrap():
+            config = find_config(board) or fallback_config(board)[0]
+            problem = outline_problem(board, config)
+            if problem:  # before saving: a board with no outline can't be built (issue #1)
+                ui.report(title, f"Board: {board}\nResult: refused (nothing was saved or built)\n\n{problem}")
+                return 2
         choice = ui.ask_save(board, required=in_place)
         if choice is None:
+            if ui.wx is None:  # no dialog to confirm an in-place build: refuse, loudly
+                ui.report(title, f"Board: {board}\nResult: refused (nothing was saved or built)\n\n"
+                          "Build strips writes into the open board file and needs you to confirm "
+                          "that in a dialog, which can't be shown without wxPython.")  # fmt: skip
+                return 2
             return 0
         if choice:
             busy_retry(board_doc.save, "saving the board")

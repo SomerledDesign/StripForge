@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Fail loudly (M4d, issue #1).** Every plugin action writes its report to
+  `<name>-stripforge.log` next to the board (temp dir if there is no board) and prints one short
+  line pointing to it, so a run is never silent. Without wxPython the report says why there is no
+  dialog and how to fix it, the board is no longer saved silently, and an in-place Build strips is
+  refused instead. Build/Analyze check for a missing Edge.Cuts outline (with no `origin_mm`/`rows`/
+  `cols`) before saving, with a "draw the board outline first" message. An off-grid footprint is
+  reported once (not once per pad) with its Move Exactly offset and the KiCad steps. README: draw
+  the outline first, the log file, the venv path case, and a NixOS note.
 - **Build sheet: tick the checklists off in the browser** (Kevin, building the TPI fixture). A
   click on a row or its box ticks it, strikes the row through except the Status, and sets the
   Status to "Cut" (cuts) or "Installed" (links and parts; parts get a Status column); click again

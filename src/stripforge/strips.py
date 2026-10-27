@@ -129,9 +129,13 @@ def assign_holes(snaps: list[SnapResult]) -> HoleMap:
     hm = HoleMap()
     occ: dict[Node, list[Occupant]] = defaultdict(list)
     for snap in snaps:
+        missing = [ps.number for ps in snap.pads if not snap.accepted or ps.node is None]
+        if len(missing) == 1:
+            hm.conflicts.append(f"pad {snap.ref}.{missing[0]} has no hole ({snap.reason})")
+        elif missing:  # one line per footprint, not one per pad (issue #1)
+            hm.conflicts.append(f"{snap.ref}: pads {', '.join(missing)} have no hole ({snap.reason})")
         for ps in snap.pads:
             if not snap.accepted or ps.node is None:
-                hm.conflicts.append(f"pad {snap.ref}.{ps.number} has no hole ({snap.reason})")
                 continue
             occ[ps.node].append(Occupant(snap.ref, ps.number, ps.net))
         if snap.accepted:

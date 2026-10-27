@@ -188,6 +188,7 @@ def project(tmp_path, sfp, monkeypatch):
     )
     monkeypatch.setattr(sfp.webbrowser, "open", lambda url: shown.append(("browser", url, None)))
     monkeypatch.setattr(sfp, "_kicad_cli", lambda kicad: None)
+    monkeypatch.setattr(sfp.Ui, "ask_save", lambda self, b, required=False: True)  # the user said OK
     monkeypatch.setenv("STRIPFORGE_CHROME", str(tmp_path / "no-chrome"))  # HTML only, no PDF
     return tmp_path, board, shown
 
@@ -434,3 +435,57 @@ def test_busy_reload_after_the_build_says_revert_without_saving(sfp, project, mo
     text = shown[-1][1]
     assert "Could not reload it (KiCad was busy): use File > Revert now" in text
     assert "don't save the board before that" in text
+
+
+# --- M4d: fail loudly (issue #1) ----------------------------------------------------------------
+
+
+def test_every_report_is_logged_next_to_the_board(sfp, project):
+    tmp, board, shown = project
+    assert sfp.run("analyze") == 0
+    log = tmp / "fix-stripforge.log"
+    assert log.is_file() and "StripForge: Analyze" in log.read_text()
+    assert f"Log: {log}" in shown[-1][1] and "Result:" in log.read_text()
+
+
+def test_without_wx_the_report_says_why_there_is_no_dialog(sfp, project):
+    tmp, board, shown = project
+    assert sfp.run("analyze") == 0
+    assert "wxPython is not importable" in shown[-1][1] and "Recreate Plugin Environment" in shown[-1][1]
+
+
+def test_without_wx_ask_save_refuses_an_in_place_build(sfp, tmp_path, capsys):
+    ui = sfp.Ui.__new__(sfp.Ui)
+    ui.wx = None
+    board = tmp_path / "b.kicad_pcb"
+    assert sfp.Ui.ask_save(ui, board, required=True) is None
+    assert sfp.Ui.ask_save(ui, board) is True and "saved first" in capsys.readouterr().out
+
+
+def test_without_wx_build_in_place_is_refused_and_nothing_saved(sfp, project, monkeypatch):
+    tmp, board, shown = project
+    monkeypatch.setattr(sfp.Ui, "ask_save", lambda self, b, required=False: None if required else True)
+    before = (tmp / "fix.kicad_pcb").read_bytes()
+    assert sfp.run("build") == 2
+    assert board.saved == 0 and "refused" in shown[-1][1] and "wxPython" in shown[-1][1]
+    assert (tmp / "fix.kicad_pcb").read_bytes() == before
+    assert (tmp / "fix-stripforge.log").is_file()
+
+
+def test_no_edge_cuts_is_refused_before_saving(sfp, project):
+    tmp, board, shown = project
+    (tmp / "stripboard.toml").unlink()
+    pcb = tmp / "fix.kicad_pcb"
+    text = pcb.read_text()
+    pcb.write_text(text.replace('(layer "Edge.Cuts")', '(layer "Cmts.User")'))
+    assert sfp.run("build") == 2
+    msg = shown[-1][1]
+    assert board.saved == 0 and "no board outline on Edge.Cuts" in msg and "Draw the board outline" in msg
+
+
+def test_report_without_wx_prints_one_line_pointing_at_the_log(sfp, tmp_path, capsys):
+    ui = sfp.Ui.__new__(sfp.Ui)
+    ui.wx = None
+    sfp.Ui.report(ui, "T", "long\nreport", log=tmp_path / "x.log")
+    out = capsys.readouterr().out
+    assert out.count("\n") == 1 and str(tmp_path / "x.log") in out

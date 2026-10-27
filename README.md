@@ -106,6 +106,18 @@ a half-built environment with no pip, and it keeps reusing it even after you ins
 4. Open the PCB editor again and give it a few seconds to install. The five buttons appear at the
    right end of the top toolbar; maximise the window if only the first one shows.
 
+(The folder is `~/.cache/kicad/10.0/python-environments/` on a standard Linux install; check the
+exact name and case with `ls ~/.cache | grep -i kicad` if yours differs.)
+
+### NixOS, or no dialogs (only status-bar warnings)
+
+StripForge's dialogs need wxPython in the plugin's environment. On NixOS (and any Python without
+wxPython) the buttons run but every message only reaches the PCB editor's status-bar warnings; the
+full report is still in `<name>-stripforge.log` next to the board, and Build strips refuses to
+write into the board without a dialog to confirm it. To fix it, set Preferences > Plugins >
+**Python interpreter** to a Python that has wxPython (on NixOS, one whose packages include
+`wxpython`), then **Recreate Plugin Environment** and restart KiCad.
+
 StripForge isn't listed under Tools > External Plugins, because that menu is for the older SWIG
 plugins; the toolbar buttons are where it lives. If it still doesn't load, start the PCB editor from
 a terminal with `KICAD_ENABLE_WXTRACE=1 WXTRACE=KICAD_API pcbnew` and look at the lines starting
@@ -114,8 +126,12 @@ with `Manager:`.
 ## Using it
 
 Open your project from the KiCad project manager (not the board file on its own, or F8 won't
-work), then open the board. Place the parts on the stripboard's hole grid first; the rest is
-StripForge's job.
+work), then open the board. **Draw the board outline first**: on the Edge.Cuts layer, draw a
+rectangle the size of your stripboard (StripForge derives the hole grid from it, unless
+`stripboard.toml` sets `origin_mm`, `rows` and `cols`; without either it refuses before saving
+anything). Place the parts on the stripboard's hole grid (a 2.54 mm grid with its origin on a hole
+helps); the rest is StripForge's job. Every action also writes its report to
+`<name>-stripforge.log` next to the board, so if a button seems to do nothing, look there.
 
 1. **Save the board** (Cmd+S / Ctrl+S), then click **Build strips**. StripForge backs the board up,
    writes the strip copper, the cuts and the wire links into it, and reloads it. The report lists
