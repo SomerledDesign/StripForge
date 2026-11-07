@@ -4,6 +4,8 @@ Implementation is on `cursor/m4c-dialog-slice-3529`, based on `origin/m4c-no-dia
 (`d3fa2ad`), which already contains `m4b-folder-layout`. It is not merged. `main` is still
 `49b8bc8` (0.2.1). There is no `master`.
 
+[PR #4](https://github.com/SomerledDesign/StripForge/pull/4) is this work
+(`cursor/m4c-dialog-slice-3529`). It is not merged.
 [PR #3](https://github.com/SomerledDesign/StripForge/pull/3) (`cursor/m4-dialog-handoff-3529`)
 is the earlier inspection note. Its history was left as pushed. This file is the current handoff.
 
