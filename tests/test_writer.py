@@ -205,8 +205,16 @@ def test_build_makes_a_save_point_zip_of_what_it_writes(tmp_path):
 
 
 def test_backup_keep_config():
-    assert BoardConfig().backup_keep == 0
-    assert config.from_dict({"backup_keep": 4}).backup_keep == 4
+    assert BoardConfig().backup_keep == 0 and BoardConfig().backup_policy == "move"
+    assert config.prune_keep(BoardConfig()) == 0
+    legacy = config.from_dict({"backup_keep": 4})
+    assert legacy.backup_policy == "move" and legacy.backup_keep == 4 and config.prune_keep(legacy) == 0
+    opted = config.from_dict({"backup_policy": "retention", "backup_keep": 4})
+    assert config.prune_keep(opted) == 4
+    assert config.prune_keep(config.from_dict({"backup_policy": "retention", "backup_keep": 0})) == 0
+    assert config.prune_keep(None, keep=3) == 0  # a bare count cannot turn deletion on
     for bad in (-1, 1.5, True, "3"):
         with pytest.raises(ValueError, match="backup_keep"):
             config.from_dict({"backup_keep": bad})
+    with pytest.raises(ValueError, match="backup_policy"):
+        config.from_dict({"backup_policy": "delete"})

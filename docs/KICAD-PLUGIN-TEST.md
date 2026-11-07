@@ -10,15 +10,26 @@ KiCad"). Use a **copy** of a project, because Build strips writes files next to 
    creates the plugin's environment in
    `~/Library/Caches/KiCad/10.0/python-environments/com.github.somerleddesign.stripforge`
    (macOS) and installs kicad-python.
-4. **Expect five StripForge buttons** on the PCB editor toolbar ("S" icon with A / B / L / D / S badges).
-   If they are missing: check the status-bar warnings, and Preferences > Plugins > "Recreate Plugin
-   Environment", then reopen the PCB editor.
+4. **Expect the StripForge buttons** on the PCB editor toolbar: Analyze, Build strips, Add links
+   to schematic, Run DRC, Build sheet, Restore last, and Dialog. Dialog is the shared window; the
+   other buttons stay. If they are missing: check the status-bar warnings, and Preferences >
+   Plugins > "Recreate Plugin Environment", then reopen the PCB editor.
 5. If the project has an X56-style config, copy it next to the board as `stripboard.toml` (a single other `*.toml`, e.g. `X56.toml`, is also picked up; the report says which config was used).
-6. Click **StripForge: Analyze**.
+6. Click **StripForge: Dialog**.
+   - Expect one window listing the board, the config path, `backup_policy: move` (unless the file
+     sets retention), rows/cols, and the other saved settings.
+   - Expect action buttons for Analyze, Build strips, Add links, Run DRC, Build sheet and Restore
+     last, plus Move / Retention and a Keep value.
+   - Choose Retention, set Keep to 2, click **Save backup policy**. Expect the settings text to
+     show retention, and expect no zip to disappear yet. Set it back to Move and save again if
+     this project should keep every save point.
+   - Click **Analyze** in the window. Expect the report pane (not a second copy of the settings)
+     to start with `Board:` and include hole labels (`A1`…).
+7. Click **StripForge: Analyze** on the toolbar.
    - Expect a "Save the board first?" dialog, then a report dialog that starts with `Board:`,
      `Config:` and `Netlist: exported from <project>.kicad_sch`.
    - The report lists the cuts and the links needed, using hole labels (A1…).
-7. Click **StripForge: Build strips** (open the board from the KiCad project manager, so F8 works).
+8. Click **StripForge: Build strips** (open the board from the KiCad project manager, so F8 works).
    - Expect a "Save and build" dialog (OK/Cancel), then the report with "Built <name>.kicad_pcb in
      place. Reloaded the built board in the PCB editor." and "Backup: …/stripforge/<Project>-stripforge-backups/
      <Project>-stripforge-YYYY-MM-DD_HHMMSS.zip (save point: …)".
@@ -34,13 +45,13 @@ KiCad"). Use a **copy** of a project, because Build strips writes files next to 
      then "Loaded save point …" and "Reloaded the restored board in the PCB editor: respawned where
      you left off". The board is back to just before the rebuild. Click it again: the same save
      loads again. `stripforge restore <board> --list` / `--backup <zip>` goes further back.
-8. Click **StripForge: Run DRC**.
+9. Click **StripForge: Run DRC**.
    - Expect "parity: checked against the schematic" (the board is `<name>.kicad_pcb`, so kicad-cli
      uses `<name>.kicad_sch` directly).
    - After pass 1, unconnected equals the links still to add. After pass 2 it should be 0.
-9. Click **StripForge: Build sheet**. Expect the browser to open `stripforge/<Project>-stripforge.sheet.html`,
+10. Click **StripForge: Build sheet**. Expect the browser to open `stripforge/<Project>-stripforge.sheet.html`,
    with a `.pdf` beside it if Google Chrome is installed. Print one page to check the scale ruler.
-10. Error path: close the board (or start the action from an unsaved new board). Expect a readable
+11. Error path: close the board (or start the action from an unsaved new board). Expect a readable
     message, not a silent failure.
 
 Report anything unexpected along with the dialog text ("Copy report" button). To uninstall a hand

@@ -72,9 +72,10 @@ StripForge is a KiCad 10 **IPC plugin**. It is not in KiCad's official Plugin an
    <img src="docs/images/install-pcm-installed.png" alt="The Installed tab of the Plugin and Content Manager: StripForge 0.2.0, compatible, with its description and metadata" width="640">
 
 3. **Restart KiCad.** The first time you open a board, KiCad sets up the plugin's Python
-   environment, which takes a minute. Five StripForge buttons then appear in the PCB editor's
-   toolbar: **Analyze**, **Build strips**, **Add links to schematic**, **Run DRC** and
-   **Build sheet**.
+   environment, which takes a minute. The PCB editor toolbar then shows **Analyze**, **Build
+   strips**, **Add links to schematic**, **Run DRC**, **Build sheet**, **Restore last**, and
+   **Dialog**. Dialog opens the shared window (settings, backup policy, and those same actions).
+   The separate buttons stay until that window is the one you use for the whole job.
 
    <img src="docs/images/plugin-toolbar-buttons.png" alt="The PCB editor toolbar with the five StripForge buttons at the right: Analyze (A), Build strips (B), Run DRC (D), Add links to schematic (L) and Build sheet (S); the sixth, Restore last (R), is newer than this screenshot" width="511">
 
@@ -189,7 +190,9 @@ every file they are about to write. If a build went somewhere you didn't want to
 - If schematic sheets were restored, close the Schematic Editor without saving and reopen it.
 - Save points are new files every time, named
   `<Project>-stripforge-YYYY-MM-DD_HHMMSS.zip`; nothing is ever renamed (renames make Dropbox and
-  friends create "conflicted copies"). `backup_keep = N` keeps the newest N (default `0`: all).
+  friends create "conflicted copies"). `backup_policy = "move"` (the default) keeps every save
+  point. `backup_policy = "retention"` is opt-in: then `backup_keep = N` keeps the newest N
+  (`0` still keeps all). A `backup_keep` number on its own does not delete.
 - The build sheet isn't a save point; when it changes, the old HTML/PDF are copied into the
   backups folder as `<Project>-stripforge.sheet-YYYY-MM-DD_HHMMSS.html` / `.pdf`.
 
@@ -299,7 +302,7 @@ API is avoided because KiCad 11 removes it. Python 3.9+ (KiCad 10's bundled Pyth
 | **M1: Model and splitting** | Pure-Python grid snap, strip model, cut placement, net per piece, link proposals and validation, with unit tests and a JSON plan output. |
 | **M2: Board output and DRC** | File-backend `.kicad_pcb` writer, `kicad-cli` DRC wrapper and classifier, the two-pass link flow, and mutation tests proving DRC guards the layout. |
 | **M3: Build sheet and IPC** | Mirrored SVG/PDF build sheet with cut and link lists; the KiCad plugin. Done in 0.1.0; 0.2.0 is the first beta. |
-| **M4** (in progress) | Done: fail loudly (0.2.1); the `stripforge/` folder with save-point zips and Restore last (M4b); diagonal links off by default, at most `max_diagonal_shift` holes sideways (M4c). Planned: one StripForge button and dialog (settings, actions, Analyze, a built-in sheet view). See [Sketch.md](Sketch.md) §7. |
+| **M4** (in progress) | Done on this line of work: fail loudly (0.2.1); save-point zips and Restore last; diagonal links off by default. The shared Dialog window shows settings, edits backup policy (default move, never delete; retention is opt-in), and runs the existing actions. The separate toolbar buttons stay for now. See [Sketch.md](Sketch.md) §7. |
 | **Later** | More boards tested, pre-drilled mounting holes, the official PCM. |
 
 ## Reference
@@ -325,6 +328,10 @@ The rest of this README is the detailed reference: every action, option and repo
   Chrome is installed) and opens it in the browser.
 - **StripForge: Restore last**: loads the newest save point and reloads the board (see **Restore
   last** above); `stripforge restore` on the command line.
+- **StripForge: Dialog**: the shared window. It shows the saved settings, lets you set
+  `backup_policy` (`move` or `retention`) and `backup_keep`, and runs the actions above through
+  the same code as their buttons. Saving the policy does not delete a save point. The other
+  buttons remain.
 
 Each action offers to save the board first, because StripForge reads the saved file:
 
@@ -403,7 +410,8 @@ build goes** below for which file):
 | toml key | values | default |
 |---|---|---|
 | `output` | `"in_place"`: build into the board itself (`<name>.kicad_pcb`) · `"separate"`: write `stripforge/<Project>-stripforge.kicad_pcb` and leave the board alone | `"in_place"` |
-| `backup_keep` | how many save-point zips to keep (the newest N); `0` keeps every one | `0` |
+| `backup_policy` | `"move"`: keep every save point. `"retention"`: opt in to deleting older ones | `"move"` |
+| `backup_keep` | with `"retention"`, how many save points to keep (the newest N). `0` keeps every one. Ignored while policy is `"move"` | `0` |
 | `output_dir` | StripForge's folder, relative to the project folder | `"stripforge"` |
 | `backup_dir` | the save points' folder, relative to the project folder | `"<output_dir>/<Project>-stripforge-backups"` |
 
@@ -416,8 +424,10 @@ the build is about to write (the board, its `.kicad_dru`, the link lists) into a
 `<Project>-stripforge-YYYY-MM-DD_HHMMSS.zip` in the backups folder, with a small
 `stripforge-backup.json` listing them and the ones that didn't exist yet. Nothing is ever renamed
 or overwritten (two builds in the same second get `-2`, `-3`, ...); if the zip can't be written the
-build stops before touching anything. `backup_keep = N` (default `0` = no limit) then deletes the
-oldest zips so that N remain. **To undo the latest build:** `stripforge restore <board>` (the
+build stops before touching anything. With `backup_policy = "retention"` and `backup_keep = N`
+(N at least 1) the oldest zips are then deleted so N remain. The default policy `"move"`, and a
+file that never sets `backup_policy`, does not delete, even if `backup_keep` is set. **To undo
+the latest build:** `stripforge restore <board>` (the
 plugin's Restore last): it deletes the files that didn't exist at the save point and unzips the
 rest under their own names. `--list` shows the save points, `--backup <zip>` loads an older one.
 On the command line `--separate` (or `-o <other file>`) overrides the toml for one run;

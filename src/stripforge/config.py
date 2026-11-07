@@ -197,8 +197,13 @@ class BoardConfig:
     # files it is about to write. "Restore last" (stripforge restore) loads the newest one.
     # "separate": a new stripforge/<Project>-stripforge.kicad_pcb; the board is left alone.
     output: str = "in_place"
-    # How many save points (backup zips) to keep: the newest N; 0 = keep them all.
+    # How many save points to keep when backup_policy is "retention": the newest N.
+    # 0 keeps them all. Ignored while backup_policy is "move" (the default): nothing is deleted.
     backup_keep: int = 0
+    # "move" (default, also when the key is absent): file each save point and keep it.
+    # "retention": opt in to deleting older save points down to backup_keep, and only when
+    # backup_keep is 1 or more. A backup_keep number on its own does not delete.
+    backup_policy: str = "move"
     # Where StripForge's files go, relative to the project folder (the .kicad_pro's, ${KIPRJMOD});
     # never absolute. None: "stripforge" and "stripforge/<Project>-stripforge-backups".
     output_dir: str | None = None
@@ -227,6 +232,7 @@ class BoardConfig:
 
 
 OUTPUT_MODES = ("in_place", "separate")
+BACKUP_POLICIES = ("move", "retention")
 STRETCH_KEYS = {"enabled", "max_pitches", "radial_max_pitches", "skip", "allow_under_parts"}
 
 
@@ -318,6 +324,8 @@ def from_dict(data: dict) -> BoardConfig:
     v = cfg.backup_keep
     if isinstance(v, bool) or not isinstance(v, int) or v < 0:
         raise ValueError(f"backup_keep must be a whole number of backups, 0 for all of them, got {v!r}")
+    if cfg.backup_policy not in BACKUP_POLICIES:
+        raise ValueError(f'backup_policy must be "move" or "retention", got {cfg.backup_policy!r}')
     from .layout import check_relative
 
     for name in ("output_dir", "backup_dir"):
@@ -353,5 +361,103 @@ def from_dict(data: dict) -> BoardConfig:
 
 
 def load(path: str | Path) -> BoardConfig:
+    return from_dict(raw_dict(path))
+
+
+def raw_dict(path: str | Path) -> dict:
+    """The TOML file as a dict, before :func:`from_dict` fills defaults."""
     with open(path, "rb") as fh:
-        return from_dict(tomllib.load(fh))
+        data = tomllib.load(fh)
+    if not isinstance(data, dict):
+        raise ValueError(f"{path} must be a TOML table")
+    return data
+
+
+def prune_keep(cfg, keep: int | None = None) -> int:
+    """How many save points may remain after a new one is written. ``0`` means delete none.
+
+    Deletion is opt-in. ``backup_policy`` must be ``"retention"`` and the count at least 1.
+    ``"move"``, a missing policy, and ``backup_keep = 0`` return 0 even when ``keep`` is passed.
+    ``keep`` only chooses the count once retention is already the policy (the link-symbol caller
+    passes its own number); it cannot turn deletion on by itself.
+    """
+    if cfg is None or getattr(cfg, "backup_policy", "move") != "retention":
+        return 0
+    n = getattr(cfg, "backup_keep", 0) if keep is None else keep
+    if isinstance(n, bool) or not isinstance(n, int) or n <= 0:
+        return 0
+    return n
+
+
+def update_backup_settings_text(text: str, policy: str, keep: int | None = None) -> str:
+    """Set ``backup_policy`` and, when ``keep`` is given, ``backup_keep`` in a TOML document.
+
+    Root keys already in the file are replaced in place. Missing ones are inserted before the
+    first ``[table]``. Comments, unknown keys and tables are left as they are. A commented-out
+    key is not uncommented.
+    """
+    import json
+    import re
+
+    if policy not in BACKUP_POLICIES:
+        raise ValueError(f'backup_policy must be "move" or "retention", got {policy!r}')
+    if keep is not None and (isinstance(keep, bool) or not isinstance(keep, int) or keep < 0):
+        raise ValueError(f"backup_keep must be a whole number, 0 or more, got {keep!r}")
+    nl = "\r\n" if "\r\n" in text else "\n"
+    ends_nl = text.endswith("\n") or text == ""
+    lines = text.splitlines()
+    table_at = next((i for i, line in enumerate(lines) if line.lstrip().startswith("[")), len(lines))
+
+    def set_key(key: str, rendered: str) -> bool:
+        found = False
+        pat = re.compile(rf"^(\s*){re.escape(key)}\s*=")
+        for i in range(table_at):
+            if lines[i].lstrip().startswith("#"):
+                continue
+            m = pat.match(lines[i])
+            if m:
+                lines[i] = f"{m.group(1)}{key} = {rendered}"
+                found = True
+        return found
+
+    missing = []
+    if not set_key("backup_policy", json.dumps(policy)):
+        missing.append(f"backup_policy = {json.dumps(policy)}")
+    if keep is not None and not set_key("backup_keep", str(keep)):
+        missing.append(f"backup_keep = {keep}")
+    if missing:
+        table_at = next((i for i, line in enumerate(lines) if line.lstrip().startswith("[")), len(lines))
+        lines[table_at:table_at] = missing
+    out = nl.join(lines)
+    if ends_nl:
+        out += nl
+    return out
+
+
+def save_backup_settings(path: str | Path, policy: str, keep: int | None = None) -> None:
+    """Write the backup policy into ``path``, preserving the rest of an existing file.
+
+    A new file gets only these keys and a short comment. It does not dump the whole config.
+    """
+    import json
+
+    path = Path(path)
+    if path.is_file():
+        path.write_text(
+            update_backup_settings_text(path.read_text(encoding="utf-8"), policy, keep),
+            encoding="utf-8",
+        )
+        return
+    if policy not in BACKUP_POLICIES:
+        raise ValueError(f'backup_policy must be "move" or "retention", got {policy!r}')
+    if keep is not None and (isinstance(keep, bool) or not isinstance(keep, int) or keep < 0):
+        raise ValueError(f"backup_keep must be a whole number, 0 or more, got {keep!r}")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = [
+        "# StripForge backup policy. Other settings can be added in this file.",
+        '# "move" keeps every save point. "retention" deletes older ones only when backup_keep is 1 or more.',
+        f"backup_policy = {json.dumps(policy)}",
+    ]
+    if keep is not None:
+        lines.append(f"backup_keep = {keep}")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")

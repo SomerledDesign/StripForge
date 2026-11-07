@@ -17,7 +17,8 @@ created with ``--system-site-packages``, so KiCad's wxPython is there for dialog
 "Build strips" (``output = "in_place"``, the default) saves the open board, builds into that same
 file (the project's own ``<name>.kicad_pcb``, so F8 and schematic parity keep working), and reloads
 it in the editor (the API's RevertDocument). Every build first makes a save point, a new zip in
-``stripforge/<Project>-stripforge-backups/`` (``backup_keep``); a rebuild keeps your cuts and links
+``stripforge/<Project>-stripforge-backups/``. Older zips are deleted only when the config's
+``backup_policy`` is ``"retention"`` and ``backup_keep`` is 1 or more. A rebuild keeps your cuts and links
 where you put them. "Restore last" loads the newest save point and reloads the board.
 ``output = "separate"`` writes ``stripforge/<Project>-stripforge.kicad_pcb``, the open board left alone.
 StripForge's other files (link lists, sheet, log) go to ``stripforge/`` too. "Run DRC" and
@@ -54,7 +55,18 @@ TITLES = {
     "sheet": "StripForge: Build sheet",
     "links": "StripForge: Add links to schematic",
     "restore": "StripForge: Restore last",
+    "dialog": "StripForge: Dialog",
 }
+# Actions the shared dialog can run. The matching toolbar buttons stay until this window
+# is the one used for the whole workflow. Order is the build workflow, then undo.
+DIALOG_ACTIONS = (
+    ("analyze", "Analyze"),
+    ("build", "Build strips"),
+    ("links", "Add links"),
+    ("drc", "Run DRC"),
+    ("sheet", "Build sheet"),
+    ("restore", "Restore last"),
+)
 REOPEN_NOTE = (
     "IMPORTANT: if the Schematic Editor is open, close it WITHOUT saving and open it again. It does "
     "not reload a schematic changed on disk, and saving the old copy would remove the links again."
@@ -317,6 +329,111 @@ def export_netlist(kicad_cli: str | None, schematic: Path, out: Path) -> str | N
     return None
 
 
+def _loaded_config(board: Path):
+    """``(path or None, note or None, BoardConfig, raw toml dict)`` for the file Analyze would use."""
+    bootstrap()
+    from stripforge.config import BoardConfig, load, raw_dict
+
+    path = find_config(board)
+    note = None
+    if path is None:
+        path, note = fallback_config(board)
+    if path is None:
+        return None, note, BoardConfig(), {}
+    return path, note, load(path), raw_dict(path)
+
+
+def backup_settings_path(board: Path) -> Path:
+    """The config file the dialog edits: the one Analyze reads, not a second file that would hide it.
+
+    No config yet: ``stripforge/stripboard.toml`` (created on save). A lone ``X56.toml`` is edited
+    in place so a new ``stripboard.toml`` does not take over and drop the rest of that file.
+    """
+    path = find_config(board)
+    if path is not None:
+        return path
+    fallback, _note = fallback_config(board)
+    if fallback is not None:
+        return fallback
+    return board.parent / OUTPUT_DIR / CONFIG_NAME
+
+
+def apply_backup_policy(board: Path, policy: str, keep: int) -> Path:
+    """Save the backup policy. Does not delete any backup; the next save point applies retention."""
+    from stripforge.config import save_backup_settings
+
+    path = backup_settings_path(board)
+    save_backup_settings(path, policy, keep)
+    return path
+
+
+def _fmt(values) -> str:
+    if isinstance(values, dict):
+        return ", ".join(f"{k} = {v:g}" for k, v in values.items()) if values else "(none)"
+    if isinstance(values, (list, tuple)):
+        return ", ".join(str(v) for v in values) if values else "(none)"
+    return str(values)
+
+
+def dialog_snapshot(board: Path) -> str:
+    """Read-only settings text, plus the backup policy the dialog can edit. No wx, no KiCad."""
+    from stripforge.config import prune_keep
+
+    try:
+        path, note, cfg, raw = _loaded_config(board)
+    except (OSError, ValueError) as exc:
+        return f"Board: {board}\nConfig error: {exc}\nThe backup policy was not changed."
+    lines = [f"Board: {board}"]
+    if path is None:
+        lines.append("Config: none; grid derived from Edge.Cuts")
+        lines.append("backup_policy: move (default; no config file)")
+    else:
+        lines.append(f"Config: {path}")
+        if note:
+            lines.append(note)
+        if "backup_policy" in raw:
+            lines.append(f"backup_policy: {cfg.backup_policy}")
+        else:
+            lines.append("backup_policy: move (default; this file does not set backup_policy)")
+    limit = prune_keep(cfg)
+    if limit:
+        lines.append(f"backup_keep: {cfg.backup_keep} (retention deletes older save points down to {limit})")
+    elif cfg.backup_policy == "retention":
+        lines.append(f"backup_keep: {cfg.backup_keep} (retention is on; 0 keeps every save point)")
+    else:
+        lines.append(
+            f"backup_keep: {cfg.backup_keep} (not used while policy is move; save points are not deleted)"
+        )
+    if cfg.origin_mm is None:
+        origin = "from the board outline"
+    else:
+        origin = f"{cfg.origin_mm[0]:g}, {cfg.origin_mm[1]:g}"
+    lines.append(f"rows: {cfg.rows if cfg.rows else 'from the board outline'}")
+    lines.append(f"cols: {cfg.cols if cfg.cols else 'from the board outline'}")
+    lines.append(f"origin_mm: {origin}")
+    lines.append(f"cut_style: {cfg.cut_style}")
+    lines.append(f"diagonal_links: {str(cfg.diagonal_links).lower()}")
+    lines.append(f"max_diagonal_shift: {cfg.max_diagonal_shift}")
+    lines.append(f"slotted: {_fmt(cfg.slotted)}")
+    lines.append(f"skip: {_fmt(cfg.skip)}")
+    lines.append(f"bend: {_fmt(cfg.bend)}")
+    lines.append(f"drc.ignore: {_fmt(cfg.drc.ignore)}")
+    pairs = [f"{a}+{b}" for a, b in cfg.drc.allow_overlap]
+    lines.append(f"drc.allow_overlap: {_fmt(pairs)}")
+    lines.append("")
+    lines.append(
+        "This is the shared StripForge window. The separate toolbar buttons stay until this window "
+        "covers the workflow; they are not a second product."
+    )
+    lines.append("Actions here run the same code as those buttons. Analyze is unchanged.")
+    lines.append("The backup policy is the setting you can change here. Other settings are shown as saved.")
+    lines.append(
+        "Move keeps every save point. Retention deletes older ones only when Keep is 1 or more, "
+        "and only on a later build, sheet or link update: saving this setting deletes nothing."
+    )
+    return "\n".join(lines)
+
+
 def reveal(path: Path) -> None:
     """Show ``path`` in Finder / Explorer / the file manager."""
     if sys.platform == "darwin":
@@ -394,6 +511,89 @@ class Ui:
         r = dlg.ShowModal()
         dlg.Destroy()
         return r == wx.ID_OK
+
+    def show_hub(self, title: str, snapshot: str, policy: str, keep: int, on_save, on_action) -> None:
+        """The shared window: settings, backup policy, and the existing actions. ``on_save`` returns
+        ``(new snapshot, status)``. ``on_action(name)`` returns the report text."""
+        wx = self.wx
+        dlg = wx.Dialog(None, title=title, size=(980, 760), style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
+        root = wx.BoxSizer(wx.VERTICAL)
+        settings = wx.TextCtrl(dlg, value=snapshot, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.HSCROLL)
+        settings.SetFont(wx.Font(wx.FontInfo(10).Family(wx.FONTFAMILY_TELETYPE)))
+        root.Add(settings, 2, wx.EXPAND | wx.ALL, 8)
+
+        row = wx.BoxSizer(wx.HORIZONTAL)
+        row.Add(wx.StaticText(dlg, label="Backup policy"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
+        move = wx.RadioButton(dlg, label="Move (keep every save point)", style=wx.RB_GROUP)
+        retention = wx.RadioButton(dlg, label="Retention (delete older save points)")
+        (retention if policy == "retention" else move).SetValue(True)
+        row.Add(move, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
+        row.Add(retention, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 12)
+        row.Add(wx.StaticText(dlg, label="Keep"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
+        keep_ctrl = wx.SpinCtrl(dlg, min=0, max=999, initial=max(0, int(keep)))
+        keep_ctrl.Enable(policy == "retention")
+        row.Add(keep_ctrl, 0, wx.RIGHT, 8)
+        save_btn = wx.Button(dlg, label="Save backup policy")
+        row.Add(save_btn, 0)
+        root.Add(row, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 8)
+        hint = wx.StaticText(
+            dlg,
+            label="Saving does not delete anything. Retention deletes older save points on the next "
+            "build, sheet or link update, and only when Keep is 1 or more.",
+        )
+        root.Add(hint, 0, wx.LEFT | wx.RIGHT | wx.TOP, 8)
+
+        def _toggle(_evt):
+            keep_ctrl.Enable(retention.GetValue())
+
+        move.Bind(wx.EVT_RADIOBUTTON, _toggle)
+        retention.Bind(wx.EVT_RADIOBUTTON, _toggle)
+
+        report = wx.TextCtrl(dlg, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.HSCROLL)
+        report.SetFont(wx.Font(wx.FontInfo(10).Family(wx.FONTFAMILY_TELETYPE)))
+
+        def _save(_evt):
+            which = "retention" if retention.GetValue() else "move"
+            try:
+                snap, status = on_save(which, int(keep_ctrl.GetValue()))
+            except (OSError, ValueError) as exc:
+                report.SetValue(f"Backup policy was not saved.\n\n{exc}")
+                return
+            settings.SetValue(snap)
+            report.SetValue(status)
+
+        save_btn.Bind(wx.EVT_BUTTON, _save)
+
+        actions = wx.BoxSizer(wx.HORIZONTAL)
+        for action, label in DIALOG_ACTIONS:
+            button = wx.Button(dlg, label=label)
+
+            def _run(_evt, action=action):
+                report.SetValue(on_action(action))
+
+            button.Bind(wx.EVT_BUTTON, _run)
+            actions.Add(button, 0, wx.RIGHT, 6)
+        root.Add(actions, 0, wx.EXPAND | wx.ALL, 8)
+        root.Add(report, 3, wx.EXPAND | wx.LEFT | wx.RIGHT, 8)
+
+        bottom = wx.BoxSizer(wx.HORIZONTAL)
+        copy = wx.Button(dlg, label="Copy report")
+
+        def _copy(_evt):
+            if wx.TheClipboard.Open():
+                wx.TheClipboard.SetData(wx.TextDataObject(report.GetValue()))
+                wx.TheClipboard.Close()
+
+        copy.Bind(wx.EVT_BUTTON, _copy)
+        bottom.Add(copy, 0, wx.RIGHT, 8)
+        close = wx.Button(dlg, wx.ID_CLOSE, "Close")
+        close.Bind(wx.EVT_BUTTON, lambda _evt: dlg.EndModal(wx.ID_CLOSE))
+        bottom.Add(close, 0)
+        root.Add(bottom, 0, wx.ALIGN_RIGHT | wx.ALL, 8)
+        dlg.SetSizer(root)
+        dlg.CentreOnScreen()
+        dlg.ShowModal()
+        dlg.Destroy()
 
     def report(self, title: str, text: str, path: Path | None = None, log: Path | None = None) -> None:
         if self.wx is None:
@@ -533,46 +733,12 @@ def run(action: str) -> int:
         if board is None:
             ui.report(title, "Save the board to a .kicad_pcb file first, then run the action again.")
             return 0
-        if action == "restore":
-            return _restore(ui, title, board, board_doc)
-        in_place = False
-        if action == "build" and bootstrap():
-            config = find_config(board) or fallback_config(board)[0]
-            in_place = built_path(board, output_mode(config)) == board
-        if action in ("build", "analyze") and board.is_file() and bootstrap():
-            config = find_config(board) or fallback_config(board)[0]
-            problem = outline_problem(board, config)
-            if problem:  # before saving: a board with no outline can't be built (issue #1)
-                ui.report(title, f"Board: {board}\nResult: refused (nothing was saved or built)\n\n{problem}")
-                return 2
-        choice = ui.ask_save(board, required=in_place)
-        if choice is None:
-            if ui.wx is None:  # no dialog to confirm an in-place build: refuse, loudly
-                ui.report(title, f"Board: {board}\nResult: refused (nothing was saved or built)\n\n"
-                          "Build strips writes into the open board file and needs you to confirm "
-                          "that in a dialog, which can't be shown without wxPython.")  # fmt: skip
-                return 2
-            return 0
-        if choice:
-            busy_retry(board_doc.save, "saving the board")
-        if not board.is_file():
-            ui.report(title, f"Board file not found: {board}\nSave the board first.")
-            return 0
-        before = board.stat().st_mtime_ns
-        text, shown = _run_action(action, board, project.name, _kicad_cli(kicad))
-        if in_place and board.stat().st_mtime_ns != before:
-            try:  # reload the rewritten file into the editor (RevertDocument)
-                busy_retry(board_doc.revert, "reloading the built board")
-                text = text.replace(RELOAD_HINT, "Reloaded the built board in the PCB editor.")
-            except Exception as exc:
-                why = "KiCad was busy" if isinstance(exc, KiCadBusy) else str(exc)
-                text = text.replace(
-                    RELOAD_HINT,
-                    f"Could not reload it ({why}): use File > Revert now, and don't save the board "
-                    "before that (saving would overwrite the build with the old board).",
-                )
-        ui.report(title, text, shown)
-        return 0
+        if action == "dialog":
+            return _open_dialog(ui, kicad, board_doc, board, project.name)
+        code, text, shown = _perform(ui, action, kicad, board_doc, board, project.name)
+        if text is not None:
+            ui.report(TITLES[action], text, shown)
+        return code
     except KiCadBusy as exc:  # nothing was built: a plain message, not a traceback
         print(f"StripForge: {exc}", file=sys.stderr)
         ui.report(title, BUSY_NOTE.format(what=exc.what, title=title))
@@ -585,6 +751,100 @@ def run(action: str) -> int:
 
 
 RELOAD_HINT = "[reload]"
+
+
+def _perform(ui, action, kicad, board_doc, board, project_name):
+    """Run one existing action. Returns ``(code, report or None, path or None)``.
+
+    A None report means the user cancelled. The toolbar and the shared dialog both call this.
+    """
+    if action == "restore":
+        return _restore(ui, board, board_doc)
+    in_place = False
+    if action == "build" and bootstrap():
+        config = find_config(board) or fallback_config(board)[0]
+        in_place = built_path(board, output_mode(config)) == board
+    if action in ("build", "analyze") and board.is_file() and bootstrap():
+        config = find_config(board) or fallback_config(board)[0]
+        problem = outline_problem(board, config)
+        if problem:  # before saving: a board with no outline can't be built (issue #1)
+            text = f"Board: {board}\nResult: refused (nothing was saved or built)\n\n{problem}"
+            return 2, text, None
+    choice = ui.ask_save(board, required=in_place)
+    if choice is None:
+        if ui.wx is None:  # no dialog to confirm an in-place build: refuse, loudly
+            text = (
+                f"Board: {board}\nResult: refused (nothing was saved or built)\n\n"
+                "Build strips writes into the open board file and needs you to confirm "
+                "that in a dialog, which can't be shown without wxPython."
+            )
+            return 2, text, None
+        return 0, None, None
+    if choice:
+        busy_retry(board_doc.save, "saving the board")
+    if not board.is_file():
+        return 0, f"Board file not found: {board}\nSave the board first.", None
+    before = board.stat().st_mtime_ns
+    text, shown = _run_action(action, board, project_name, _kicad_cli(kicad))
+    if in_place and board.stat().st_mtime_ns != before:
+        try:  # reload the rewritten file into the editor (RevertDocument)
+            busy_retry(board_doc.revert, "reloading the built board")
+            text = text.replace(RELOAD_HINT, "Reloaded the built board in the PCB editor.")
+        except Exception as exc:
+            why = "KiCad was busy" if isinstance(exc, KiCadBusy) else str(exc)
+            text = text.replace(
+                RELOAD_HINT,
+                f"Could not reload it ({why}): use File > Revert now, and don't save the board "
+                "before that (saving would overwrite the build with the old board).",
+            )
+    return 0, text, shown
+
+
+def _open_dialog(ui, kicad, board_doc, board, project_name) -> int:
+    """Shared window. Opening it does not save the board or change the backup policy."""
+    if not board.is_file():
+        ui.report(TITLES["dialog"], f"Board file not found: {board}\nSave the board first.")
+        return 0
+    try:
+        _path, _note, cfg, _raw = _loaded_config(board)
+    except (OSError, ValueError):
+        cfg = None
+    snapshot = dialog_snapshot(board)
+    if ui.wx is None:
+        ui.report(
+            TITLES["dialog"],
+            snapshot + "\n\nResult: no dialog (wxPython is missing)\n\n"
+            "The toolbar buttons still run each action. The backup policy was not changed.",
+        )
+        return 0
+
+    def on_save(policy, keep):
+        path = apply_backup_policy(board, policy, keep)
+        status = (
+            f"Saved backup policy {policy!r}, backup_keep {keep}, in {path}.\n"
+            "Nothing was deleted. Retention deletes older save points on the next build, "
+            "sheet or link update, and only when Keep is 1 or more."
+        )
+        return dialog_snapshot(board), status
+
+    def on_action(action):
+        _code, text, _shown = _perform(ui, action, kicad, board_doc, board, project_name)
+        if text is None:
+            text = "Cancelled. Nothing was changed."
+        log = write_log(board, TITLES[action], text)
+        if log is not None:
+            text = f"{text.rstrip()}\n\nLog: {log}"
+        return text
+
+    ui.show_hub(
+        TITLES["dialog"],
+        snapshot,
+        cfg.backup_policy if cfg is not None else "move",
+        cfg.backup_keep if cfg is not None else 0,
+        on_save,
+        on_action,
+    )
+    return 0
 
 
 def _run_action(
@@ -718,8 +978,8 @@ def _add_links(board: Path, project_name: str, config: Path | None, notes: list)
     return "\n".join([*notes, f"Result: {status}", "", format_text(res)]), schematic
 
 
-def _restore(ui, title: str, board: Path, board_doc) -> int:
-    """ "Restore last": load the newest save point, then reload the board in the editor."""
+def _restore(ui, board: Path, board_doc):
+    """Restore last. Returns ``(code, report or None, path)``. The caller shows the report."""
     from stripforge import layout
     from stripforge.config import load
 
@@ -728,15 +988,16 @@ def _restore(ui, title: str, board: Path, board_doc) -> int:
     found = layout.backups(board, cfg)
     if not found:
         none = f"No save point yet in {layout.backup_dir(board, cfg)}. Build strips or Add links make one."
-        ui.report(title, f"Board: {board}\nResult: nothing to restore\n\n{none}")
-        return 0
+        return 0, f"Board: {board}\nResult: nothing to restore\n\n{none}", None
     if not ui.confirm_restore(board, found[-1]):
         if ui.wx is None:
-            ui.report(title, f"Board: {board}\nResult: refused (nothing changed)\n\nRestore last "
-                      "replaces files and needs you to confirm that in a dialog, which can't be shown "
-                      "without wxPython. From a terminal: stripforge restore <board>.")  # fmt: skip
-            return 2
-        return 0
+            text = (
+                f"Board: {board}\nResult: refused (nothing changed)\n\nRestore last "
+                "replaces files and needs you to confirm that in a dialog, which can't be shown "
+                "without wxPython. From a terminal: stripforge restore <board>."
+            )
+            return 2, text, None
+        return 0, None, None
     res = layout.restore(board, cfg, found[-1])
     notes = [f"Board: {board}", "Result: OK", "", layout.format_restore(res)]
     rel = lambda p: p.absolute().relative_to(layout.project_dir(board).absolute()).as_posix()  # noqa: E731
@@ -746,12 +1007,13 @@ def _restore(ui, title: str, board: Path, board_doc) -> int:
             notes.insert(2, "Reloaded the restored board in the PCB editor: respawned where you left off.")
         except Exception as exc:
             why = "KiCad was busy" if isinstance(exc, KiCadBusy) else str(exc)
-            notes.insert(2, f"Could not reload it ({why}): use File > Revert now, and don't save the board "
-                         "before that.")  # fmt: skip
+            notes.insert(
+                2,
+                f"Could not reload it ({why}): use File > Revert now, and don't save the board before that.",
+            )
     if any(r.endswith(".kicad_sch") for r in res.restored):
         notes.append(REOPEN_NOTE.replace("remove the links again", "undo the restore"))
-    ui.report(title, "\n".join(notes), None)
-    return 0
+    return 0, "\n".join(notes), None
 
 
 if __name__ == "__main__":  # python stripforge_plugin.py <action>, for debugging from a terminal

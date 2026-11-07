@@ -1526,7 +1526,8 @@ class SheetResult:
 def _keep_previous(out_path: Path, html: str, cfg: BoardConfig, res: SheetResult, board=None) -> None:
     """Copy the previous sheet (HTML and, when there is one, its PDF) into the backup folder as
     ``<sheet stem>-YYYY-MM-DD_HHMMSS.html/.pdf`` before it is overwritten, but only when the new sheet
-    differs. Fresh names each time (nothing is renamed); ``backup_keep`` prunes the oldest."""
+    differs. Fresh names each time (nothing is renamed). Older copies are deleted only when
+    ``backup_policy`` is ``"retention"`` and ``backup_keep`` is 1 or more."""
     import shutil
     import time
 
@@ -1550,10 +1551,13 @@ def _keep_previous(out_path: Path, html: str, cfg: BoardConfig, res: SheetResult
                 dest = d / f"{out_path.stem}-{stamp}-{n}{p.suffix}"
             shutil.copy2(p, dest)
             res.backups.append(str(dest))
-            if cfg.backup_keep > 0:
+            from .config import prune_keep
+
+            keep = prune_keep(cfg)
+            if keep > 0:
                 pat = layout.glob_escape(out_path.stem) + "-[0-9]*" + p.suffix
                 olds = sorted(d.glob(pat), key=lambda f: (f.stat().st_mtime_ns, f.name))
-                for old in olds[: -cfg.backup_keep]:
+                for old in olds[:-keep]:
                     old.unlink()
     except OSError as exc:
         res.notes.append(f"could not keep the previous sheet ({exc})")

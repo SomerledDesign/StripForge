@@ -322,9 +322,12 @@ def test_sheet_keeps_the_previous_one_only_when_it_changes(tmp_path):
     assert prev_html.read_text() == first and prev_pdf.read_text() == "old pdf"
     buildsheet.write_sheet(board, cfg, out, pdf=False, date="2026-09-30")
     assert len(list(bak.glob("*.html"))) == 2 and prev_html.read_text() == first  # a new name; never renamed
-    keep1 = BoardConfig(trim_pieces=False, backup_keep=1)
-    buildsheet.write_sheet(board, keep1, out, pdf=False, date="2026-10-01")
-    assert len(list(bak.glob("*.html"))) == 1 and not prev_html.exists()  # backup_keep = 1: the newest
+    kept = BoardConfig(trim_pieces=False, backup_keep=1)  # move is the default: the number does not delete
+    buildsheet.write_sheet(board, kept, out, pdf=False, date="2026-10-01")
+    assert len(list(bak.glob("*.html"))) == 3 and prev_html.is_file()
+    keep1 = BoardConfig(trim_pieces=False, backup_policy="retention", backup_keep=1)
+    buildsheet.write_sheet(board, keep1, out, pdf=False, date="2026-10-02")
+    assert len(list(bak.glob("*.html"))) == 1 and not prev_html.exists()  # retention, keep 1: the newest
     assert not list(bak.glob("*.zip")) or all("sheet" not in z.name for z in bak.glob("*.zip"))
 
 

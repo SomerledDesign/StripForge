@@ -77,12 +77,22 @@ def test_save_points_are_new_files_never_renamed_and_pruned_oldest_first(tmp_pat
     assert layout.backups(board) == [a.path, b.path, c.path]
     with zipfile.ZipFile(a.path) as z:
         assert set(z.namelist()) == {layout.MANIFEST, "LoadMan.kicad_pcb"}
+    legacy = tmp_path / "LoadMan-pre-stripbuild.kicad_pcb"
+    legacy.write_text("placement")
+    other = layout.backup_dir(board) / "LoadMan-2026-10-26_120000.zip"
+    # backup_keep without backup_policy = "retention" must not delete (default is move)
     d = layout.save_point(board, [board], cfg=BoardConfig(backup_keep=2), now=t + 120)
-    assert d.pruned == [a.path.name, b.path.name] and layout.backups(board) == [c.path, d.path]
+    assert d.pruned == [] and layout.backups(board) == [a.path, b.path, c.path, d.path]
+    e = layout.save_point(
+        board, [board], cfg=BoardConfig(backup_policy="retention", backup_keep=2), now=t + 180
+    )
+    assert e.pruned == [a.path.name, b.path.name, c.path.name]
+    assert layout.backups(board) == [d.path, e.path]
+    assert legacy.read_text() == "placement"
     assert not list(layout.backup_dir(board).glob("*.part"))
-    # KiCad's own project backups and other zips are not ours
-    (layout.backup_dir(board) / "LoadMan-2026-10-26_120000.zip").write_bytes(b"")
-    assert len(layout.backups(board)) == 2
+    # KiCad's own project backups and other zips are not ours, and retention does not delete them
+    other.write_bytes(b"")
+    assert len(layout.backups(board)) == 2 and other.is_file()
 
 
 def test_restore_removes_newer_work_and_unpacks_under_the_real_names(tmp_path):

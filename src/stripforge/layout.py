@@ -18,7 +18,9 @@ board's own folder. StripForge writes there only the board itself (built in plac
 Each save point is a new zip, never a renamed one (renames make Dropbox "conflicted copies"); its
 ``stripforge-backup.json`` names the files it holds (paths relative to the project folder) and the
 ones that did not exist yet, so :func:`restore` can put the project back exactly as it was.
-``backup_keep`` = N keeps the newest N zips. The ``-stripforge-`` prefix keeps them apart from
+Older zips are deleted only when ``backup_policy`` is ``"retention"`` and ``backup_keep`` is 1 or
+more (``config.prune_keep``). ``"move"`` (the default, and a file that never sets the policy) keeps
+every zip. The ``-stripforge-`` prefix keeps them apart from
 KiCad's own ``<Project>-YYYY-MM-DD_HHMMSS.zip`` backups.
 """
 
@@ -170,8 +172,10 @@ def save_point(board: str | Path, files, cfg=None, action: str = "build", keep: 
         for rel in sp.files:
             z.write(root / rel, rel)
     tmp.rename(path)  # a fresh name: never replaces an existing file
-    keep = getattr(cfg, "backup_keep", 0) if keep is None else keep
-    if keep and keep > 0:
+    from .config import prune_keep
+
+    keep = prune_keep(cfg, keep)
+    if keep > 0:
         for old in backups(board, cfg)[:-keep]:
             try:
                 old.unlink()

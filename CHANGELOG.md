@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **StripForge: Dialog (M4a, started).** One shared window shows the saved board settings, edits
+  the backup policy, and runs Analyze, Build strips, Add links to schematic, Run DRC, Build sheet
+  and Restore last through the same code as the toolbar. The separate buttons stay until that
+  window is the one used for the whole job. Saving the policy does not delete a save point.
 - **Restore last (M4b).** Build strips and Add links to schematic each make a *save point* first:
   a new zip `stripforge/<Project>-stripforge-backups/<Project>-stripforge-YYYY-MM-DD_HHMMSS.zip`
   of every file they are about to write (with a `stripforge-backup.json` listing them and the
@@ -22,6 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Backup policy (Kevin, 2026-11-07).** `backup_policy = "move"` is the default, including when
+  the key is absent: save points are kept. `"retention"` is opt-in; then `backup_keep = N` (N ≥ 1)
+  deletes older save-point zips and older sheet copies down to N. A config that only sets
+  `backup_keep` does not start deleting.
 - **Diagonal links are off by default (M4c).** `diagonal_links` now defaults to `false`: a net that
   needs a diagonal is joined through a spare bus strip or reported. When it is reported and a
   diagonal would have joined it, the report says so with the shift needed and the setting to change

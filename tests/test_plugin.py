@@ -48,6 +48,7 @@ def test_plugin_json_follows_the_kicad_10_api_plugin_schema():
         "StripForge: Run DRC",
         "StripForge: Build sheet",
         "StripForge: Restore last",
+        "StripForge: Dialog",
     ]
     ids = [a["identifier"] for a in pj["actions"]]
     assert len(set(ids)) == len(ids)
@@ -531,3 +532,59 @@ def test_report_without_wx_prints_one_line_pointing_at_the_log(sfp, tmp_path, ca
     sfp.Ui.report(ui, "T", "long\nreport", log=tmp_path / "x.log")
     out = capsys.readouterr().out
     assert out.count("\n") == 1 and str(tmp_path / "x.log") in out
+
+
+def test_dialog_shows_settings_and_does_not_save_or_change_policy(sfp, project, monkeypatch):
+    tmp, board, shown = project
+    before = (tmp / "stripboard.toml").read_text()
+
+    def boom(*_a, **_k):
+        raise AssertionError("opening the dialog must not run an action")
+
+    monkeypatch.setattr(sfp, "_perform", boom)
+    assert sfp.run("dialog") == 0
+    title, text, _path = shown[-1]
+    assert title == "StripForge: Dialog"
+    assert "backup_policy: move" in text and "rows: 24" in text and "slotted: BT1" in text
+    assert "The backup policy was not changed" in text
+    assert board.saved == 0 and (tmp / "stripboard.toml").read_text() == before
+    assert (tmp / "stripforge" / "fix-stripforge.log").is_file()
+
+
+def test_dialog_analyze_uses_the_same_action_as_the_toolbar(sfp, project):
+    tmp, board, shown = project
+    ui = sfp.Ui()
+    code, text, _shown = sfp._perform(ui, "analyze", FakeKiCad(), board, board._path, board._path.stem)
+    assert code == 0 and board.saved == 1
+    assert "Result:" in text and "A1" in text and f"Config: {tmp / 'stripboard.toml'}" in text
+    assert sfp.run("analyze") == 0
+    assert "A1" in shown[-1][1]
+
+
+def test_apply_backup_policy_preserves_the_file_and_deletes_nothing(sfp, tmp_path):
+    from stripforge import layout
+    from stripforge.config import load, prune_keep
+
+    board = tmp_path / "fix.kicad_pcb"
+    board.write_text("(kicad_pcb)\n")
+    (tmp_path / "fix.kicad_pro").write_text("{}\n")
+    toml = tmp_path / "stripboard.toml"
+    toml.write_text(
+        "# Kevin's note\nrows = 24\ncols = 56\norigin_mm = [1, 2]\nbackup_keep = 4\n\n[bend]\nSW2 = 0.16\n"
+    )
+    kept = layout.save_point(board, [board], action="build")
+    legacy = tmp_path / "fix-pre-stripbuild.kicad_pcb"
+    legacy.write_text("old")
+    path = sfp.apply_backup_policy(board, "retention", 1)
+    assert path == toml
+    text = toml.read_text()
+    assert "# Kevin's note" in text and "[bend]" in text and "SW2 = 0.16" in text and "rows = 24" in text
+    assert 'backup_policy = "retention"' in text and "backup_keep = 1" in text
+    cfg = load(toml)
+    assert cfg.backup_policy == "retention" and cfg.backup_keep == 1 and prune_keep(cfg) == 1
+    assert kept.path.is_file() and legacy.read_text() == "old"  # saving the setting deletes nothing
+    snap = sfp.dialog_snapshot(board)
+    assert "backup_policy: retention" in snap and "down to 1" in snap
+    # back to move: the number stays, deletion stops, the zip stays
+    sfp.apply_backup_policy(board, "move", 1)
+    assert prune_keep(load(toml)) == 0 and kept.path.is_file() and "Kevin's note" in toml.read_text()

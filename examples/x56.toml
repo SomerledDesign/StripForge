@@ -9,9 +9,12 @@
 # Where Build strips goes: "in_place" (default) builds into <name>.kicad_pcb; "separate" writes
 # stripforge/<Project>-stripforge.kicad_pcb and leaves the board alone. Every build first makes a
 # save point, a new zip in stripforge/<Project>-stripforge-backups/; "Restore last" (or
-# stripforge restore <board>) loads the newest. backup_keep = N keeps the newest N zips (0 = all).
+# stripforge restore <board>) loads the newest. backup_policy = "move" (the default) keeps every
+# save point. "retention" is opt-in: then backup_keep = N keeps the newest N and deletes older
+# save-point zips (0 still keeps all). A backup_keep number without "retention" does not delete.
 # output_dir / backup_dir (optional, relative to the project folder) move those folders.
 output = "in_place"
+backup_policy = "move"
 backup_keep = 0
 # place_links = true (default): the build places the W link footprints on their holes; then
 # "Add links to schematic" (or stripforge link-symbols <board> --in-place) adds their symbols.

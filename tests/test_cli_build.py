@@ -63,7 +63,7 @@ def test_cli_build_in_place_with_save_points_and_restore(tmp_path, capsys, real_
     shutil.rmtree(tmp_path)
 
 
-def test_cli_build_backup_keep_prunes_the_oldest_zips(tmp_path, capsys, real_board_path):
+def test_cli_build_backup_keep_prunes_only_when_retention_is_set(tmp_path, capsys, real_board_path):
     from stripforge import layout
 
     board = tmp_path / "fix.kicad_pcb"
@@ -73,10 +73,19 @@ def test_cli_build_backup_keep_prunes_the_oldest_zips(tmp_path, capsys, real_boa
     import re
 
     x56 = (real_board_path.parents[1] / "x56.toml").read_text()
-    cfg.write_text(re.sub(r"(?m)^backup_keep\s*=.*$", "backup_keep = 2", x56))
+    x56 = re.sub(r"(?m)^backup_keep\s*=.*$", "backup_keep = 2", x56)
+    if 'backup_policy = "move"' not in x56 and "backup_policy" not in x56:
+        x56 += '\nbackup_policy = "move"\n'
+    else:
+        x56 = re.sub(r"(?m)^backup_policy\s*=.*$", 'backup_policy = "move"', x56)
+    cfg.write_text(x56)
     assert layout.find_config(board) == cfg
     for _ in range(3):
         assert main(["build", str(board), "--config", str(cfg)]) == 1
+    assert "Deleted by backup_keep" not in capsys.readouterr().out
+    assert len(layout.backups(board)) == 3  # backup_keep = 2 is ignored while policy is move
+    cfg.write_text(cfg.read_text().replace('backup_policy = "move"', 'backup_policy = "retention"'))
+    assert main(["build", str(board), "--config", str(cfg)]) == 1
     assert "Deleted by backup_keep" in capsys.readouterr().out
     assert len(layout.backups(board)) == 2
     shutil.rmtree(tmp_path)

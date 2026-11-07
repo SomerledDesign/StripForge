@@ -350,7 +350,8 @@ def main(argv: list[str] | None = None) -> int:
         'and any W link footprints (after F8) placed on their holes. By default (output = "in_place") '
         "the board itself is rewritten, after a save point: a new zip "
         "stripforge/<Project>-stripforge-backups/<Project>-stripforge-YYYY-MM-DD_HHMMSS.zip of every file "
-        "the build writes (backup_keep = N keeps the newest N, 0 = all; undo = 'stripforge restore'); "
+        'the build writes (kept forever unless backup_policy = "retention" and backup_keep = N; '
+        "undo = 'stripforge restore'); "
         '--separate / output = "separate" writes stripforge/<Project>-stripforge.kicad_pcb instead. Also '
         "writes <out>.kicad_dru (the StripForge rules) and "
         "stripforge/<Project>-stripforge.links.json/.csv/.txt (the link proposal and schematic "

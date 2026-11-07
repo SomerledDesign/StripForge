@@ -115,6 +115,24 @@
                 "icons/restore-24.png",
                 "icons/restore-48.png"
             ]
+        },
+        {
+            "identifier": "stripforge.dialog",
+            "name": "StripForge: Dialog",
+            "description": "Open the shared StripForge window: current settings, the backup policy (move keeps every save point; retention is opt-in), and the same actions as the other buttons. Those buttons stay until this window covers the workflow.",
+            "show-button": true,
+            "scopes": [
+                "pcb"
+            ],
+            "entrypoint": "sf_dialog.py",
+            "icons-light": [
+                "icons/dialog-24.png",
+                "icons/dialog-48.png"
+            ],
+            "icons-dark": [
+                "icons/dialog-24.png",
+                "icons/dialog-48.png"
+            ]
         }
     ]
 }
