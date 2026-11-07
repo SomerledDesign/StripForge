@@ -100,5 +100,7 @@ absent (`tests/test_stripforge_rules.py` three tests, `tests/test_drc.py::test_r
 did not finish`). `test_pdf_via_chrome` passed on the previous run of this machine. No KiCad
 click-through was done.
 
-GitHub CI's Python 3.9 job still fails before pytest on Ubuntu 26.04 (`setup-python` has no 3.9).
-The workflow was not changed.
+CI (`.github/workflows/ci.yml`) is pinned to `ubuntu-24.04` with Python 3.9, 3.11, and 3.12.
+On `3635f6d`, `ubuntu-latest` was Ubuntu 26.04 and the 3.9 job failed in `setup-python` before
+pytest (`The version '3.9' ... was not found for Ubuntu 26.04`). 3.11 and 3.12 on that run passed
+(369 passed, 5 skipped). Kevin approved the pin.
