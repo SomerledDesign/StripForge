@@ -20,8 +20,9 @@ import re
 from pathlib import Path
 
 LIB_NICKNAME = "StripForge"
-# metadata.json identifier, with "." written as "_" the way KiCad names the install folder.
-PCM_PACKAGE_DIR = "com_github_somerleddesign_stripforge"
+# The library package, not the plugin. KiCad installs its 3dmodels/ under this id with "." as "_".
+LIBRARY_PCM_ID = "com.github.somerleddesign.stripforge.libraries"
+PCM_PACKAGE_DIR = LIBRARY_PCM_ID.replace(".", "_")
 REPO_ROOT = Path(__file__).resolve().parents[2]
 # Where the library and rules sit next to the package: the repository checkout (src/stripforge ->
 # the repo root) or the KiCad plugin bundle (plugins/stripforge -> plugins/, see tools/make_pcm_zip.py).
@@ -61,7 +62,7 @@ def symbol_lib(explicit: str | Path | None = None) -> Path:
 
 
 def link_model_uri(name: str) -> str:
-    """KiCad path of a straight ``Link_P*`` model after the plugin is installed.
+    """KiCad path of a straight ``Link_P*`` model after the libraries package is installed.
 
     ``${KICAD10_3RD_PARTY}`` is the KiCad 10 path for Plugin and Content Manager files, on macOS,
     Windows and Linux. The footprint names the ``.step`` file. The matching ``.wrl`` has the same

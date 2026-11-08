@@ -458,19 +458,15 @@ SVGs and `<out>.cuts.csv`.
 - **DRC parity for the built sibling:** `stripforge drc --schematic` runs kicad-cli on a shadow
   copy named after the schematic (with sub-sheets, `.kicad_pro`, library tables and links to the
   project's folders), so parity works for `<name>-stripforge.kicad_pcb`.
-- **PCM package:** `tools/make_pcm_zip.py` builds `metadata.json` + `resources/icon.png` +
-  `plugins/**` (with the `stripforge` package, footprints and rules bundled). It is
-  `type: plugin`, `runtime: ipc`, `kicad_version: 10.0`, schema v2.
-- **Footprint library, symbol library, and 3D models:** the same zip also carries
-  `footprints/StripForge.pretty`, `symbols/StripForge.kicad_sym`, and
-  `3dmodels/StripForge.3dshapes` (supplied STEP and WRL for each straight `Link_P*`, 0.6 mm wire).
-  KiCad extracts those directories into `${KICADn_3RD_PARTY}/<kind>/<package id>/` for any
-  package and, when automatic library add is on, adds each `.pretty` and `.kicad_sym`. The
-  default nickname prefix is `PCM_`, so the rows arrive as `PCM_StripForge` and are renamed to
-  `StripForge` to match the lib ids the build writes. The official metadata-repository validator
-  still only allows `footprints/*.pretty` inside a package whose type is `library`; Install from
-  File does not use that validator. The plugin keeps a second copy under `plugins/` because that
-  is where the running code reads the files.
+- **PCM packages:** `tools/make_pcm_zip.py` writes two archives. The plugin zip is
+  `type: plugin`, `runtime: ipc`, `kicad_version: 10.0`, and contains `plugins/**` (code, a
+  private footprint copy, the symbol, and the DRC rules). The libraries zip is `type: library`
+  and contains `footprints/StripForge.pretty`, `symbols/StripForge.kicad_sym`, and
+  `3dmodels/StripForge.3dshapes`. Its id is `com.github.somerleddesign.stripforge.libraries`.
+  Straight `Link_P*` footprints name the STEP under `${KICAD10_3RD_PARTY}/3dmodels/` for that id.
+  The KiCad manual says a library package is added to the global tables with the `PCM_` prefix
+  by default. That click was not run, so the install notes say to check and, if needed, add the
+  row as `StripForge`.
 
 ### 4.11 Straight links first, and your own edits (as built)
 

@@ -64,10 +64,11 @@ def test_straight_link_model_inventory():
     """The 32 supplied STEP+WRL pairs, not a generated cylinder. Checksums are 3dmodels/SHA256SUMS."""
     import hashlib
 
-    from stripforge.resources import PCM_PACKAGE_DIR, link_model_uri
+    from stripforge.resources import LIBRARY_PCM_ID, PCM_PACKAGE_DIR, link_model_uri
 
-    ident = json.loads((ROOT / "metadata.json").read_text())["identifier"]
-    assert PCM_PACKAGE_DIR == ident.replace(".", "_")
+    plugin_id = json.loads((ROOT / "metadata.json").read_text())["identifier"]
+    assert PCM_PACKAGE_DIR == LIBRARY_PCM_ID.replace(".", "_")
+    assert LIBRARY_PCM_ID != plugin_id
     shapes = ROOT / "3dmodels" / "StripForge.3dshapes"
     names = sorted(p.name for p in shapes.iterdir() if p.is_file())
     assert names == sorted(f"{name}{ext}" for name in LINKS for ext in (".step", ".wrl"))

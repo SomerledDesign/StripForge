@@ -106,15 +106,17 @@ On this checkout (Linux, CPython 3.12.3), after the 2026-11-07 23:22 archive:
 
 - `ruff check .` — exit 0
 - `ruff format --check .` — exit 0
-- `pytest -q` — **398 passed, 1 failed, 8 skipped** in 835.99s. The failure was the package
-  test reading the zip after it had been closed. That read was moved inside the open zip, and
-  `tests/test_pcm_zip.py` then passed (3 passed). The other tests were not re-run after that
-  one-line test change.
+- `pytest -q` — exit 0, **399 passed, 8 skipped** in 831.43s
 
 The eighth skip is the wx click-through of Edit stripboard.toml (`wx` is not installed here).
-The PCM zip for this checkout is
-`72d42a115465b3e6cebf422a1eaefcfd51e0261e6058aba12da945cb8463067c` (11466932 bytes). It contains
-the plugin, the footprint library, the symbol library, and the 32 straight-link STEP+WRL pairs.
+KiCad's addon guide requires a plugin archive and a library archive. This checkout builds both.
+The plugin zip does not contain `footprints/`, `symbols/`, or `3dmodels/` at the archive root.
+The libraries zip does, and it does not contain `plugins/`.
+
+- Plugin `StripForge-0.2.1-pcm.zip`: sha256
+  `7964fe70f5c66fbc5bf43fcab9cd1e02be74de5ac36a4b471d069f0b7c383f7b`, 651874 bytes.
+- Libraries `StripForge-libraries-0.2.1-pcm.zip`: sha256
+  `d330372d6148e0802a694e74c54ab87c53b975b1de09f7e7a3e584aaffb9cdcb`, 10826951 bytes.
 Six actual builds of the archived LedSwitch25 board were not run: both the archived separate
 build and the `SW1 = 0.46` in-place override exit 2. Kevin's own current project does build;
 that does not unblock this archive. KiCad was not installed here, so Install from File was not
@@ -272,19 +274,22 @@ The default nickname is `PCM_StripForge`; rename it to `StripForge`.
 
 The model bytes are the read-only copy of `Penus/iWasCoding/StripForge/footprints/`
 (sha256 `102cd79069ac8f684e6645be05665308aefcc18914a7a74783c134af2f2cfe6e`, 10686008 bytes).
-The 64 STEP and WRL files in that zip are byte-identical to the earlier staged set, so that set
-is the current source. Kevin's own `StripForge.pretty` footprints do not contain a model
-reference. The references added here are only in this repository's generated footprints.
-Nothing in a footprint path points at Dropbox. Each straight `Link_P*` footprint names
-`${KICAD10_3RD_PARTY}/3dmodels/com_github_somerleddesign_stripforge/StripForge.3dshapes/<name>.step`.
+The 64 STEP and WRL files in that zip are byte-identical to the earlier staged set. Kevin's own
+`StripForge.pretty` footprints do not contain a model reference. The references added here are
+only in this repository's generated footprints. Nothing in a footprint path points at Dropbox.
+
+Install the libraries package, then the plugin package. The library id is
+`com.github.somerleddesign.stripforge.libraries`. Each straight `Link_P*` footprint names
+`${KICAD10_3RD_PARTY}/3dmodels/com_github_somerleddesign_stripforge_libraries/StripForge.3dshapes/<name>.step`.
 `KICAD10_3RD_PARTY` is the KiCad 10 variable for Plugin and Content Manager files. It is not
 `KICAD10_3DMODEL_DIR`, which is KiCad's own model library. The `.wrl` has the same basename and
-is installed beside the STEP. KiCad's published addon guide describes plugin packages and library
-packages as separate archives. This package is type `plugin` and also contains `footprints/`,
-`symbols/`, and `3dmodels/`. KiCad 10.0.0's installer source extracts those directory names from
-any package. That extraction was not run here. The manual says a library package is what gets
-rows added to the library tables, with the `PCM_` nickname prefix by default. A plugin package
-is not promised that step.
+is installed beside the STEP. The KiCad manual says a library package is added to the global
+tables with the `PCM_` nickname prefix by default. That was not clicked here, so do not treat the
+row as already renamed to `StripForge`. If it is missing, add nickname `StripForge` at
+`${KICAD10_3RD_PARTY}/footprints/com_github_somerleddesign_stripforge_libraries/StripForge.pretty`
+and the symbol file under `symbols/` for the same id. The plugin keeps a private copy of the
+footprints under `plugins/` so it can build without that table. The 3D bytes are only in the
+libraries package.
 
 Each straight footprint carries that reference (zero offset, unit scale, zero rotation). Placing
 a link copies the footprint, so a new straight link inherits the model. A horizontal link is only
@@ -292,6 +297,8 @@ the footprint's 90° angle. The build does not assign models itself, and it leav
 on a placed link or on a part alone. Diagonal `Link_D*` footprints have none. The installed
 library and the copy under `plugins/footprints/` are the same files. This was checked headless,
 from the written board text. KiCad's 3D viewer was not opened here, and Install from File was
-not run, so this does not show that KiCad accepts the package. Version stays 0.2.1. This is not
-a release. The package to install, once KiCad is used to check it, is
-`72d42a115465b3e6cebf422a1eaefcfd51e0261e6058aba12da945cb8463067c` (11466932 bytes).
+not run. Both in-zip metadata files validate against the KiCad PCM schemas v1 and v2
+(`https://go.kicad.org/pcm/schemas/v1` and `v2`). Every path in both zips matches the allow-list
+in `ci/validate/package.py` of `https://gitlab.com/kicad/addons/metadata`. That script's full
+repository check also wants a download URL, which these local zips do not have, so that entry
+point was not run. Version stays 0.2.1. This is not a release.

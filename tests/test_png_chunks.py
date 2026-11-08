@@ -46,7 +46,7 @@ def test_pcm_zip_entries_do_not_include_doc_screenshots():
     spec = importlib.util.spec_from_file_location("make_pcm_zip", ROOT / "tools" / "make_pcm_zip.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    names = [name for _src, name in mod.entries(ROOT)]
+    names = [name for _src, name in mod._plugin_entries(ROOT) + mod._library_entries(ROOT)]
     pngs = [name for name in names if name.lower().endswith(".png")]
     assert pngs == sorted(pngs)
     assert "resources/icon.png" in pngs

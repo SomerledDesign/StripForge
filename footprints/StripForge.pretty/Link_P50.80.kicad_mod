@@ -17,7 +17,7 @@
   (fp_circle (center 0 0) (end 1.1 0) (stroke (width 0.15) (type solid)) (fill no) (layer "User.4") (uuid "ddf9638c-0924-542a-88c0-c4f8bf2b941d"))
   (fp_circle (center 0 50.8) (end 1.1 50.8) (stroke (width 0.15) (type solid)) (fill no) (layer "User.4") (uuid "ab2ecb41-774c-5bdb-a05d-98067a2cdbb5"))
   (embedded_fonts no)
-  (model "${KICAD10_3RD_PARTY}/3dmodels/com_github_somerleddesign_stripforge/StripForge.3dshapes/Link_P50.80.step"
+  (model "${KICAD10_3RD_PARTY}/3dmodels/com_github_somerleddesign_stripforge_libraries/StripForge.3dshapes/Link_P50.80.step"
     (offset (xyz 0 0 0))
     (scale (xyz 1 1 1))
     (rotate (xyz 0 0 0))

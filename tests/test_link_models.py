@@ -117,7 +117,7 @@ def test_build_inherits_the_footprint_model_and_keeps_other_assignments(tmp_path
     # The model lives on the placed footprint. Taking it off is kept; a build does not put it back.
     stripped, removed = re.subn(
         r'\(model "\$\{KICAD10_3RD_PARTY\}/3dmodels/'
-        r'com_github_somerleddesign_stripforge/StripForge\.3dshapes/Link_P[0-9.]+\.step"\n'
+        r'com_github_somerleddesign_stripforge_libraries/StripForge\.3dshapes/Link_P[0-9.]+\.step"\n'
         r"\t\t\t\(offset\n\t\t\t\t\(xyz 0 0 0\)\n\t\t\t\)\n"
         r"\t\t\t\(scale\n\t\t\t\t\(xyz 1 1 1\)\n\t\t\t\)\n"
         r"\t\t\t\(rotate\n\t\t\t\t\(xyz 0 0 0\)\n\t\t\t\)\n"
