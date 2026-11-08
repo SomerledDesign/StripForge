@@ -8,9 +8,11 @@ For a circuit check, unzip `tests/fixtures/ledswitch25/LedSwitch25-kicad.zip` (s
 Ignore `__MACOSX`, `.DS_Store`, and lock files. Do not use an older LedSwitch archive, and do not
 use the TPI fixture for this check. The toml comments describe 25 by 25 at (1.27, 1.27) mm; the
 settings are 13 by 13, origin `[129.54, 104.14]`, move, `backup_keep = 0`. Do not rewrite them.
-On this archive Build strips stops before writing: SW1's outer pads are 0.46 mm off the holes.
-That is the archived board. The steps below are the plugin click-through on whatever project you
-opened.
+On this archive, with the toml left as shipped, Build strips stops before writing: SW1's outer
+pads are 0.46 mm off the holes. Kevin approved a working copy that appends only `[bend]` and
+`SW1 = 0.46` (millimetres) and leaves the comments, 13 by 13 origin, and move / `backup_keep = 0`.
+That copy is not the zip. With it, Build writes the board and still reports `Net-(D2-K)` unlinkable.
+The steps below are the plugin click-through on whatever project you opened.
 
 1. Quit KiCad fully (KiCad > Quit), then start it again so it scans the plugin folders.
 2. Preferences > Plugins: **Enable KiCad API** is ticked. Keep the default interpreter (KiCad's

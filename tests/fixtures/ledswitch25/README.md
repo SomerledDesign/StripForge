@@ -18,3 +18,16 @@ do not turn on retention. `tests/ledswitch_fixture.py` is how tests open it.
 
 `examples/tpi-fixture/` and `tests/fixtures/tpi-m1/` stay unit fixtures. They are not a
 substitute for this archive, and neither is an older LedSwitch zip.
+
+Kevin (2026-11-08) approved one working-copy change, not a new archive: after a fresh extract,
+append only
+
+```toml
+[bend]
+SW1 = 0.46
+```
+
+`0.46` is millimetres. No other reference is bent. Comments, `rows = 13`, `cols = 13`,
+`origin_mm = [129.54, 104.14]`, `backup_policy = "move"`, and `backup_keep = 0` stay. With that
+line, `stripforge build --in-place` writes the board (exit 1: `Net-(D2-K)` is still unlinkable).
+Without it, build exits 2 and writes nothing.

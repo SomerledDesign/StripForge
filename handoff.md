@@ -102,14 +102,15 @@ pytest
 
 Windows PowerShell uses the same three commands after `.\.venv\Scripts\Activate.ps1`.
 
-On this checkout (Linux, CPython 3.12.3), after the raw TOML editor:
+On this checkout (Linux, CPython 3.12.3), after the approved SW1 working-copy bend:
 
 - `ruff check .` — exit 0
 - `ruff format --check .` — exit 0
-- `pytest -q` — exit 0, **394 passed, 8 skipped** in 833.31s
+- `pytest -q` — exit 0, **395 passed, 8 skipped** in 828.40s
 
-The eighth skip is the wx click-through of Edit stripboard.toml (`wx` is not installed here). The
-LedSwitch archive run before this editor was 390 passed, 7 skipped.
+The eighth skip is the wx click-through of Edit stripboard.toml (`wx` is not installed here).
+The raw-editor run before this test was 394 passed, 8 skipped. Runtime code did not change, so
+the PCM zip is still `6104d7a9a71b06501b46349287543c76b6c3d2989eb3b062e06b1c80a6b87c32`.
 
 Skips: the five `kicad-cli` tests, `test_clicking_rows_ticks_strikes_saves_and_resets` (headless
 Chrome did not finish), and `test_headless_dialog_saves_origin_and_refuses_a_dirty_action`
@@ -222,9 +223,21 @@ Disposable extract, measured, config not rewritten:
   are 33.020 mm; the outline starts 2.54 mm before A1.
 - Eight parts snap. C1's second pad is 0.040 mm along the strip and is inside tolerance. SW1's
   outer pads are 0.460 mm off the holes across the strip (the 3.00 mm switch pitch). Pad 2 is on
-  a hole. There is no `[bend]` table. `stripforge build --in-place` exits 2 with that conflict
-  and does not change the board, the toml, or the KiCad backup. No StripForge save point is
-  written.
+  a hole. The archive has no `[bend]` table. `stripforge build --in-place` on that file exits 2
+  and does not change the board, the toml, or the KiCad backup.
+- Kevin (2026-11-08) approved one working-copy delta, not a new zip: append only
+
+  ```toml
+  [bend]
+  SW1 = 0.46
+  ```
+
+  `0.46` is millimetres. No other reference is bent. Comments, rows 13, cols 13, origin
+  `[129.54, 104.14]`, `backup_policy = "move"`, and `backup_keep = 0` stay. The editor save helper
+  writes that text. Six actual `stripforge build --in-place` runs then exit 1 (the board is
+  written; `Net-(D2-K)` stays unlinkable). Each build makes a save point. Six Restore last calls
+  return the pcb to the archived bytes. The six save points, six safety copies, and the KiCad
+  backup zip remain. The canonical zip hash does not change.
 - Restore acceptance still uses this board's bytes. Six save points are taken, the disposable
   board is changed, and six restores return the exact archived pcb. A seventh restore changes
   nothing. The six save-point zips, the six safety copies, the KiCad backup zip, the toml

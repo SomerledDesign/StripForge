@@ -367,7 +367,8 @@ The acceptance circuit is Kevin's **LedSwitch25** project, the zip
 hash, extract a new copy, and do not edit or re-zip the archive. The `stripboard.toml` comments
 still say 25 by 25 and origin (1.27, 1.27) mm. The settings are 13 by 13, origin
 `[129.54, 104.14]`, `backup_policy = "move"`, `backup_keep = 0`. Leave that file as it is. An
-older LedSwitch zip is not this archive.
+older LedSwitch zip is not this archive. Kevin approved a working copy that appends only
+`[bend]` / `SW1 = 0.46` (millimetres). That line is not in the zip. No other part is bent.
 
 The **ATtiny10 TPI** boards stay unit fixtures (22 real parts in
 [examples/tpi-fixture](examples/tpi-fixture/); the 25-part M1 board is frozen in

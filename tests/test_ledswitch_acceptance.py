@@ -28,6 +28,8 @@ from stripforge.config import (
 from stripforge.sexpr import head, parse
 
 USER_TRACK = "USER-ORIGINAL-GEOMETRY"
+# Kevin, 2026-11-08: working copy only. Not in the canonical zip. Millimetres, one ref.
+APPROVED_SW1_BEND = "[bend]\nSW1 = 0.46\n"
 
 
 def _sha(path) -> str:
@@ -191,4 +193,65 @@ def test_raw_bend_on_the_archived_toml_then_restore_checks(tmp_path):
     assert form["rows"] == "14" and form["origin_x_mm"] == "129.54" and form["origin_y_mm"] == "104.14"
     assert load(sync_path).backup_policy == "move" and load(sync_path).backup_keep == 0
     assert "bend" not in form
+    assert archive_bytes() == before
+
+
+def _apply_approved_sw1_bend(project):
+    """Append the approved bend with the editor save helper. Other text stays as archived."""
+    path = project / "stripboard.toml"
+    text, baseline = read_stripboard_text(path)
+    edited = text if text.endswith("\n") else text + "\n"
+    edited += APPROVED_SW1_BEND
+    cfg = save_stripboard_text(path, edited, baseline)
+    return path, edited, cfg
+
+
+def test_six_actual_builds_then_restore_the_archived_board(tmp_path, capsys):
+    """Six stripforge builds on the working copy, then six restores to the archived pcb.
+
+    The only config delta is ``[bend] SW1 = 0.46`` (millimetres). Comments, the 13 by 13 origin,
+    and move / backup_keep 0 stay. The canonical zip is not rewritten. Exit 1 means the board was
+    written with one unlinkable net still reported, not that the build was refused.
+    """
+    before = archive_bytes()
+    project = extract(tmp_path / "proj")
+    board = project / "LedSwitch25.kicad_pcb"
+    original = board.read_bytes()
+    assert hashlib.sha256(original).hexdigest() == PCB_SHA256
+    toml_path, edited, cfg = _apply_approved_sw1_bend(project)
+    assert list(cfg.bend) == ["SW1"] and cfg.bend["SW1"] == pytest.approx(0.46)
+    assert cfg.rows == 13 and cfg.cols == 13 and cfg.origin_mm == (129.54, 104.14)
+    assert cfg.backup_policy == "move" and cfg.backup_keep == 0
+    assert "# 25 by 25" in edited and "(1.27, 1.27)" in edited
+    assert edited.endswith(APPROVED_SW1_BEND)
+    assert any("0.46" in warning and "mm" in warning for warning in cfg.warnings)
+    kicad_backup = project / "LedSwitch25-backups" / "LedSwitch25-2026-11-07_215736.zip"
+    kicad_backup_bytes = kicad_backup.read_bytes()
+
+    for _ in range(6):
+        assert main(["build", str(board), "--config", str(toml_path), "--in-place"]) == 1
+        capsys.readouterr()
+    assert b"StripForge:CUT_" in board.read_bytes()
+    points = layout.backups(board)
+    assert len(points) == 6
+    saved = {path: path.read_bytes() for path in points}
+    assert layout.read_member(points[0], "LedSwitch25.kicad_pcb").encode() == original
+
+    for step in range(6):
+        assert main(["restore", str(board), "--config", str(toml_path)]) == 0
+        text = capsys.readouterr().out
+        assert points[5 - step].name in text
+        assert "safety" not in points[5 - step].name
+    assert board.read_bytes() == original
+    assert b"StripForge:CUT_" not in board.read_bytes()
+    assert main(["restore", str(board), "--config", str(toml_path)]) == 0
+    assert "nothing further to restore" in capsys.readouterr().out
+    assert board.read_bytes() == original
+    for path, data in saved.items():
+        assert path.read_bytes() == data
+    assert len(layout.backups(board)) == 6
+    assert len(layout.safety_copies(board)) == 6
+    assert kicad_backup.read_bytes() == kicad_backup_bytes
+    assert toml_path.read_text() == edited
+    assert load(toml_path).backup_policy == "move" and load(toml_path).backup_keep == 0
     assert archive_bytes() == before
