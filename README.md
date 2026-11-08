@@ -89,10 +89,12 @@ StripForge is a KiCad 10 **IPC plugin**. It is not in KiCad's official Plugin an
    - Symbols: `${KICAD10_3RD_PARTY}/symbols/com_github_somerleddesign_stripforge/StripForge.kicad_sym`
    - 3D models: `${KICAD10_3RD_PARTY}/3dmodels/com_github_somerleddesign_stripforge/StripForge.3dshapes`
 
-   The straight `Link_P*` footprints point at those models (a 0.032 in / 0.8128 mm round wire, pad
-   centre to pad centre). Diagonal links and the cut markers have no model. The built board does
-   not need the library for the copper already on it (those footprints are embedded). **Update
-   Footprints from Library**, the 3D viewer, and placing a link by hand do.
+   The straight `Link_P*` footprints, and every straight link the build places, point at those
+   models: a 0.6 mm wire with formed legs, one STEP and one WRL per span. The path is
+   `${KICAD10_3RD_PARTY}/...`, which KiCad sets on macOS, Windows and Linux. Diagonal links and
+   the cut markers have no model. The built board does not need the library for the copper
+   already on it (those footprints are embedded). **Update Footprints from Library**, the 3D
+   viewer, and placing a link by hand do.
 
 To install by hand instead, copy the *contents* of the zip's `plugins/` folder to
 `~/Documents/KiCad/10.0/3rdparty/plugins/com_github_somerleddesign_stripforge/` (macOS; on Linux

@@ -20,7 +20,7 @@ symbol under ``plugins/``, which is where the running plugin reads them.
     plugins/symbols/StripForge.kicad_sym  the generic StripForge:Link symbol (stripforge link-symbols)
     footprints/StripForge.pretty/          the same library, installed and registered by KiCad
     symbols/StripForge.kicad_sym           the same symbol library, installed and registered
-    3dmodels/StripForge.3dshapes/          straight Link_P wires (VRML), one file per footprint
+    3dmodels/StripForge.3dshapes/          straight Link_P wires, one STEP and one WRL per span
 
 The zip is deterministic (sorted entries, fixed timestamps and permissions), so the same tree always
 gives the same sha256. It prints the sha256, download_size and install_size for the ``versions``
@@ -50,7 +50,7 @@ ALLOWED = (
     re.compile(r"^plugins/.+"),
     re.compile(r"^footprints/.+\.kicad_mod$"),
     re.compile(r"^symbols/.+\.kicad_sym$"),
-    re.compile(r"^3dmodels/.+\.wrl$"),
+    re.compile(r"^3dmodels/.+\.(?:wrl|step)$"),
 )
 
 

@@ -463,7 +463,7 @@ SVGs and `<out>.cuts.csv`.
   `type: plugin`, `runtime: ipc`, `kicad_version: 10.0`, schema v2.
 - **Footprint library, symbol library, and 3D models:** the same zip also carries
   `footprints/StripForge.pretty`, `symbols/StripForge.kicad_sym`, and
-  `3dmodels/StripForge.3dshapes` (one VRML wire per straight `Link_P*`, 0.8128 mm diameter).
+  `3dmodels/StripForge.3dshapes` (supplied STEP and WRL for each straight `Link_P*`, 0.6 mm wire).
   KiCad extracts those directories into `${KICADn_3RD_PARTY}/<kind>/<package id>/` for any
   package and, when automatic library add is on, adds each `.pretty` and `.kicad_sym`. The
   default nickname prefix is `PCM_`, so the rows arrive as `PCM_StripForge` and are renamed to

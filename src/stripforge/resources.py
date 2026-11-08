@@ -20,6 +20,8 @@ import re
 from pathlib import Path
 
 LIB_NICKNAME = "StripForge"
+# metadata.json identifier, with "." written as "_" the way KiCad names the install folder.
+PCM_PACKAGE_DIR = "com_github_somerleddesign_stripforge"
 REPO_ROOT = Path(__file__).resolve().parents[2]
 # Where the library and rules sit next to the package: the repository checkout (src/stripforge ->
 # the repo root) or the KiCad plugin bundle (plugins/stripforge -> plugins/, see tools/make_pcm_zip.py).
@@ -56,6 +58,17 @@ def rules_file(explicit: str | Path | None = None) -> Path:
 def symbol_lib(explicit: str | Path | None = None) -> Path:
     """The ``StripForge.kicad_sym`` symbol library (the generic ``StripForge:Link`` symbol)."""
     return _find(explicit, "STRIPFORGE_SYMBOLS", "symbols/StripForge.kicad_sym", "symbol library")
+
+
+def link_model_uri(name: str) -> str:
+    """KiCad path of a straight ``Link_P*`` model after the plugin is installed.
+
+    ``${KICAD10_3RD_PARTY}`` is the KiCad 10 path for Plugin and Content Manager files, on macOS,
+    Windows and Linux. The footprint names the ``.step`` file. The matching ``.wrl`` has the same
+    basename beside it. This is not ``${KICAD10_3DMODEL_DIR}``, which is KiCad's own model
+    library. Diagonal ``Link_D*`` footprints have no model.
+    """
+    return f"${{KICAD10_3RD_PARTY}}/3dmodels/{PCM_PACKAGE_DIR}/StripForge.3dshapes/{name}.step"
 
 
 def footprint_file(name: str, library: str | Path | None = None) -> Path:

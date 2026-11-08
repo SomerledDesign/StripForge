@@ -19,12 +19,13 @@ project `fp-lib-table` entry is:
 (lib (name "StripForge") (type "KiCad") (uri "<path to repo>/footprints/StripForge.pretty") (options "") (descr "StripForge links and cut markers"))
 ```
 
-Straight `Link_P*` footprints include a 3D model, a 0.032 in (0.8128 mm) round wire from pad centre
-to pad centre. `python3 footprints/gen_3dmodels.py` writes those files to
-`3dmodels/StripForge.3dshapes/`. The footprint points at
-`${KICAD10_3RD_PARTY}/3dmodels/com_github_somerleddesign_stripforge/StripForge.3dshapes/<name>.wrl`,
-which is where KiCad puts them on install. Diagonal links and the cut markers have no model. The
-F.Fab line stays 0.6 mm; the model is the 0.032 in wire.
+Straight `Link_P*` footprints name the supplied model in `3dmodels/StripForge.3dshapes/`
+(one `.step` and one `.wrl` per span, `Link_P2.54` through `Link_P81.28`). The footprint's model
+path is the `.step`, the same basename as the footprint. The `.wrl` is the same name beside it.
+The directory is `StripForge.3dshapes` because the footprint library is `StripForge.pretty`.
+Offset, scale and rotation are zero. Rev 2 is a 0.6 mm wire with formed legs: pad 1 at the
+origin, pad 2 along model −Y, legs down to z = −2.6 mm. A link placed from that footprint keeps
+the model. Diagonal links and the cut markers have no model. The F.Fab line is the same 0.6 mm wire.
 
 ## What is (and is not) a footprint
 

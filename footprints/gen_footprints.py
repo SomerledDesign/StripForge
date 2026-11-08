@@ -69,15 +69,13 @@ CRT_MARGIN = 0.25  # courtyard clearance beyond pad copper, and beyond the wire 
 LINK_RING_LAYER = "User.4"
 LINK_RING_GAP = 0.25
 LINK_RING_W = 0.15
-# Straight Link_P models only. KiCad installs them from the package's 3dmodels/ directory.
-# The directory name is metadata.json's identifier with "." turned into "_".
-PCM_DIR = "com_github_somerleddesign_stripforge"
-WIRE_DIAMETER_MM = 0.8128  # 0.032 in round wire
 
 
 def model_uri(name: str) -> str:
-    """Where KiCad finds ``name``.wrl after Install from File."""
-    return f"${{KICAD10_3RD_PARTY}}/3dmodels/{PCM_DIR}/StripForge.3dshapes/{name}.wrl"
+    """Where KiCad finds ``name``.step after Install from File. Same path the footprint carries."""
+    from stripforge.resources import link_model_uri
+
+    return link_model_uri(name)
 
 
 def fmt(v: float) -> str:
@@ -228,8 +226,8 @@ def make_link(k: int, n: int | None = None) -> tuple[str, str]:
     jumper = '  (jumper_pad_groups ("1" "2"))'
     text = fp.render(descr, tags, "through_hole", props.lines, (jumper,))
     if n is None:
-        # Pad 2 is +Y in the footprint. KiCad maps a model's +Y onto the footprint's -Y, and the
-        # generator builds the wire along model -Y, so this offset and rotation stay zero.
+        # The supplied model already points pad 2 along model -Y (footprint +Y) with formed legs.
+        # Offset, scale and rotation stay zero; a horizontal link is the footprint's own angle.
         block = (
             f'  (model "{model_uri(name)}"\n'
             "    (offset (xyz 0 0 0))\n"

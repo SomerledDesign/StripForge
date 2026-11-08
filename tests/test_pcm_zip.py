@@ -49,30 +49,36 @@ def test_zip_layout_and_determinism(mk, tmp_path):
         names = z.namelist()
         assert info["install_size"] == sum(i.file_size for i in z.infolist())
         meta = json.loads(z.read("metadata.json"))
-    assert all(any(r.match(n) for r in mk.ALLOWED) for n in names)
-    assert not any("__pycache__" in n or n.endswith(".pyc") for n in names)
-    for required in (
-        "resources/icon.png",
-        "plugins/plugin.json",
-        "plugins/requirements.txt",
-        "plugins/stripforge_plugin.py",
-        "plugins/sf_build.py",
-        "plugins/stripforge/__init__.py",
-        "plugins/stripforge/buildsheet.py",
-        "plugins/footprints/StripForge.pretty/CUT_Hole.kicad_mod",
-        "plugins/rules/stripforge.kicad_dru",
-        "plugins/symbols/StripForge.kicad_sym",
-        "plugins/LICENSE",
-        "footprints/StripForge.pretty/CUT_Hole.kicad_mod",
-        "footprints/StripForge.pretty/Link_P2.54.kicad_mod",
-        "symbols/StripForge.kicad_sym",
-        "3dmodels/StripForge.3dshapes/Link_P2.54.wrl",
-        "3dmodels/StripForge.3dshapes/Link_P81.28.wrl",
-    ):
-        assert required in names
-    wrl = [n for n in names if n.startswith("3dmodels/")]
-    assert len(wrl) == 32
-    pretty = [n for n in names if n.startswith("footprints/")]
-    private = [n for n in names if n.startswith("plugins/footprints/")]
-    assert len(pretty) == len(private) == 339
+        assert all(any(r.match(n) for r in mk.ALLOWED) for n in names)
+        assert not any("__pycache__" in n or n.endswith(".pyc") for n in names)
+        for required in (
+            "resources/icon.png",
+            "plugins/plugin.json",
+            "plugins/requirements.txt",
+            "plugins/stripforge_plugin.py",
+            "plugins/sf_build.py",
+            "plugins/stripforge/__init__.py",
+            "plugins/stripforge/buildsheet.py",
+            "plugins/footprints/StripForge.pretty/CUT_Hole.kicad_mod",
+            "plugins/rules/stripforge.kicad_dru",
+            "plugins/symbols/StripForge.kicad_sym",
+            "plugins/LICENSE",
+            "footprints/StripForge.pretty/CUT_Hole.kicad_mod",
+            "footprints/StripForge.pretty/Link_P2.54.kicad_mod",
+            "symbols/StripForge.kicad_sym",
+            "3dmodels/StripForge.3dshapes/Link_P2.54.wrl",
+            "3dmodels/StripForge.3dshapes/Link_P2.54.step",
+            "3dmodels/StripForge.3dshapes/Link_P81.28.wrl",
+            "3dmodels/StripForge.3dshapes/Link_P81.28.step",
+        ):
+            assert required in names
+        models = [n for n in names if n.startswith("3dmodels/")]
+        assert len([n for n in models if n.endswith(".wrl")]) == 32
+        assert len([n for n in models if n.endswith(".step")]) == 32
+        assert not any(n.startswith("/") or ":\\" in n or "Dropbox" in n for n in models)
+        pretty = [n for n in names if n.startswith("footprints/")]
+        private = [n for n in names if n.startswith("plugins/footprints/")]
+        assert len(pretty) == len(private) == 339
+        for name in pretty:
+            assert z.read(name) == z.read("plugins/" + name)
     assert len(meta["versions"]) == 1 and "download_sha256" not in meta["versions"][0]
