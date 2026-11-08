@@ -189,12 +189,26 @@ def fallback_config(board: Path) -> tuple[Path | None, str | None]:
 
 
 def find_schematic(board: Path, project_name: str = "") -> Path | None:
-    """The project's root schematic: ``<project>.kicad_sch`` or ``<name>.kicad_sch`` next to the board."""
+    """The project's root schematic: ``<project>.kicad_sch`` next to the board or in the project folder.
+
+    A separate build lives in ``stripforge/``, so the schematic is one directory up, beside the
+    ``.kicad_pro``, not next to that board file.
+    """
     names = [n for n in (project_name, base_stem(board)) if n]
-    for n in names:
-        p = board.parent / f"{n}.kicad_sch"
-        if p.is_file():
-            return p
+    dirs = [board.parent]
+    try:
+        from stripforge.layout import project_dir
+
+        proj = project_dir(board)
+        if proj not in dirs:
+            dirs.append(proj)
+    except Exception:
+        pass
+    for folder in dirs:
+        for n in names:
+            path = folder / f"{n}.kicad_sch"
+            if path.is_file():
+                return path
     return None
 
 
@@ -1423,15 +1437,29 @@ def _add_links(board: Path, project_name: str, config: Path | None, notes: list)
     project's schematic, in place (a save point of the changed sheets first; "Restore last" undoes it)."""
     from stripforge.linksym import LinkSymbolError, add_link_symbols, board_links, format_text
 
-    schematic = find_schematic(board, project_name)
-    if schematic is None:
-        missing = f"No {project_name or base_stem(board)}.kicad_sch next to the board."
-        return "\n".join([*notes, "", missing]), None
-    notes.append(f"Schematic: {schematic}")
+    link_board = board
     links, _fps, _warns = board_links(board)
     if not links:
+        separate = built_path(board, "separate", config)
+        if separate != board and separate.is_file() and board_links(separate)[0]:
+            link_board = separate
+            links = board_links(separate)[0]
+            notes.append(f"W links are on the separate build {separate.name}, not on {board.name}.")
+    schematic = find_schematic(link_board, project_name)
+    if schematic is None:
+        missing = (
+            f"No {project_name or base_stem(link_board)}.kicad_sch in the project folder "
+            f"({link_board.parent})."
+        )
+        return "\n".join([*notes, "", missing]), None
+    notes.append(f"Schematic: {schematic}")
+    notes.append(f"Links board: {link_board}")
+    if not links:
         hint = (
-            f'No W link footprints on the board yet: run "{TITLES["build"]}" first '
+            f"No W link footprints on {link_board.name}. Add links to schematic writes one "
+            f"StripForge:Link symbol per placed W footprint (W1, W2, ...). None are on this board, "
+            f"so there is no symbol to add. KiCad's Update Schematic from PCB then says it cannot "
+            f'find a symbol for each of those footprints. Run "{TITLES["build"]}" first '
             "(place_links = true, the default, places them on their holes)."
         )
         return "\n".join([*notes, "", hint]), None
@@ -1444,7 +1472,7 @@ def _add_links(board: Path, project_name: str, config: Path | None, notes: list)
         except Exception:
             pass
     try:
-        res = add_link_symbols(schematic, board, in_place=True, cfg=cfg)
+        res = add_link_symbols(schematic, link_board, in_place=True, cfg=cfg)
     except (LinkSymbolError, OSError, ValueError) as exc:
         return "\n".join([*notes, "Result: refused (nothing written)", "", str(exc)]), None
     if res.added or res.completed or res.removed:

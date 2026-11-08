@@ -106,12 +106,13 @@ On this checkout (Linux, CPython 3.12.3), after the 2026-11-07 23:22 archive:
 
 - `ruff check .` — exit 0
 - `ruff format --check .` — exit 0
-- `pytest -q` — exit 0, **395 passed, 8 skipped** in 827.09s
+- `pytest -q` — exit 0, **396 passed, 8 skipped** in 914.81s
 
 The eighth skip is the wx click-through of Edit stripboard.toml (`wx` is not installed here).
-Runtime code did not change, so the PCM zip is still
-`6104d7a9a71b06501b46349287543c76b6c3d2989eb3b062e06b1c80a6b87c32`. Six actual builds were not
-run: both the archived separate build and the `SW1 = 0.46` in-place override exit 2.
+The PCM zip for this checkout is
+`c6ffea09218fe69b78698d02854150717cf04208677b6e6f0f41ebd2fa072a96` (647846 bytes). Six actual
+builds were not run: both the archived separate build and the `SW1 = 0.46` in-place override
+exit 2.
 
 Skips: the five `kicad-cli` tests, `test_clicking_rows_ticks_strikes_saves_and_resets` (headless
 Chrome did not finish), and `test_headless_dialog_saves_origin_and_refuses_a_dirty_action`
@@ -240,14 +241,22 @@ Disposable extract, measured, config not rewritten:
   0.460 mm off the grid (Move Exactly X = 0.000, Y = 0.460 mm). `SW1 = 0.92` is refused by the
   existing loader because it is over 0.5 mm. No placement, schematic, or loader change was made.
   Six actual builds were not run. A separate test still takes six save points of the archived
-  board and restores them to the original pcb bytes.
-- Restore acceptance still uses this board's bytes. Six save points are taken, the disposable
-  board is changed, and six restores return the exact archived pcb. A seventh restore changes
-  nothing. The six save-point zips, the six safety copies, the KiCad backup zip, the toml
-  (`move`, `backup_keep = 0`), and the canonical zip hash all stay.
+  board and restores them to the original pcb bytes. This zip has no KiCad backup folder; those
+  save points are the ones the test creates.
+- Add links to schematic writes one `StripForge:Link` per placed W footprint. KiCad matches a
+  footprint's `(path)` to `"/"` plus that symbol's uuid on the root sheet, and reports that it
+  cannot find a symbol for the footprint when they differ. The symbol file
+  `symbols/StripForge.kicad_sym` (packaged as `plugins/symbols/StripForge.kicad_sym`) contains
+  symbol `Link`. The schematic embeds it as `StripForge:Link` with units `Link_0_1` and
+  `Link_1_1`. A placed W symbol whose unit is missing is reported as
+  `Cannot find symbol <lib_id> for <W ref>`. On this archive the open board has no W footprints
+  until a build succeeds. The symbol test places links with the build's helper and does not move
+  SW1. A second run does not add them again, and the first save point is kept (`move`). When
+  `output = "separate"`, Add links reads `stripforge/<Project>-stripforge.kicad_pcb` if that file
+  has the W footprints, and finds the schematic next to the `.kicad_pro`.
 
-The PCM package does not contain `tests/`. The fixture commit did not change that zip
-(`1a4182cecc187592a1f8a3ecd855a3fff99462d8f84e727931dd0ef89d8ef4c2`, 644664 bytes). The raw TOML
-editor is in the plugin and `stripforge.config`, so the package to install now is
-`6104d7a9a71b06501b46349287543c76b6c3d2989eb3b062e06b1c80a6b87c32` (647285 bytes), still version
-0.2.1, not a release.
+The PCM package does not contain `tests/`. The package to install now is
+`c6ffea09218fe69b78698d02854150717cf04208677b6e6f0f41ebd2fa072a96` (647846 bytes), still version
+0.2.1, not a release. Add links follows a separate build into `stripforge/` and keeps the
+footprint's symbol uuid, which is what KiCad matches when it says it cannot find a symbol for
+`W1`, `W2`, and the rest.

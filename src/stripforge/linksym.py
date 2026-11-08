@@ -749,7 +749,12 @@ def add_link_symbols(
             _relink(lk, sh, node, res)
             pts = pin_points(sh, node)
             if not pts:
-                res.warnings.append(f"{lk.ref}: its symbol has no pins StripForge can find; label it by hand")
+                lib_id = atom(find(node, "lib_id"), 1) or "(no lib_id)"
+                res.warnings.append(
+                    f"Cannot find symbol {lib_id} for {lk.ref}: {sh.file.name} lib_symbols has no "
+                    "unit whose name starts with that symbol's item name (for StripForge:Link the "
+                    "units are Link_1_1 and Link_0_1). Its pins were not labelled."
+                )
                 continue
             kind, name = _label_on(lk.net, sh)
             clash = {}
@@ -789,14 +794,22 @@ def add_link_symbols(
             by_net = by_uuid_path.get(max(on_net, key=on_net.get)) if on_net else None
             target = (by_uuid_path.get(prefix) if lk.path else None) or by_net or busiest
             label_name = lk.net
-        if not sym_uuid or prefix != target.uuid_path:
-            if lk.path:
-                res.warnings.append(
-                    f"{lk.ref}: its board path doesn't name the sheet its net is on; rebuild the board "
-                    "(stripforge build) so F8 matches the new symbol, or tick 'Re-link footprints to "
-                    "schematic symbols based on their reference designators' in F8"
-                )
+        # KiCad looks up a footprint's (path) against "/" + symbol uuid on the root sheet
+        # (or "/<child-sheet-uuid>/<symbol uuid>" on a child). That is "Cannot find symbol for
+        # footprint '<ref>'" when the uuid does not match. Keep the uuid the footprint already
+        # names. Only invent one when the footprint has no path.
+        if not sym_uuid:
             sym_uuid = _u(f"link-symbol/{lk.ref}")
+        elif prefix and prefix != target.uuid_path:
+            named = by_uuid_path.get(prefix)
+            if named is not None:
+                target = named
+            else:
+                res.warnings.append(
+                    f"Cannot match sheet for {lk.ref}: footprint path {lk.path} is not a sheet in "
+                    f"this schematic. Symbol {LINK_LIB_ID} still uses uuid {sym_uuid} so KiCad can "
+                    "find that footprint."
+                )
         plans.setdefault(str(target.file), []).append((lk, target, kind, label_name, sym_uuid))
 
     # unnamed nets: a global label of the same name on one of the net's existing pins

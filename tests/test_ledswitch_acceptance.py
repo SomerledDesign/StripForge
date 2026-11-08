@@ -9,6 +9,7 @@ the archived project. Each test extracts a new copy. The zip in the repo is not 
 from __future__ import annotations
 
 import hashlib
+from pathlib import Path
 
 import pytest
 
@@ -21,9 +22,10 @@ from ledswitch_fixture import (
     archive_bytes,
     extract,
 )
-from stripforge import layout
+from stripforge import layout, resources
+from stripforge import links as links_mod
 from stripforge.analyze import analyze
-from stripforge.board import load_board
+from stripforge.board import load_board, save_board
 from stripforge.cli import main
 from stripforge.config import (
     StripboardConflict,
@@ -32,7 +34,9 @@ from stripforge.config import (
     read_stripboard_text,
     save_stripboard_text,
 )
-from stripforge.sexpr import head, parse
+from stripforge.linksym import _placed_symbols, add_link_symbols, load_hierarchy, pin_points
+from stripforge.sexpr import atom, find, find_all, head, parse
+from stripforge.writer import place_new_link
 
 USER_TRACK = "USER-ORIGINAL-GEOMETRY"
 # Kevin, 2026-11-08: working copy only. Not in the canonical zip. Millimetres, one ref.
@@ -254,4 +258,62 @@ def test_approved_sw1_bend_still_refuses_the_moved_switch(tmp_path, capsys):
     assert board.read_bytes() == original
     assert layout.backups(board) == []
     assert b"StripForge:CUT_" not in board.read_bytes()
+    assert archive_bytes() == before
+
+
+def test_link_symbols_resolve_on_the_archived_schematic(tmp_path):
+    """W footprints get a StripForge:Link whose uuid is the footprint path KiCad looks up.
+
+    ``stripforge build`` still exits 2 because of SW1, so this does not move SW1 and does not
+    loosen the bend limit. The link footprints are placed by the same helper the build uses,
+    then Add links to schematic is run twice. The canonical zip is not written.
+    """
+    before = archive_bytes()
+    project = extract(tmp_path / "proj")
+    board_path = project / "LedSwitch25.kicad_pcb"
+    sw1 = next(fp for fp in load_board(board_path).footprints if fp.ref == "SW1")
+    sw1_at = (sw1.x_nm, sw1.y_nm)
+    cfg = load(project / "stripboard.toml")
+    assert cfg.output == "separate" and cfg.bend == {}
+    analysis = analyze(board_path, cfg)
+    plan = links_mod.propose(analysis)
+    assert plan.links
+    board = load_board(board_path)
+    library = resources.library_dir()
+    root = board.doc.root
+    last = max((i for i, node in enumerate(root) if head(node) == "footprint"), default=len(root) - 1)
+    placed = []
+    for lk in plan.links:
+        node, _fp = place_new_link(board, analysis, lk, library)
+        placed.append((lk.ref_hint, atom(find(node, "path"), 1), lk.footprint))
+        root.insert(last + 1, node)
+        last += 1
+    save_board(board, board_path)
+    assert next(fp for fp in load_board(board_path).footprints if fp.ref == "SW1").x_nm == sw1_at[0]
+    assert next(fp for fp in load_board(board_path).footprints if fp.ref == "SW1").y_nm == sw1_at[1]
+
+    res = add_link_symbols(project / "LedSwitch25.kicad_sch", board_path, in_place=True, cfg=cfg)
+    assert {item.ref for item in res.added} == {ref for ref, _path, _fp in placed}
+    assert res.backups and "links" in layout.read_manifest(Path(res.backups[0]))["action"]
+    first_backup = Path(res.backups[0]).read_bytes()
+    sheets = load_hierarchy(project / "LedSwitch25.kicad_sch")
+    symbols = {ref: node for node, ref in _placed_symbols(sheets[0]) if ref and ref.startswith("W")}
+    libs = find(sheets[0].doc.root, "lib_symbols")
+    embedded = next(s for s in find_all(libs, "symbol") if atom(s, 1) == "StripForge:Link")
+    units = [atom(s, 1) for s in find_all(embedded, "symbol")]
+    assert units == ["Link_0_1", "Link_1_1"]
+    for ref, path, footprint in placed:
+        node = symbols[ref]
+        assert atom(find(node, "lib_id"), 1) == "StripForge:Link"
+        assert atom(find(node, "uuid"), 1) == path.rsplit("/", 1)[-1]
+        assert set(pin_points(sheets[0], node)) == {"1", "2"}
+        fp_field = next(atom(p, 2) for p in find_all(node, "property") if atom(p, 1) == "Footprint")
+        assert fp_field == footprint
+    again = add_link_symbols(project / "LedSwitch25.kicad_sch", board_path, in_place=True, cfg=cfg)
+    assert not again.added
+    sheets = load_hierarchy(project / "LedSwitch25.kicad_sch")
+    refs = [ref for _node, ref in _placed_symbols(sheets[0]) if ref and ref.startswith("W")]
+    assert sorted(refs) == sorted(ref for ref, _path, _fp in placed)
+    assert Path(res.backups[0]).read_bytes() == first_backup
+    assert len(layout.backups(board_path, cfg)) == 1
     assert archive_bytes() == before

@@ -413,7 +413,7 @@ def test_add_links_to_schematic(sfp, project, monkeypatch):
 
     tmp, board, shown = project
     assert sfp.run("links") == 0  # the placement board has no W footprints yet
-    assert "No fix.kicad_sch next to the board" in shown[-1][1]
+    assert "No fix.kicad_sch in the project folder" in shown[-1][1]
 
     (tmp / "demo-proj").mkdir()
     src, built = _project(tmp / "demo-proj")
