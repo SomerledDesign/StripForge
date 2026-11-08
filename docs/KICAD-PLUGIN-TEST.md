@@ -49,10 +49,14 @@ KiCad"). Use a **copy** of a project, because Build strips writes files next to 
      then press F8: expect no new or moved footprints.
    - Click **Build strips** again (a rebuild). A second zip appears in the backups folder; the
      first is unchanged (nothing is renamed).
-   - Click **StripForge: Restore last**. Expect a "Restore" confirmation naming the newest zip,
-     then "Loaded save point …" and "Reloaded the restored board in the PCB editor: respawned where
-     you left off". The board is back to just before the rebuild. Click it again: the same save
-     loads again. `stripforge restore <board> --list` / `--backup <zip>` goes further back.
+   - Click **StripForge: Restore last**. Expect a "Step back to this save point?" confirmation
+     naming the newest zip, then "Loaded save point …" and "Reloaded the restored board in the PCB
+     editor: respawned where you left off". The board is back to just before the rebuild. A
+     `*-stripforge-safety-*.zip` appears beside the save points; the save-point zips are unchanged.
+     Click it again: the next earlier save point loads (the board from before the first build, when
+     that is the only older one). One more click reports "nothing further to restore" and leaves
+     the board and the zips as they are. `stripforge restore <board> --list` / `--backup <zip>`
+     still names a zip directly.
 9. Click **StripForge: Run DRC**.
    - Expect "parity: checked against the schematic" (the board is `<name>.kicad_pcb`, so kicad-cli
      uses `<name>.kicad_sch` directly).

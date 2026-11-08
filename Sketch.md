@@ -689,8 +689,10 @@ with the separate toolbar buttons kept until that window is the one used for the
   - The toolbar keeps working until the dialog covers every action; the CLI is unchanged.
 
 - **M4b: backup policy (Kevin, 2026-11-07).** Save points stay timestamped zips under
-  `stripforge/<Project>-stripforge-backups/`, and Restore last still loads the newest one. The
-  user chooses what happens to older save points. This replaces both the earlier "Clean moves
+  `stripforge/<Project>-stripforge-backups/`. Restore last steps back one save point at a time,
+  from the newest through to the first (the board before StripForge built it), then stops without
+  changing files. A safety copy of the current board is written first and is not a step in that
+  walk. The user chooses what happens to older save points. This replaces both the earlier "Clean moves
   files and never deletes" sketch and a fixed "retention always deletes" rule.
   - **`backup_policy = "move"`** is the default, including when the key is absent. Each save point
     is a new zip (never renamed, never overwritten). Older zips are kept. `backup_keep` is stored
@@ -701,9 +703,12 @@ with the separate toolbar buttons kept until that window is the one used for the
     not delete: that is the safe reading of an old config, not a silent switch to pruning.
   - **Saving the setting deletes nothing.** The next build, sheet or link update applies the
     policy. Switching back to move stops deletion and leaves the zips that are already there.
-  - **Restore last** is the same in both policies. It asks first. It unpacks the chosen zip under
-    the real names and removes only files that zip recorded as not existing yet (work written
-    since the save). The zip itself is kept. It does not prune other save points.
+  - **Restore last** is the same in both policies. It asks first. Each time, it unpacks the next
+    earlier zip under the real names and removes only files that zip recorded as not existing yet
+    (work written since the save), until the first save point. The next click then says there is
+    nothing earlier and changes nothing. The zip itself is kept. Restore does not prune other
+    save points. Before replacing files it writes a `*-stripforge-safety-*.zip` of the current
+    board; that copy is kept and is not what the next Restore last loads.
   - **What retention may delete:** StripForge zip names
     `<Project>-stripforge-YYYY-MM-DD_HHMMSS.zip` in the backup folder, and previous sheet copies
     named from the sheet stem in that same folder. KiCad's own `<Project>-YYYY-MM-DD_HHMMSS.zip`

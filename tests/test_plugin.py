@@ -262,10 +262,65 @@ def test_restore_last(sfp, project, monkeypatch):
     text = shown[-1][1]
     assert asked and asked[0].startswith("fix-stripforge-") and asked[0].endswith(".zip")
     assert "Loaded save point" in text and "respawned where you left off" in text
+    assert "first save point" in text
     assert board.reverted == reverted + 1
     assert (tmp / "fix.kicad_pcb").read_bytes() == original and not links.exists()
-    assert sfp.run("restore") == 0  # the zip is kept: pressing it again loads the same save
-    assert (tmp / "fix.kicad_pcb").read_bytes() == original
+    assert sfp.run("restore") == 0  # already at the only save point: stop, do not reload
+    assert "nothing further to restore" in shown[-1][1]
+    assert (tmp / "fix.kicad_pcb").read_bytes() == original and board.reverted == reverted + 1
+
+
+def test_restore_last_walks_six_save_points_and_reopens_at_the_same_step(sfp, project, monkeypatch):
+    """Dialog and toolbar both call ``_perform`` → ``_restore``. A new ``run`` reads the cursor
+    from disk, which is what reopening the window does."""
+    from stripforge import layout
+
+    tmp, board, shown = project
+    pcb = tmp / "fix.kicad_pcb"
+    marker = b'\n(gr_line (start 0 0) (end 1 1) (layer "Dwgs.User") (uuid "USER-ORIGINAL-GEOMETRY"))\n'
+    baseline = pcb.read_bytes() + marker
+    assert b"StripForge:CUT_" not in baseline and b"R3" in baseline
+    pcb.write_bytes(baseline)
+    links = layout.out_file(pcb, "links.json")
+    t = 1_800_000_000.0
+    points = []
+    for i in range(6):
+        sp = layout.save_point(pcb, [pcb, links], action="build", now=t + i * 10)
+        points.append((sp.path, sp.path.read_bytes()))
+        pcb.write_bytes(
+            baseline
+            + f'\n(segment (start 0 0) (end {i + 1} 0) (layer "B.Cu") (net {i + 1}))\n'.encode()
+            + b'(footprint "StripForge:CUT_Hole" (layer "User.1"))\n'
+            + b'(pad "1" (size 1.7 1.7) (drill 1) (layers "F.Cu"))\n'
+        )
+        links.parent.mkdir(parents=True, exist_ok=True)
+        links.write_text("{}\n")
+    assert b"StripForge:CUT_Hole" in pcb.read_bytes()
+    asked = []
+    monkeypatch.setattr(sfp.Ui, "confirm_restore", lambda self, b, z: asked.append(z.name) or True)
+    for step in range(6):
+        assert sfp.run("restore") == 0
+        text = shown[-1][1]
+        assert "Loaded save point" in text and "respawned where you left off" in text
+        assert "safety" not in asked[-1]
+        assert asked[-1] == points[5 - step][0].name
+        if step == 2:
+            # reopen: the next choice comes from the cursor file, not from this process's Ui
+            assert layout.select_restore_zip(pcb).name == points[2][0].name
+            cursor = (layout.backup_dir(pcb) / layout.CURSOR_NAME).read_text()
+            assert points[3][0].name in cursor
+    assert pcb.read_bytes() == baseline
+    assert b"USER-ORIGINAL-GEOMETRY" in pcb.read_bytes() and b"R3" in pcb.read_bytes()
+    assert b"StripForge:CUT_Hole" not in pcb.read_bytes() and not links.exists()
+    assert board.reverted == 6
+    for path, data in points:
+        assert path.read_bytes() == data
+    assert len(layout.safety_copies(pcb)) == 6
+    assert sfp.run("restore") == 0
+    assert "nothing further to restore" in shown[-1][1]
+    assert len(asked) == 6 and board.reverted == 6 and pcb.read_bytes() == baseline
+    for path, data in points:
+        assert path.read_bytes() == data
 
 
 def test_run_build_separate_output(sfp, project):

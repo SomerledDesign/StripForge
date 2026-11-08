@@ -25,14 +25,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   of every file they are about to write (with a `stripforge-backup.json` listing them and the
   files that didn't exist yet). The new **StripForge: Restore last** action (and
   `stripforge restore <board>`, with `--list` and `--backup <zip>`) removes StripForge's work since
-  the newest save point, unzips the saved files under their own names and reloads the board: you
-  respawn right where you left off. The zip is kept, so restoring twice loads the same save.
+  that save point, unzips the saved files under their own names and reloads the board. Repeat it
+  to walk back to the first save point. The zips are kept. A safety copy is written first and is
+  not the next step.
 - `output_dir` and `backup_dir` config keys (optional, always relative to the project folder).
 - `plugins/templates/project.gitignore`: a `.gitignore` for a KiCad + StripForge project
   (`*-backups/`, `*.lck`, `*.kicad_prl`, `*.bak`, `fp-info-cache`, `.DS_Store`).
 
 ### Changed
 
+- **Restore last walks back to the first save point.** Each Restore last (and `stripforge restore`
+  without `--backup`) loads the next earlier save point, through to the board saved before the
+  first build. Another Restore last then reports that there is nothing earlier and does not change
+  the board or the zips. A safety copy of the current board is written first; those copies are
+  kept and are not what the next Restore last loads. Previously every Restore last loaded only the
+  newest zip, so a second click reloaded that same save.
 - **Backup policy (Kevin, 2026-11-07).** `backup_policy = "move"` is the default, including when
   the key is absent: save points are kept. `"retention"` is opt-in; then `backup_keep = N` (N ≥ 1)
   deletes older save-point zips and older sheet copies down to N. A config that only sets

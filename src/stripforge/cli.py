@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import zipfile
 from pathlib import Path
 
 
@@ -293,16 +294,22 @@ def _restore(args: argparse.Namespace) -> int:
         cfg = config_mod.load(cfg_path) if cfg_path else config_mod.BoardConfig()
         if args.list:
             found = layout.backups(args.board, cfg)
-            if not found:
+            copies = layout.safety_copies(args.board, cfg)
+            if not found and not copies:
                 print(f"No save point yet in {layout.backup_dir(args.board, cfg)}")
             for z in found:
                 print(f"{z}  ({layout.read_manifest(z).get('action', 'unknown')})")
+            for z in copies:
+                print(f"{z}  (safety copy; Restore last does not load these)")
             return 0
         res = layout.restore(args.board, cfg, args.backup)
+    except layout.RestoreExhausted as exc:
+        print(layout.format_exhausted(args.board, exc.oldest, cfg))
+        return 0
     except FileNotFoundError as exc:
         print(f"stripforge restore: {exc}; nothing changed", file=sys.stderr)
         return 1
-    except (OSError, ValueError, KeyError) as exc:
+    except (OSError, ValueError, KeyError, zipfile.BadZipFile) as exc:
         print(f"stripforge restore: error: {exc}", file=sys.stderr)
         return 2
     print(layout.format_restore(res))
@@ -472,17 +479,19 @@ def main(argv: list[str] | None = None) -> int:
 
     rs = sub.add_parser(
         "restore",
-        help="Restore last: load the newest save point (undo StripForge's last build or link edit)",
-        description="Restore your last save and respawn right where you left off: delete what StripForge "
-        "wrote since the newest save point (build outputs, link files) and unzip the files it saved under "
-        "their own names. The zip is kept, so running it twice loads the same save; --backup picks an "
-        "older one, --list shows them. Exit code 0 = restored, 1 = no save point yet, 2 = error.",
+        help="Restore last: step back one save point, through to the board before the first build",
+        description="Each run loads the next earlier save point (a zip of the board before a build or "
+        "link edit) and puts those files back under their own names. Repeat it to walk back to the "
+        "first save point, the board from before StripForge added strips, holes and tracks. The next "
+        "run then reports that there is nothing earlier and changes nothing. A safety copy of the "
+        "current board is written first and is not what the next run loads. --backup picks one zip, "
+        "--list shows them. Exit code 0 = restored or nothing earlier, 1 = no save point yet, 2 = error.",
     )
     rs.add_argument("board", help="the project's .kicad_pcb")
     rs.add_argument(
         "--config", help="stripboard.toml (default: stripforge/stripboard.toml, then the project's)"
     )
-    rs.add_argument("--backup", help="the save point zip to load (default: the newest)")
+    rs.add_argument("--backup", help="load this save-point zip instead of the next earlier one")
     rs.add_argument("--list", action="store_true", help="list the save points, oldest first; change nothing")
     rs.set_defaults(func=_restore)
 

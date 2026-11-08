@@ -95,11 +95,13 @@ pytest
 
 Windows PowerShell uses the same three commands after `.\.venv\Scripts\Activate.ps1`.
 
-On this checkout (Linux, CPython 3.12.3), after the board-tab editor:
+On this checkout (Linux, CPython 3.12.3), after Restore last walks back to the first save point:
 
 - `ruff check .` — exit 0
 - `ruff format --check .` — exit 0
-- `pytest -q` — exit 0, **380 passed, 7 skipped** in 880.28s (text-size checks included)
+- `pytest -q` — exit 0, **387 passed, 7 skipped** in 826.11s
+
+The run before this fix, after the board-tab editor, was 380 passed, 7 skipped.
 
 Skips: the five `kicad-cli` tests, `test_clicking_rows_ticks_strikes_saves_and_resets` (headless
 Chrome did not finish), and `test_headless_dialog_saves_origin_and_refuses_a_dirty_action`
@@ -129,3 +131,59 @@ This checkout has no wx and no KiCad, so the Mac GUI warning was not reproduced.
 useful line is the full libpng warning from Terminal.app while starting
 `/Applications/KiCad/KiCad.app/Contents/MacOS/kicad`, plus whether it appears before any
 StripForge board is opened.
+
+## Restore last (2026-11-08)
+
+Kevin: repeated Restore last stopped moving the board after a few clicks. He wants each click to
+step back through every save point until the first one, the board from before StripForge added
+strips, holes and tracks.
+
+**Cause.** There is no cutoff at 2 or 3. `layout.restore` with no zip always loaded
+`backups()[-1]`, the newest save point, and left that zip where it was. The next click unpacked
+that same zip again, so the board stayed put. The toolbar and the dialog both call `_restore`,
+and `_restore` asked for that newest zip every time; the dialog does not cache the name. The
+README on this branch described that on purpose ("pressing Restore last twice just loads the same
+save again"). Further back was only `stripforge restore <board> --backup <zip>`.
+
+A build makes a new newest zip, so the first Restore last after each build did undo that build.
+Two or three build-then-restore tries therefore each moved once, and the next click did not.
+That is the "past 2-3 restores" report. It is not a Mac-only path.
+
+**What it does now.** Each Restore last loads the next earlier save point. The files in that zip
+are written back under their own names, and files the zip recorded as not existing yet are
+removed. Repeat until the first zip. That zip is the board saved before the first build, bytes
+and all, including any tracks or holes that were already on it. The walk does not delete every
+track to invent a baseline. One more click reports `Result: nothing further to restore` and does
+not change the board or any zip.
+
+Before it replaces a file it writes
+`<Project>-stripforge-safety-YYYY-MM-DD_HHMMSS.zip` (the current board, and any other file it is
+about to overwrite or delete). Those copies are kept. They are not steps in the walk, so the next
+click cannot toggle back onto the board just replaced. `--list` shows them. `--backup <zip>`
+still loads a named zip, including a safety copy.
+
+A save point made after the walk has started (another build) is undone once. The walk then
+continues toward the first save point rather than jumping forward into a later intermediate
+board. Where the walk is sits in
+`stripforge/<Project>-stripforge-backups/restore-cursor.json`, so closing and reopening the
+dialog continues. Restore does not rewrite or delete existing save-point zips. `move` still
+never deletes. `retention` still deletes older save points only on a later build, sheet or link
+update, and it does not delete safety copies. A bad zip is rejected before any project file is
+changed. If a write fails part way, the files already replaced are put back from the safety copy
+and the cursor does not move.
+
+**Not tried in KiCad.** This checkout has no wx and no pcbnew, so no Mac click and no real
+RevertDocument. `tests/test_plugin.py` drives the same `_restore` the dialog button calls: confirm,
+report text, and `revert` on a fake board, six times, then the stop. A fresh `select_restore_zip`
+reads the cursor file between those calls. `tests/test_restore_walk.py` checks six synthetic
+steps back to a baseline that still contains a user track, a same-second `-2` zip, a build made
+after a partial walk, retention versus safety copies, a hostile zip, a failed replace, and six
+real builds of the TPI fixture whose final bytes match the unbuilt board (`R3` still present,
+`StripForge:CUT_` gone).
+
+PCM from this tree, version still 0.2.1 (not a release):
+
+`1a4182cecc187592a1f8a3ecd855a3fff99462d8f84e727931dd0ef89d8ef4c2` (644664 bytes)
+
+`dist/StripForge-0.2.1-pcm.zip`. Install that file, not an older zip. The PNG audit above was
+against the previous hash.

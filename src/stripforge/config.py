@@ -198,7 +198,7 @@ class BoardConfig:
     # project's own <name>.kicad_pcb, so F8 (Update PCB from Schematic) works in it and DRC parity
     # checks <name>.kicad_sch directly. Every build first makes a save point: a new zip
     # stripforge/<Project>-stripforge-backups/<Project>-stripforge-YYYY-MM-DD_HHMMSS.zip of the
-    # files it is about to write. "Restore last" (stripforge restore) loads the newest one.
+    # files it is about to write. "Restore last" (stripforge restore) walks them newest to oldest.
     # "separate": a new stripforge/<Project>-stripforge.kicad_pcb; the board is left alone.
     output: str = "in_place"
     # How many save points to keep when backup_policy is "retention": the newest N.

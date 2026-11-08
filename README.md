@@ -179,14 +179,18 @@ Click **Restore last** (below).
 Think of it like a text adventure: before StripForge does anything to your files, it saves the
 game. **Build strips** and **Add links to schematic** each make a *save point* first, a zip of
 every file they are about to write. If a build went somewhere you didn't want to go, click
-**StripForge: Restore last**: it loads your last save and you respawn right where you left off.
+**StripForge: Restore last**: each click steps back one save point and you respawn there.
 
 - Restore last removes StripForge's work since that save (the built board, the link lists, the
   link symbols it added to the schematic), puts the saved files back under their own names, and
   reloads the board in the PCB editor. It asks first; unsaved changes in the open board are lost.
-- The save point is **kept**, so pressing Restore last twice just loads the same save again. To go
-  back further, pick an older one on the command line:
-  `stripforge restore <board> --list`, then `stripforge restore <board> --backup <zip>`.
+- Press it again to step to the next earlier save point, through to the **first** one: the board
+  from before StripForge added strips, holes and tracks. One more press reports that there is
+  nothing earlier and does not change the board or the zips.
+- Before it replaces anything it writes a safety copy,
+  `<Project>-stripforge-safety-YYYY-MM-DD_HHMMSS.zip`, in the same folder. That copy is kept.
+  The next Restore last does not load it (so the button cannot toggle). `stripforge restore
+  <board> --list` shows it; `--backup <zip>` still loads one zip you name.
 - If schematic sheets were restored, close the Schematic Editor without saving and reopen it.
 - Save points are new files every time, named
   `<Project>-stripforge-YYYY-MM-DD_HHMMSS.zip`; nothing is ever renamed (renames make Dropbox and
@@ -326,8 +330,8 @@ The rest of this README is the detailed reference: every action, option and repo
 - **StripForge: Run DRC**: kicad-cli DRC with schematic parity on the built board, classified.
 - **StripForge: Build sheet**: writes `stripforge/<Project>-stripforge.sheet.html` (and `.pdf` if
   Chrome is installed) and opens it in the browser.
-- **StripForge: Restore last**: loads the newest save point and reloads the board (see **Restore
-  last** above); `stripforge restore` on the command line.
+- **StripForge: Restore last**: steps back one save point and reloads the board, repeating back
+  to the first save point (see **Restore last** above); `stripforge restore` on the command line.
 - **StripForge: Dialog**: the shared window. It shows the saved settings, lets you set
   `backup_policy` (`move` or `retention`) and `backup_keep`, and runs the actions above through
   the same code as their buttons. Saving the policy does not delete a save point. The other
@@ -427,9 +431,11 @@ or overwritten (two builds in the same second get `-2`, `-3`, ...); if the zip c
 build stops before touching anything. With `backup_policy = "retention"` and `backup_keep = N`
 (N at least 1) the oldest zips are then deleted so N remain. The default policy `"move"`, and a
 file that never sets `backup_policy`, does not delete, even if `backup_keep` is set. **To undo
-the latest build:** `stripforge restore <board>` (the
-plugin's Restore last): it deletes the files that didn't exist at the save point and unzips the
-rest under their own names. `--list` shows the save points, `--backup <zip>` loads an older one.
+builds:** `stripforge restore <board>` (the plugin's Restore last) steps back one save point
+each time, until the first. It deletes the files that didn't exist at that save point and unzips
+the rest under their own names, after writing a safety copy of the current board. At the first
+save point the next run changes nothing. `--list` shows the save points, `--backup <zip>` loads
+the one you name.
 On the command line `--separate` (or `-o <other file>`) overrides the toml for one run;
 `-o <board> --in-place` is the same as the default. A `-stripforge` board (from
 `output = "separate"`) is always rebuilt in place.

@@ -120,7 +120,7 @@ def backup_note(res: BuildResult, board: str | Path) -> str:
         parts.append(f"Deleted by backup_keep: {', '.join(res.backups_pruned)}.")
     parts.append(
         "To undo this build: Restore last (the plugin button, or 'stripforge restore <board>') "
-        "loads this save point."
+        "loads this save point, and repeats back to the first one."
     )
     return " ".join(parts)
 

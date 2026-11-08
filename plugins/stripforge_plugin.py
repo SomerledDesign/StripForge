@@ -19,7 +19,8 @@ file (the project's own ``<name>.kicad_pcb``, so F8 and schematic parity keep wo
 it in the editor (the API's RevertDocument). Every build first makes a save point, a new zip in
 ``stripforge/<Project>-stripforge-backups/``. Older zips are deleted only when the config's
 ``backup_policy`` is ``"retention"`` and ``backup_keep`` is 1 or more. A rebuild keeps your cuts and links
-where you put them. "Restore last" loads the newest save point and reloads the board.
+where you put them. "Restore last" steps back one save point at a time, reloading the board,
+until the first save point (the board from before that work). The next click then stops.
 ``output = "separate"`` writes ``stripforge/<Project>-stripforge.kicad_pcb``, the open board left alone.
 StripForge's other files (link lists, sheet, log) go to ``stripforge/`` too. "Run DRC" and
 "Build sheet" work on the built board. Why not live edits
@@ -504,8 +505,10 @@ class Ui:
         wx = self.wx
         dlg = wx.MessageDialog(
             None,
-            f"Load the last save point?\n{save.name}\n\nStripForge's work since then is removed (the "
-            f"built board, link lists, schematic link edits) and {board.name} is reloaded as it was. "
+            f"Step back to this save point?\n{save.name}\n\n"
+            f"{board.name} is reloaded as it was then (built strips, holes, tracks and link edits "
+            "from later saves are removed). A safety copy of the current board is kept first. "
+            "Repeat Restore last to walk back to the board from before the first build. "
             "Unsaved changes in the open board are lost.",
             "StripForge",
             wx.OK | wx.CANCEL | wx.ICON_QUESTION,
@@ -1294,17 +1297,26 @@ def _add_links(board: Path, project_name: str, config: Path | None, notes: list)
 
 
 def _restore(ui, board: Path, board_doc):
-    """Restore last. Returns ``(code, report or None, path)``. The caller shows the report."""
+    """Restore last. Returns ``(code, report or None, path)``. The caller shows the report.
+
+    Each confirmed call loads the next earlier save point. At the first one, a further call
+    reports that and does not change the board. The dialog and the toolbar button both use this.
+    """
+    import zipfile
+
     from stripforge import layout
     from stripforge.config import load
 
     config = find_config(board)
     cfg = load(config) if config else None
-    found = layout.backups(board, cfg)
-    if not found:
+    try:
+        target = layout.select_restore_zip(board, cfg)
+    except layout.RestoreExhausted as exc:
+        return 0, f"Board: {board}\n{layout.format_exhausted(board, exc.oldest, cfg)}", None
+    except FileNotFoundError:
         none = f"No save point yet in {layout.backup_dir(board, cfg)}. Build strips or Add links make one."
         return 0, f"Board: {board}\nResult: nothing to restore\n\n{none}", None
-    if not ui.confirm_restore(board, found[-1]):
+    if not ui.confirm_restore(board, target):
         if ui.wx is None:
             text = (
                 f"Board: {board}\nResult: refused (nothing changed)\n\nRestore last "
@@ -1313,7 +1325,13 @@ def _restore(ui, board: Path, board_doc):
             )
             return 2, text, None
         return 0, None, None
-    res = layout.restore(board, cfg, found[-1])
+    try:
+        res = layout.restore(board, cfg, target)
+    except (OSError, ValueError, zipfile.BadZipFile) as exc:
+        text = (
+            f"Board: {board}\nResult: refused (nothing changed)\n\n{exc}\n\nThe save points were not deleted."
+        )
+        return 2, text, None
     notes = [f"Board: {board}", "Result: OK", "", layout.format_restore(res)]
     rel = lambda p: p.absolute().relative_to(layout.project_dir(board).absolute()).as_posix()  # noqa: E731
     if rel(board) in res.restored or rel(board) in res.removed:

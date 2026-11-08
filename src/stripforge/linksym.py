@@ -26,7 +26,7 @@ and the library tables with ``${KIPRJMOD}`` pointing back at the original projec
 under the project's name, so ``kicad-cli`` netlist/ERC/DRC parity run on the copy), or in place
 (``--in-place``), in which case a save point of every sheet that changes is made first (a new
 zip in ``stripforge/<Project>-stripforge-backups/``, see :mod:`stripforge.layout`; "Restore last"
-loads it). The
+steps back to it). The
 ``StripForge:Link`` symbol definition is embedded in each sheet (``lib_symbols``) as KiCad does, so
 the schematic opens without the library configured and needs no sym-lib-table entry."""
 
