@@ -652,13 +652,15 @@ with the separate toolbar buttons kept until that window is the one used for the
 
 - **M4a: one StripForge window (in progress).** The end state is still one dialog for settings,
   actions and checks, not a permanent row of extra buttons. Today a temporary **StripForge: Dialog**
-  button opens that window. It shows the current settings (read-only), edits **backup policy**
-  (M4b), and runs Analyze, Build strips, Add links to schematic, Run DRC, Build sheet and Restore
-  last through the same code as the toolbar. The six action buttons stay until Kevin is building
-  from the window alone. Per-part Slotted / bend / Skip / adapter editing and the built-in sheet
-  view are not in this window yet.
-  - **Settings**, saved to `stripboard.toml` (the window shows these; only backup policy is written
-    back so far): board size (rows, cols, origin), slotted parts (with
+  button opens that window. The **Board** tab edits `stripboard.toml` (origin is the centre of
+  hole A1, not the Edge.Cuts corner; rows, columns, pitch, and the other root settings the config
+  loader accepts). The **Backup** tab edits backup policy (M4b). Save validates before it replaces
+  the file. Unsaved board edits block the action buttons, so a build cannot run on a value that
+  was only typed. Analyze, Build strips, Add links to schematic, Run DRC, Build sheet and Restore
+  last still use the same code as the toolbar. The six action buttons stay until Kevin is building
+  from the window alone. `[bend]`, `[drc]`, `[manual]`, `[stretch]`, and the per-part choice table
+  are not edited here. The built-in sheet view is not in this window yet.
+  - **Settings**, saved to `stripboard.toml`: board size (rows, cols, origin), slotted parts (with
     the filing amount and the lopsided warning shown per part), DRC ignores and allowed courtyard
     overlaps, cut style, link options (`diagonal_links` and friends, see M4c).
   - **Per-part choices in one table:** each footprint that doesn't sit cleanly on the holes gets a

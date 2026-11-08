@@ -9,10 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **StripForge: Dialog (M4a, started).** One shared window shows the saved board settings, edits
-  the backup policy, and runs Analyze, Build strips, Add links to schematic, Run DRC, Build sheet
-  and Restore last through the same code as the toolbar. The separate buttons stay until that
-  window is the one used for the whole job. Saving the policy does not delete a save point.
+- **StripForge: Dialog (M4a, started).** One shared window has a Board tab and a Backup tab.
+  The Board tab edits `stripboard.toml` (origin is the centre of hole A1, not the outline corner;
+  rows, columns, pitch, and the other root settings). Save checks the result before replacing the
+  file and keeps comments, unknown keys, and the `[bend]` / `[drc]` tables. Unsaved board edits
+  block the action buttons. The Backup tab edits the backup policy. Analyze, Build strips, Add
+  links to schematic, Run DRC, Build sheet and Restore last use the same code as the toolbar.
+  The separate buttons stay until that window is the one used for the whole job. Saving the
+  policy does not delete a save point.
 - **Restore last (M4b).** Build strips and Add links to schematic each make a *save point* first:
   a new zip `stripforge/<Project>-stripforge-backups/<Project>-stripforge-YYYY-MM-DD_HHMMSS.zip`
   of every file they are about to write (with a `stripforge-backup.json` listing them and the

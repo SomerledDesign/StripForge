@@ -426,7 +426,10 @@ def dialog_snapshot(board: Path) -> str:
         "covers the workflow; they are not a second product."
     )
     lines.append("Actions here run the same code as those buttons. Analyze is unchanged.")
-    lines.append("The backup policy is the setting you can change here. Other settings are shown as saved.")
+    lines.append(
+        "With wxPython, the Board tab writes these settings to stripboard.toml. Origin is the centre "
+        "of hole A1, not the outline corner. The Backup tab writes the backup policy."
+    )
     lines.append(
         "Move keeps every save point. Retention deletes older ones only when Keep is 1 or more, "
         "and only on a later build, sheet or link update: saving this setting deletes nothing."
@@ -512,36 +515,106 @@ class Ui:
         dlg.Destroy()
         return r == wx.ID_OK
 
-    def show_hub(self, title: str, snapshot: str, policy: str, keep: int, on_save, on_action) -> None:
-        """The shared window: settings, backup policy, and the existing actions. ``on_save`` returns
-        ``(new snapshot, status)``. ``on_action(name)`` returns the report text."""
+    def show_hub(
+        self,
+        title,
+        snapshot,
+        policy,
+        keep,
+        on_save,
+        on_action,
+        board_form,
+        on_save_board,
+        on_reload_board,
+        show: bool = True,
+    ) -> None:
+        """The shared window. ``on_save_board(form)`` returns ``(path, fresh form, snapshot)`` or raises.
+
+        ``on_reload_board()`` returns the form last saved. Actions are refused while the board form
+        is dirty, so a build cannot run on values that were typed but not saved.
+        """
+        from stripforge.config import (
+            ORIGIN_HELP,
+            UNSAVED_BOARD_MESSAGE,
+            board_editor_labels,
+            board_field_kind,
+            board_form_is_dirty,
+        )
+
         wx = self.wx
         dlg = wx.Dialog(None, title=title, size=(980, 760), style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
         root = wx.BoxSizer(wx.VERTICAL)
-        settings = wx.TextCtrl(dlg, value=snapshot, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.HSCROLL)
-        settings.SetFont(wx.Font(wx.FontInfo(10).Family(wx.FONTFAMILY_TELETYPE)))
-        root.Add(settings, 2, wx.EXPAND | wx.ALL, 8)
+        book = wx.Notebook(dlg)
+        board_page = wx.Panel(book)
+        board_sizer = wx.BoxSizer(wx.VERTICAL)
+        board_sizer.Add(wx.StaticText(board_page, label=ORIGIN_HELP), 0, wx.ALL, 8)
+        board_sizer.Add(wx.StaticText(board_page, label=snapshot.split("\n", 1)[0]), 0, wx.LEFT | wx.RIGHT, 8)
+        scrolled = wx.ScrolledWindow(board_page, style=wx.VSCROLL)
+        scrolled.SetScrollRate(0, 16)
+        grid = wx.FlexGridSizer(cols=2, vgap=4, hgap=8)
+        grid.AddGrowableCol(1, 1)
+        controls = {}
+        choices = {"cut_style": ["auto", "hole", "knife"], "output": ["in_place", "separate"]}
+        for key, label in board_editor_labels():
+            grid.Add(wx.StaticText(scrolled, label=label), 0, wx.ALIGN_CENTER_VERTICAL)
+            kind = "origin" if key.startswith("origin_") else board_field_kind(key)
+            value = board_form.get(key, "")
+            if kind == "bool":
+                ctrl = wx.CheckBox(scrolled)
+                ctrl.SetValue(value == "true")
+            elif kind == "choice":
+                ctrl = wx.Choice(scrolled, choices=choices[key])
+                if value in choices[key]:
+                    ctrl.SetStringSelection(value)
+                else:
+                    ctrl.SetSelection(0)
+            else:
+                ctrl = wx.TextCtrl(scrolled, value=value)
+            controls[key] = ctrl
+            grid.Add(ctrl, 1, wx.EXPAND)
+        scrolled.SetSizer(grid)
+        scrolled.SetVirtualSize(grid.CalcMin())
+        board_sizer.Add(scrolled, 1, wx.EXPAND | wx.ALL, 8)
+        dirty_label = wx.StaticText(board_page, label="Matches the saved stripboard.toml")
+        buttons = wx.BoxSizer(wx.HORIZONTAL)
+        save_board = wx.Button(board_page, label="Save board settings")
+        reload_board = wx.Button(board_page, label="Reload")
+        buttons.Add(save_board, 0, wx.RIGHT, 8)
+        buttons.Add(reload_board, 0, wx.RIGHT, 8)
+        buttons.Add(dirty_label, 0, wx.ALIGN_CENTER_VERTICAL)
+        board_sizer.Add(buttons, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
+        board_page.SetSizer(board_sizer)
+        book.AddPage(board_page, "Board")
 
+        backup_page = wx.Panel(book)
+        backup_sizer = wx.BoxSizer(wx.VERTICAL)
         row = wx.BoxSizer(wx.HORIZONTAL)
-        row.Add(wx.StaticText(dlg, label="Backup policy"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
-        move = wx.RadioButton(dlg, label="Move (keep every save point)", style=wx.RB_GROUP)
-        retention = wx.RadioButton(dlg, label="Retention (delete older save points)")
+        row.Add(wx.StaticText(backup_page, label="Backup policy"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
+        move = wx.RadioButton(backup_page, label="Move (keep every save point)", style=wx.RB_GROUP)
+        retention = wx.RadioButton(backup_page, label="Retention (delete older save points)")
         (retention if policy == "retention" else move).SetValue(True)
         row.Add(move, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
         row.Add(retention, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 12)
-        row.Add(wx.StaticText(dlg, label="Keep"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
-        keep_ctrl = wx.SpinCtrl(dlg, min=0, max=999, initial=max(0, int(keep)))
+        row.Add(wx.StaticText(backup_page, label="Keep"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
+        keep_ctrl = wx.SpinCtrl(backup_page, min=0, max=999, initial=max(0, int(keep)))
         keep_ctrl.Enable(policy == "retention")
         row.Add(keep_ctrl, 0, wx.RIGHT, 8)
-        save_btn = wx.Button(dlg, label="Save backup policy")
+        save_btn = wx.Button(backup_page, label="Save backup policy")
         row.Add(save_btn, 0)
-        root.Add(row, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 8)
-        hint = wx.StaticText(
-            dlg,
-            label="Saving does not delete anything. Retention deletes older save points on the next "
-            "build, sheet or link update, and only when Keep is 1 or more.",
+        backup_sizer.Add(row, 0, wx.ALL, 8)
+        backup_sizer.Add(
+            wx.StaticText(
+                backup_page,
+                label="Saving does not delete anything. Retention deletes older save points on the next "
+                "build, sheet or link update, and only when Keep is 1 or more. The default is move.",
+            ),
+            0,
+            wx.LEFT | wx.RIGHT | wx.BOTTOM,
+            8,
         )
-        root.Add(hint, 0, wx.LEFT | wx.RIGHT | wx.TOP, 8)
+        backup_page.SetSizer(backup_sizer)
+        book.AddPage(backup_page, "Backup")
+        root.Add(book, 2, wx.EXPAND | wx.ALL, 8)
 
         def _toggle(_evt):
             keep_ctrl.Enable(retention.GetValue())
@@ -549,17 +622,87 @@ class Ui:
         move.Bind(wx.EVT_RADIOBUTTON, _toggle)
         retention.Bind(wx.EVT_RADIOBUTTON, _toggle)
 
+        baseline = [dict(board_form)]
+
+        def current_form() -> dict:
+            form = {}
+            for key, _label in board_editor_labels():
+                ctrl = controls[key]
+                kind = "origin" if key.startswith("origin_") else board_field_kind(key)
+                if kind == "bool":
+                    form[key] = "true" if ctrl.GetValue() else "false"
+                elif kind == "choice":
+                    form[key] = ctrl.GetStringSelection()
+                else:
+                    form[key] = ctrl.GetValue()
+            return form
+
+        def is_dirty() -> bool:
+            return board_form_is_dirty(baseline[0], current_form())
+
+        def refresh_dirty(_evt=None) -> None:
+            dirty_label.SetLabel(
+                "Unsaved board settings" if is_dirty() else "Matches the saved stripboard.toml"
+            )
+
+        for key, ctrl in controls.items():
+            kind = "origin" if key.startswith("origin_") else board_field_kind(key)
+            if kind == "bool":
+                ctrl.Bind(wx.EVT_CHECKBOX, refresh_dirty)
+            elif kind == "choice":
+                ctrl.Bind(wx.EVT_CHOICE, refresh_dirty)
+            else:
+                ctrl.Bind(wx.EVT_TEXT, refresh_dirty)
+
+        def apply_form(form: dict) -> None:
+            for key, _label in board_editor_labels():
+                ctrl = controls[key]
+                kind = "origin" if key.startswith("origin_") else board_field_kind(key)
+                value = form.get(key, "")
+                if kind == "bool":
+                    ctrl.SetValue(value == "true")
+                elif kind == "choice":
+                    if value in choices[key]:
+                        ctrl.SetStringSelection(value)
+                else:
+                    ctrl.ChangeValue(value)
+            baseline[0] = dict(form)
+            refresh_dirty()
+
         report = wx.TextCtrl(dlg, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.HSCROLL)
         report.SetFont(wx.Font(wx.FontInfo(10).Family(wx.FONTFAMILY_TELETYPE)))
 
+        def _save_board(_evt):
+            try:
+                path, fresh, snap = on_save_board(current_form())
+            except (OSError, ValueError) as exc:
+                report.SetValue(f"Board settings were not saved. The file is unchanged.\n\n{exc}")
+                return
+            apply_form(fresh)
+            report.SetValue(f"Saved board settings in {path}.\nParts were not moved.\n\n{snap}")
+
+        def _reload(_evt):
+            try:
+                fresh = on_reload_board()
+            except (OSError, ValueError) as exc:
+                report.SetValue(f"Could not reload stripboard.toml.\n\n{exc}")
+                return
+            apply_form(fresh)
+            report.SetValue("Reloaded stripboard.toml. Unsaved edits were discarded.")
+
+        save_board.Bind(wx.EVT_BUTTON, _save_board)
+        reload_board.Bind(wx.EVT_BUTTON, _reload)
+
         def _save(_evt):
+            if is_dirty():
+                report.SetValue(UNSAVED_BOARD_MESSAGE)
+                return
             which = "retention" if retention.GetValue() else "move"
             try:
-                snap, status = on_save(which, int(keep_ctrl.GetValue()))
+                _snap, status = on_save(which, int(keep_ctrl.GetValue()))
             except (OSError, ValueError) as exc:
                 report.SetValue(f"Backup policy was not saved.\n\n{exc}")
                 return
-            settings.SetValue(snap)
             report.SetValue(status)
 
         save_btn.Bind(wx.EVT_BUTTON, _save)
@@ -569,12 +712,15 @@ class Ui:
             button = wx.Button(dlg, label=label)
 
             def _run(_evt, action=action):
+                if is_dirty():
+                    report.SetValue(UNSAVED_BOARD_MESSAGE)
+                    return
                 report.SetValue(on_action(action))
 
             button.Bind(wx.EVT_BUTTON, _run)
             actions.Add(button, 0, wx.RIGHT, 6)
-        root.Add(actions, 0, wx.EXPAND | wx.ALL, 8)
-        root.Add(report, 3, wx.EXPAND | wx.LEFT | wx.RIGHT, 8)
+        root.Add(actions, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 8)
+        root.Add(report, 3, wx.EXPAND | wx.ALL, 8)
 
         bottom = wx.BoxSizer(wx.HORIZONTAL)
         copy = wx.Button(dlg, label="Copy report")
@@ -591,7 +737,10 @@ class Ui:
         bottom.Add(close, 0)
         root.Add(bottom, 0, wx.ALIGN_RIGHT | wx.ALL, 8)
         dlg.SetSizer(root)
+        dlg._board_controls = controls  # tests set values without a click on each field
         dlg.CentreOnScreen()
+        if not show:
+            return
         dlg.ShowModal()
         dlg.Destroy()
 
@@ -806,9 +955,12 @@ def _open_dialog(ui, kicad, board_doc, board, project_name) -> int:
         ui.report(TITLES["dialog"], f"Board file not found: {board}\nSave the board first.")
         return 0
     try:
-        _path, _note, cfg, _raw = _loaded_config(board)
+        _path, _note, cfg, raw = _loaded_config(board)
     except (OSError, ValueError):
-        cfg = None
+        cfg, raw = None, {}
+    from stripforge.config import board_form_from_raw
+
+    board_form = board_form_from_raw(raw if cfg is not None else {})
     snapshot = dialog_snapshot(board)
     if ui.wx is None:
         ui.report(
@@ -827,6 +979,19 @@ def _open_dialog(ui, kicad, board_doc, board, project_name) -> int:
         )
         return dialog_snapshot(board), status
 
+    def on_save_board(form):
+        from stripforge.config import board_form_from_file, save_board_form
+
+        path = backup_settings_path(board)
+        save_board_form(path, form)
+        return path, board_form_from_file(path), dialog_snapshot(board)
+
+    def on_reload_board():
+        from stripforge.config import board_form_from_file
+
+        path = backup_settings_path(board)
+        return board_form_from_file(path) if path.is_file() else board_form_from_file(path)
+
     def on_action(action):
         _code, text, _shown = _perform(ui, action, kicad, board_doc, board, project_name)
         if text is None:
@@ -843,6 +1008,9 @@ def _open_dialog(ui, kicad, board_doc, board, project_name) -> int:
         cfg.backup_keep if cfg is not None else 0,
         on_save,
         on_action,
+        board_form,
+        on_save_board,
+        on_reload_board,
     )
     return 0
 

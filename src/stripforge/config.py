@@ -4,6 +4,10 @@
 
 from __future__ import annotations
 
+import json
+import os
+import re
+
 try:
     import tomllib
 except ModuleNotFoundError:  # Python < 3.11 (KiCad 10's bundled Python is 3.9)
@@ -396,42 +400,14 @@ def update_backup_settings_text(text: str, policy: str, keep: int | None = None)
     first ``[table]``. Comments, unknown keys and tables are left as they are. A commented-out
     key is not uncommented.
     """
-    import json
-    import re
-
     if policy not in BACKUP_POLICIES:
         raise ValueError(f'backup_policy must be "move" or "retention", got {policy!r}')
     if keep is not None and (isinstance(keep, bool) or not isinstance(keep, int) or keep < 0):
         raise ValueError(f"backup_keep must be a whole number, 0 or more, got {keep!r}")
-    nl = "\r\n" if "\r\n" in text else "\n"
-    ends_nl = text.endswith("\n") or text == ""
-    lines = text.splitlines()
-    table_at = next((i for i, line in enumerate(lines) if line.lstrip().startswith("[")), len(lines))
-
-    def set_key(key: str, rendered: str) -> bool:
-        found = False
-        pat = re.compile(rf"^(\s*){re.escape(key)}\s*=")
-        for i in range(table_at):
-            if lines[i].lstrip().startswith("#"):
-                continue
-            m = pat.match(lines[i])
-            if m:
-                lines[i] = f"{m.group(1)}{key} = {rendered}"
-                found = True
-        return found
-
-    missing = []
-    if not set_key("backup_policy", json.dumps(policy)):
-        missing.append(f"backup_policy = {json.dumps(policy)}")
-    if keep is not None and not set_key("backup_keep", str(keep)):
-        missing.append(f"backup_keep = {keep}")
-    if missing:
-        table_at = next((i for i, line in enumerate(lines) if line.lstrip().startswith("[")), len(lines))
-        lines[table_at:table_at] = missing
-    out = nl.join(lines)
-    if ends_nl:
-        out += nl
-    return out
+    assignments: dict[str, str | None] = {"backup_policy": json.dumps(policy)}
+    if keep is not None:
+        assignments["backup_keep"] = str(keep)
+    return update_root_assignments(text, assignments)
 
 
 def save_backup_settings(path: str | Path, policy: str, keep: int | None = None) -> None:
@@ -443,16 +419,12 @@ def save_backup_settings(path: str | Path, policy: str, keep: int | None = None)
 
     path = Path(path)
     if path.is_file():
-        path.write_text(
-            update_backup_settings_text(path.read_text(encoding="utf-8"), policy, keep),
-            encoding="utf-8",
-        )
+        write_text_atomic(path, update_backup_settings_text(path.read_text(encoding="utf-8"), policy, keep))
         return
     if policy not in BACKUP_POLICIES:
         raise ValueError(f'backup_policy must be "move" or "retention", got {policy!r}')
     if keep is not None and (isinstance(keep, bool) or not isinstance(keep, int) or keep < 0):
         raise ValueError(f"backup_keep must be a whole number, 0 or more, got {keep!r}")
-    path.parent.mkdir(parents=True, exist_ok=True)
     lines = [
         "# StripForge backup policy. Other settings can be added in this file.",
         '# "move" keeps every save point. "retention" deletes older ones only when backup_keep is 1 or more.',
@@ -460,4 +432,391 @@ def save_backup_settings(path: str | Path, policy: str, keep: int | None = None)
     ]
     if keep is not None:
         lines.append(f"backup_keep = {keep}")
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    write_text_atomic(path, "\n".join(lines) + "\n")
+
+
+def write_text_atomic(path: Path, text: str) -> None:
+    """Replace ``path`` only after the new text is fully written. A failed write leaves the old file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    try:
+        tmp.write_text(text, encoding="utf-8")
+        os.replace(tmp, path)
+    except Exception:
+        if tmp.is_file():
+            tmp.unlink()
+        raise
+
+
+def update_root_assignments(text: str, assignments: dict[str, str | None]) -> str:
+    """Replace, insert, or delete uncommented root keys.
+
+    A value is the TOML right-hand side. ``None`` deletes the assignment. Missing keys are
+    inserted before the first ``[table]``. Comments, unknown keys, and tables stay. A `` #``
+    comment on the assignment line is kept. A commented-out key is not uncommented.
+    """
+    nl = "\r\n" if "\r\n" in text else "\n"
+    ends_nl = text.endswith("\n") or text == ""
+    lines = text.splitlines()
+
+    def table_at() -> int:
+        return next((i for i, line in enumerate(lines) if line.lstrip().startswith("[")), len(lines))
+
+    def is_assign(i: int, key: str) -> bool:
+        if i >= table_at() or lines[i].lstrip().startswith("#"):
+            return False
+        return re.match(rf"^\s*{re.escape(key)}\s*=", lines[i]) is not None
+
+    for key, rhs in assignments.items():
+        idxs = [i for i in range(table_at()) if is_assign(i, key)]
+        if rhs is None:
+            for i in reversed(idxs):
+                del lines[i]
+            continue
+        for i in idxs:
+            lines[i] = _replace_rhs(lines[i], key, rhs)
+    missing = []
+    for key, rhs in assignments.items():
+        if rhs is None:
+            continue
+        if any(is_assign(i, key) for i in range(table_at())):
+            continue
+        missing.append(f"{key} = {rhs}")
+    if missing:
+        at = table_at()
+        lines[at:at] = missing
+    out = nl.join(lines)
+    if ends_nl:
+        out += nl
+    return out
+
+
+def _replace_rhs(line: str, key: str, rhs: str) -> str:
+    match = re.match(rf"^(\s*{re.escape(key)}\s*=\s*)(.*)$", line)
+    if match is None:
+        return line
+    rest = match.group(2)
+    comment = _trailing_comment(rest)
+    body = rhs if not comment else f"{rhs} {comment.lstrip()}"
+    return f"{match.group(1)}{body}"
+
+
+def _trailing_comment(text: str) -> str:
+    """A `` #...`` suffix outside quotes, or ``""``."""
+    quote = ""
+    for i, ch in enumerate(text):
+        if quote:
+            if ch == quote:
+                quote = ""
+            continue
+        if ch in "\"'":
+            quote = ch
+            continue
+        if ch == "#" and (i == 0 or text[i - 1].isspace()):
+            return text[i:]
+    return ""
+
+
+# Root keys the board tab edits. Tables ([bend], [drc], [manual], [stretch]) and
+# slot_max_mm_by_ref stay in the file and are not rewritten by the tab.
+# (form key, kind, optional). optional blank means the key is omitted.
+_BOARD_FIELDS: tuple[tuple[str, str, bool], ...] = (
+    ("rows", "int", True),
+    ("cols", "int", True),
+    ("pitch_mm", "float", False),
+    ("hole_inset_mm", "float", True),
+    ("strip_width_mm", "float", False),
+    ("snap_tol_mm", "float", False),
+    ("hole_drill_mm", "float", False),
+    ("slot_max_mm", "float", False),
+    ("cut_style", "choice", False),
+    ("cut_marker_layer", "str", False),
+    ("max_link_mm", "float", False),
+    ("link_lead_allowance_in", "float", False),
+    ("max_diagonal_shift", "int", False),
+    ("trim_min_free", "int", False),
+    ("diagonal_links", "bool", False),
+    ("off_pitch_links", "bool", False),
+    ("bus_strips", "bool", False),
+    ("draw_holes", "bool", False),
+    ("place_links", "bool", False),
+    ("trim_pieces", "bool", False),
+    ("respect_edits", "bool", False),
+    ("output", "choice", False),
+    ("slotted", "refs", False),
+    ("skip", "refs", False),
+    ("knife_cuts", "refs", False),
+    ("offboard_refs", "refs", False),
+)
+BOARD_FIELD_KEYS = tuple(key for key, _kind, _opt in _BOARD_FIELDS)
+ORIGIN_X_LABEL = "Origin X (mm), centre of hole A1"
+ORIGIN_Y_LABEL = "Origin Y (mm), centre of hole A1"
+ORIGIN_HELP = (
+    "Origin is the centre of the first hole (column 0, row 0, label A1), in millimetres. "
+    "It is not the corner of the Edge.Cuts outline. Leave both boxes empty to take the grid "
+    "from the outline. This editor does not move parts."
+)
+UNSAVED_BOARD_MESSAGE = (
+    "Board settings have unsaved edits. Save them, or Reload to discard them, before running "
+    "an action. Nothing was read from the form, and nothing was written or built."
+)
+
+
+def board_field_kind(key: str) -> str:
+    for name, kind, _optional in _BOARD_FIELDS:
+        if name == key:
+            return kind
+    raise KeyError(key)
+
+
+def board_editor_labels() -> list[tuple[str, str]]:
+    """``(form key, label)`` in tab order, including the two origin boxes."""
+    labels = {
+        "origin_x_mm": ORIGIN_X_LABEL,
+        "origin_y_mm": ORIGIN_Y_LABEL,
+        "rows": "Rows (strips)",
+        "cols": "Columns (holes along a strip)",
+        "pitch_mm": "Pitch (mm)",
+        "hole_inset_mm": "Hole inset (mm, optional)",
+        "strip_width_mm": "Strip width (mm)",
+        "snap_tol_mm": "Snap tolerance (mm)",
+        "hole_drill_mm": "Hole drill (mm)",
+        "slot_max_mm": "Slot allowance (mm)",
+        "cut_style": "Cut style",
+        "cut_marker_layer": "Cut marker layer",
+        "max_link_mm": "Longest link (mm)",
+        "link_lead_allowance_in": "Link lead allowance (inches)",
+        "max_diagonal_shift": "Max diagonal shift (holes)",
+        "trim_min_free": "Trim when this many holes are free",
+        "diagonal_links": "Diagonal links",
+        "off_pitch_links": "Off-pitch diagonal links",
+        "bus_strips": "Bus strips",
+        "draw_holes": "Draw stripboard holes",
+        "place_links": "Place link footprints",
+        "trim_pieces": "Trim unused strip ends",
+        "respect_edits": "Keep moved cuts and links",
+        "output": "Build output",
+        "slotted": "Slotted refs (comma separated)",
+        "skip": "Skip refs, wired off-board (comma separated)",
+        "knife_cuts": "Knife-cut refs (comma separated)",
+        "offboard_refs": "Off-board refs, older name (comma separated)",
+    }
+    return [("origin_x_mm", labels["origin_x_mm"]), ("origin_y_mm", labels["origin_y_mm"])] + [
+        (key, labels[key]) for key in BOARD_FIELD_KEYS
+    ]
+
+
+def _fmt_num(value: float) -> str:
+    text = f"{float(value):.6f}".rstrip("0").rstrip(".")
+    return "0" if text in ("", "-0") else text
+
+
+def _fmt_refs(values: object) -> str:
+    if not values:
+        return ""
+    return ", ".join(str(item) for item in values)  # type: ignore[arg-type]
+
+
+def board_form_from_raw(raw: dict | None) -> dict[str, str]:
+    """Form strings for the board tab. Absent optional keys are blank; other absent keys show the default."""
+    raw = {} if raw is None else raw
+    defaults = BoardConfig()
+    origin = raw.get("origin_mm")
+    if isinstance(origin, (list, tuple)) and len(origin) == 2:
+        ox, oy = _fmt_num(origin[0]), _fmt_num(origin[1])
+    else:
+        ox, oy = "", ""
+    form = {"origin_x_mm": ox, "origin_y_mm": oy}
+    for key, kind, optional in _BOARD_FIELDS:
+        if key not in raw:
+            if optional or kind == "refs":
+                form[key] = ""
+            elif kind == "bool":
+                form[key] = "true" if getattr(defaults, key) else "false"
+            elif kind == "int":
+                form[key] = str(getattr(defaults, key))
+            elif kind == "float":
+                form[key] = _fmt_num(getattr(defaults, key))
+            else:
+                form[key] = str(getattr(defaults, key))
+            continue
+        value = raw[key]
+        if kind == "bool":
+            form[key] = "true" if value else "false"
+        elif kind == "int":
+            form[key] = str(value)
+        elif kind == "float":
+            form[key] = _fmt_num(value)
+        elif kind == "refs":
+            form[key] = _fmt_refs(value)
+        else:
+            form[key] = str(value)
+    return form
+
+
+def board_form_from_file(path: str | Path) -> dict[str, str]:
+    path = Path(path)
+    if not path.is_file():
+        return board_form_from_raw({})
+    return board_form_from_raw(raw_dict(path))
+
+
+def _parse_float(text: str, key: str) -> float:
+    try:
+        if text.strip().lower() in ("true", "false"):
+            raise ValueError
+        return float(text)
+    except ValueError as exc:
+        raise ValueError(f"{key} must be a number of millimetres, got {text!r}") from exc
+
+
+def _parse_int(text: str, key: str) -> int:
+    if not re.fullmatch(r"[+-]?\d+", text.strip()):
+        raise ValueError(f"{key} must be a whole number, got {text!r}")
+    return int(text.strip())
+
+
+def _parse_bool(text: str, key: str) -> bool:
+    if text.strip() == "true":
+        return True
+    if text.strip() == "false":
+        return False
+    raise ValueError(f"{key} must be true or false, got {text!r}")
+
+
+def _parse_refs(text: str, key: str) -> list[str]:
+    if not text.strip():
+        return []
+    parts = [part.strip() for part in text.split(",")]
+    if any(not part for part in parts):
+        raise ValueError(f"{key} is a comma-separated list of references, got {text!r}")
+    return parts
+
+
+def _parsed_board_values(form: dict[str, str]) -> dict[str, object]:
+    """Form strings to TOML values. ``origin_mm`` is omitted from the dict when both boxes are blank."""
+    missing = [key for key in ("origin_x_mm", "origin_y_mm", *BOARD_FIELD_KEYS) if key not in form]
+    if missing:
+        raise ValueError(f"board form is missing {', '.join(missing)}")
+    ox, oy = form["origin_x_mm"].strip(), form["origin_y_mm"].strip()
+    out: dict[str, object] = {}
+    if ox or oy:
+        if not ox or not oy:
+            raise ValueError("set both origin X and origin Y, or leave both empty")
+        out["origin_mm"] = [_parse_float(ox, "origin X"), _parse_float(oy, "origin Y")]
+    for key, kind, optional in _BOARD_FIELDS:
+        text = form[key].strip()
+        if text == "":
+            if optional or kind == "refs":
+                continue
+            raise ValueError(f"{key} is required")
+        if kind == "float":
+            out[key] = _parse_float(text, key)
+        elif kind == "int":
+            out[key] = _parse_int(text, key)
+        elif kind == "bool":
+            out[key] = _parse_bool(text, key)
+        elif kind == "refs":
+            out[key] = _parse_refs(text, key)
+        elif kind == "choice":
+            out[key] = text
+        else:
+            if not text:
+                raise ValueError(f"{key} is required")
+            out[key] = text
+    return out
+
+
+def _known_config(data: dict) -> dict:
+    known = {item.name for item in fields(BoardConfig)} - {"warnings"}
+    return {key: value for key, value in data.items() if key in known}
+
+
+def merged_board_raw(raw: dict | None, form: dict[str, str]) -> dict:
+    """The file's raw table with the form applied. Raises ValueError when the result is not a valid config.
+
+    Unknown keys stay in the returned dict. :func:`from_dict` checks only the keys it knows, so a
+    comment-only unknown key in the file does not block the save.
+    """
+    raw = {} if raw is None else dict(raw)
+    parsed = _parsed_board_values(form)
+    if "origin_mm" not in parsed:
+        raw.pop("origin_mm", None)
+    else:
+        raw["origin_mm"] = parsed["origin_mm"]
+    for key, _kind, optional in _BOARD_FIELDS:
+        if key in parsed:
+            raw[key] = parsed[key]
+        elif optional or _kind == "refs":
+            raw.pop(key, None)
+    from_dict(_known_config(raw))
+    return raw
+
+
+def _render_value(value: object) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int) and not isinstance(value, bool):
+        return str(value)
+    if isinstance(value, float):
+        return _fmt_num(value)
+    if isinstance(value, list):
+        if value and isinstance(value[0], (int, float)) and not isinstance(value[0], bool):
+            return "[" + ", ".join(_fmt_num(item) for item in value) + "]"
+        return json.dumps(value)
+    return json.dumps(str(value))
+
+
+def _default_value(key: str) -> object:
+    value = getattr(BoardConfig(), key)
+    if isinstance(value, CutStyle):
+        return str(value)
+    return value
+
+
+def board_assignments(raw: dict | None, form: dict[str, str]) -> dict[str, str | None]:
+    """Root assignments to write. A key equal to its default and absent from the file is left absent."""
+    raw = {} if raw is None else raw
+    merged = merged_board_raw(raw, form)
+    assignments: dict[str, str | None] = {}
+    keys = ["origin_mm", *BOARD_FIELD_KEYS]
+    for key in keys:
+        present = key in raw
+        if key not in merged:
+            if present:
+                assignments[key] = None
+            continue
+        value = merged[key]
+        if not present and key != "origin_mm" and value == _default_value(key):
+            continue
+        if not present and key == "origin_mm":
+            assignments[key] = _render_value(value)
+            continue
+        assignments[key] = _render_value(value)
+    return assignments
+
+
+def apply_board_form_text(text: str, form: dict[str, str]) -> str:
+    """Return ``text`` with the board form applied. Raises ValueError and does not claim a write."""
+    raw = tomllib.loads(text) if text.strip() else {}
+    if not isinstance(raw, dict):
+        raise ValueError("stripboard.toml must be a table")
+    return update_root_assignments(text, board_assignments(raw, form))
+
+
+def save_board_form(path: str | Path, form: dict[str, str]) -> None:
+    """Validate ``form`` and replace ``path`` only if it is valid. The previous file stays on error."""
+    path = Path(path)
+    if path.is_file():
+        text = path.read_text(encoding="utf-8")
+    else:
+        text = (
+            "# StripForge board settings.\n"
+            "# origin_mm is the centre of hole A1 (column 0, row 0), not the Edge.Cuts corner.\n"
+        )
+    write_text_atomic(path, apply_board_form_text(text, form))
+
+
+def board_form_is_dirty(saved: dict[str, str], edited: dict[str, str]) -> bool:
+    keys = ("origin_x_mm", "origin_y_mm", *BOARD_FIELD_KEYS)
+    return any(saved.get(key, "").strip() != edited.get(key, "").strip() for key in keys)

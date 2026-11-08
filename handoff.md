@@ -34,15 +34,17 @@ changed to pruning.
 ## Dialog
 
 **StripForge: Dialog** (`plugins/sf_dialog.py`) is a temporary extra toolbar button. The six
-action buttons stay. The window:
+action buttons stay. The window has two tabs and the same action buttons as the toolbar:
 
-- shows the saved settings (read-only): rows, cols, origin, cut style, diagonal links, slotted,
-  skip, bend, DRC ignore and overlaps, and the backup policy;
-- edits only `backup_policy` and `backup_keep`, written into the config file Analyze already
-  reads (a lone `X56.toml` is edited in place; a missing file becomes
-  `stripforge/stripboard.toml` with just those keys). Comments and other keys are kept;
-- runs Analyze, Build strips, Add links, Run DRC, Build sheet and Restore last through
-  `_perform`, the same path as the toolbar.
+- **Board** edits the project's `stripboard.toml` (the file Analyze already reads, not a second
+  name). Origin X/Y are the centre of hole A1 in millimetres, not the Edge.Cuts corner. Rows,
+  columns, pitch, and the other root settings the loader accepts are editable. `[bend]`, `[drc]`,
+  `[manual]`, `[stretch]`, and `slot_max_mm_by_ref` are left in the file and are not edited.
+  Save validates first and replaces the file only if the result loads. Comments and unknown keys
+  stay. Reload discards unsaved edits. While the form is dirty, the action buttons do not run.
+  The editor does not move parts or guess an origin.
+- **Backup** edits `backup_policy` and `backup_keep` in that same file.
+- Analyze, Build strips, Add links, Run DRC, Build sheet and Restore last go through `_perform`.
 
 The end state is still one dialog. This button is not that end state.
 
@@ -87,18 +89,16 @@ pytest
 
 Windows PowerShell uses the same three commands after `.\.venv\Scripts\Activate.ps1`.
 
-On this checkout (Linux, CPython 3.12.3), after the dialog and backup-policy changes:
+On this checkout (Linux, CPython 3.12.3), after the board-tab editor:
 
 - `ruff check .` — exit 0
 - `ruff format --check .` — exit 0
-- `pytest -q` — exit 0, **368 passed, 6 skipped** in 752.54s
+- `pytest -q` — exit 0, **375 passed, 7 skipped** in 757.26s
 
-The six skips are the same environment limits as on `main`: four tests because `kicad-cli` is
-absent (`tests/test_stripforge_rules.py` three tests, `tests/test_drc.py::test_real_fixture_pass1_drc`,
-`tests/test_linksym.py::test_link_symbols_netlist_with_kicad_cli`) and
-`tests/test_buildsheet.py::test_clicking_rows_ticks_strikes_saves_and_resets` (`headless Chrome
-did not finish`). `test_pdf_via_chrome` passed on the previous run of this machine. No KiCad
-click-through was done.
+Skips: the five `kicad-cli` tests, `test_clicking_rows_ticks_strikes_saves_and_resets` (headless
+Chrome did not finish), and `test_headless_dialog_saves_origin_and_refuses_a_dirty_action`
+(`wx` is not installed here; there is no wxPython wheel for this image). No KiCad click-through
+was done.
 
 CI (`.github/workflows/ci.yml`) is pinned to `ubuntu-24.04` with Python 3.9, 3.11, and 3.12.
 On `3635f6d`, `ubuntu-latest` was Ubuntu 26.04 and the 3.9 job failed in `setup-python` before

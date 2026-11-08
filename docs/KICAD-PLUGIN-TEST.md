@@ -16,13 +16,17 @@ KiCad"). Use a **copy** of a project, because Build strips writes files next to 
    Plugins > "Recreate Plugin Environment", then reopen the PCB editor.
 5. If the project has an X56-style config, copy it next to the board as `stripboard.toml` (a single other `*.toml`, e.g. `X56.toml`, is also picked up; the report says which config was used).
 6. Click **StripForge: Dialog**.
-   - Expect one window listing the board, the config path, `backup_policy: move` (unless the file
-     sets retention), rows/cols, and the other saved settings.
+   - Expect a **Board** tab and a **Backup** tab. Origin X/Y are the centre of hole A1, not the
+     corner of the Edge.Cuts rectangle. Change origin, rows, columns, or pitch and click
+     **Save board settings**. An invalid value leaves the file unchanged. **Reload** discards
+     unsaved edits. With unsaved edits, Analyze and Build strips do not run.
+   - The Backup tab still offers move (the default; save points are kept) and retention.
    - Expect action buttons for Analyze, Build strips, Add links, Run DRC, Build sheet and Restore
      last, plus Move / Retention and a Keep value.
-   - Choose Retention, set Keep to 2, click **Save backup policy**. Expect the settings text to
-     show retention, and expect no zip to disappear yet. Set it back to Move and save again if
-     this project should keep every save point.
+   - Choose Retention, set Keep to 2, click **Save backup policy**. Expect the report to say it
+     was saved, and expect no zip to disappear yet. Set it back to Move and save again if this
+     project should keep every save point. The board form must be saved or reloaded first if it
+     says there are unsaved edits.
    - Click **Analyze** in the window. Expect the report pane (not a second copy of the settings)
      to start with `Board:` and include hole labels (`A1`…).
 7. Click **StripForge: Analyze** on the toolbar.
