@@ -585,6 +585,9 @@ Out of scope:
 
 ## 6. Success criteria on the ATtiny10 TPI fixture (25 THT parts)
 
+*Circuit acceptance is `tests/fixtures/ledswitch25/LedSwitch25-kicad.zip`. The list below is the
+M1 unit criteria for the frozen TPI fixture, not a second acceptance board.*
+
 *The M1 fixture has 25 footprints and 36 nets (82 THT pads), not the 26 and 37 first assumed; it is
 frozen in `tests/fixtures/tpi-m1/`. Since M2 part B, `examples/tpi-fixture/` is Mildrew's
 real-parts board: 22 footprints, 41 nets, 86 pads, with BT1 slotted.*

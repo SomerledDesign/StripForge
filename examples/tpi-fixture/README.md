@@ -1,8 +1,12 @@
-# ATtiny10 TPI programming fixture (real parts)
+# ATtiny10 TPI programming fixture (unit example)
 
-This is StripForge's main test case: Kevin's ATtiny10 TPI programming fixture with the real parts
-chosen, placed by Mildrew. The KiCad project lives outside this repo, in Dropbox at
-`KiCad/ATtiny10_TPI_Fixture`.
+Unit and regression tests still run on this board. It is not the circuit acceptance project.
+That is `tests/fixtures/ledswitch25/LedSwitch25-kicad.zip` (sha256
+`a6686c6265ef05eb9a9ed1c85a405f472a3deab466ef3f64e4825496b0ba4592`). Do not point an acceptance
+run at this folder or at an older LedSwitch zip.
+
+This board is Kevin's ATtiny10 TPI programming fixture with the real parts chosen, placed by
+Mildrew. The KiCad project lives outside this repo, in Dropbox at `KiCad/ATtiny10_TPI_Fixture`.
 
 Files:
 

@@ -4,3 +4,5 @@ The ATtiny10 TPI fixture as committed in `cea21cd` (25 footprints, 36 nets, 82 T
 board and netlist that M1 and M2 part A were developed against. It is frozen here so the tests
 that pin its exact numbers (cuts, hints, snap offsets) stay stable. `examples/tpi-fixture/` now
 holds the real-parts board (22 footprints, 41 nets). Grid config: `examples/stripboard.toml`.
+Circuit acceptance uses `tests/fixtures/ledswitch25/LedSwitch25-kicad.zip`, not this fixture and
+not an older LedSwitch archive.

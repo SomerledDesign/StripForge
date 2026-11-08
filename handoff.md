@@ -95,13 +95,13 @@ pytest
 
 Windows PowerShell uses the same three commands after `.\.venv\Scripts\Activate.ps1`.
 
-On this checkout (Linux, CPython 3.12.3), after Restore last walks back to the first save point:
+On this checkout (Linux, CPython 3.12.3), after the LedSwitch25 acceptance archive:
 
 - `ruff check .` — exit 0
 - `ruff format --check .` — exit 0
-- `pytest -q` — exit 0, **387 passed, 7 skipped** in 826.11s
+- `pytest -q` — exit 0, **390 passed, 7 skipped** in 826.19s
 
-The run before this fix, after the board-tab editor, was 380 passed, 7 skipped.
+The restore-walk run before this fixture was 387 passed, 7 skipped. The board-tab run before that was 380 passed, 7 skipped.
 
 Skips: the five `kicad-cli` tests, `test_clicking_rows_ticks_strikes_saves_and_resets` (headless
 Chrome did not finish), and `test_headless_dialog_saves_origin_and_refuses_a_dirty_action`
@@ -187,3 +187,41 @@ PCM from this tree, version still 0.2.1 (not a release):
 
 `dist/StripForge-0.2.1-pcm.zip`. Install that file, not an older zip. The PNG audit above was
 against the previous hash.
+
+## LedSwitch25 acceptance archive (2026-11-08)
+
+Kevin's current circuit is `tests/fixtures/ledswitch25/LedSwitch25-kicad.zip`. Source file
+`Niveus Dropbox/KiCad/LedSwitch25-kicad.zip`, mtime 2026-11-07 21:58:07 EST, 53157 bytes, sha256
+`a6686c6265ef05eb9a9ed1c85a405f472a3deab466ef3f64e4825496b0ba4592`. The committed file is those
+bytes. Tests call `tests/ledswitch_fixture.py`, which checks the hash, extracts a new directory,
+and skips `__MACOSX`, `.DS_Store`, and lock files. Nothing writes the zip back.
+
+TPI (`examples/tpi-fixture/`, `tests/fixtures/tpi-m1/`) stays for unit tests. It is not the
+acceptance circuit. An older LedSwitch zip is not this file.
+
+Disposable extract, measured, config not rewritten:
+
+- 9 footprints, 20 through-hole pads, no segments, arcs, or vias. One `gr_rect` outline,
+  (127.00, 101.60)–(160.02, 134.62) mm.
+- `LedSwitch25-backups/LedSwitch25-2026-11-07_215736.zip` holds `LedSwitch25.kicad_pcb` and
+  `_autosave-LedSwitch25.kicad_pcb`, both byte-identical to the main board
+  (`9ce0cd5dd4150162b3fe5bfb1f205534bb9ec355fe58ec3e4e5ed6ac20732ba5`).
+- Comments still say 25 by 25 and hole A1 at (1.27, 1.27) mm. The loaded settings are rows 13,
+  cols 13, origin `[129.54, 104.14]`, pitch 2.54, `backup_policy = "move"`, `backup_keep = 0`.
+  Those settings were left as archived.
+- The 13×13 hole grid is A1–M13. From that origin the last hole centres sit on the outline's
+  far edges (160.02, 134.62). Analyze reports that this grid extends past Edge.Cuts. Both spans
+  are 33.020 mm; the outline starts 2.54 mm before A1.
+- Eight parts snap. C1's second pad is 0.040 mm along the strip and is inside tolerance. SW1's
+  outer pads are 0.460 mm off the holes across the strip (the 3.00 mm switch pitch). Pad 2 is on
+  a hole. There is no `[bend]` table. `stripforge build --in-place` exits 2 with that conflict
+  and does not change the board, the toml, or the KiCad backup. No StripForge save point is
+  written.
+- Restore acceptance still uses this board's bytes. Six save points are taken, the disposable
+  board is changed, and six restores return the exact archived pcb. A seventh restore changes
+  nothing. The six save-point zips, the six safety copies, the KiCad backup zip, the toml
+  (`move`, `backup_keep = 0`), and the canonical zip hash all stay.
+
+The PCM package does not contain `tests/`. No packaged file changed for this, so the zip from
+`3b55e12` is still the plugin to install:
+`1a4182cecc187592a1f8a3ecd855a3fff99462d8f84e727931dd0ef89d8ef4c2`.

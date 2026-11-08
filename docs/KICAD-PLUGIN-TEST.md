@@ -3,6 +3,15 @@
 Clicks in KiCad can't be automated, so run these by hand after an install (README, "Install in
 KiCad"). Use a **copy** of a project, because Build strips writes files next to the board.
 
+For a circuit check, unzip `tests/fixtures/ledswitch25/LedSwitch25-kicad.zip` (sha256
+`a6686c6265ef05eb9a9ed1c85a405f472a3deab466ef3f64e4825496b0ba4592`, 53157 bytes) to a new folder.
+Ignore `__MACOSX`, `.DS_Store`, and lock files. Do not use an older LedSwitch archive, and do not
+use the TPI fixture for this check. The toml comments describe 25 by 25 at (1.27, 1.27) mm; the
+settings are 13 by 13, origin `[129.54, 104.14]`, move, `backup_keep = 0`. Do not rewrite them.
+On this archive Build strips stops before writing: SW1's outer pads are 0.46 mm off the holes.
+That is the archived board. The steps below are the plugin click-through on whatever project you
+opened.
+
 1. Quit KiCad fully (KiCad > Quit), then start it again so it scans the plugin folders.
 2. Preferences > Plugins: **Enable KiCad API** is ticked. Keep the default interpreter (KiCad's
    bundled Python).

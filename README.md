@@ -359,12 +359,19 @@ library `symbols/StripForge.kicad_sym` (the generic `StripForge:Link` wire-link 
 the symbol library table as `StripForge` if you place links by hand. `stripforge link-symbols`
 embeds the symbol in the schematic, so it isn't needed for that.
 
-### First test case
+### Circuit acceptance
 
-An **ATtiny10 TPI programming fixture** (22 real THT parts, 41 nets; the earlier 25-part M1 board is
-frozen in `tests/fixtures/tpi-m1/`). See [examples/tpi-fixture](examples/tpi-fixture/).
-It is done when every part snaps, DRC with schematic parity is clean, and the fixture can be built
-from the build sheet with no rework on the copper side.
+The acceptance circuit is Kevin's **LedSwitch25** project, the zip
+[tests/fixtures/ledswitch25/LedSwitch25-kicad.zip](tests/fixtures/ledswitch25/LedSwitch25-kicad.zip)
+(53157 bytes, sha256 `a6686c6265ef05eb9a9ed1c85a405f472a3deab466ef3f64e4825496b0ba4592`). Check the
+hash, extract a new copy, and do not edit or re-zip the archive. The `stripboard.toml` comments
+still say 25 by 25 and origin (1.27, 1.27) mm. The settings are 13 by 13, origin
+`[129.54, 104.14]`, `backup_policy = "move"`, `backup_keep = 0`. Leave that file as it is. An
+older LedSwitch zip is not this archive.
+
+The **ATtiny10 TPI** boards stay unit fixtures (22 real parts in
+[examples/tpi-fixture](examples/tpi-fixture/); the 25-part M1 board is frozen in
+`tests/fixtures/tpi-m1/`). They are not the acceptance circuit.
 
 ### Development
 

@@ -4,6 +4,9 @@
 
 The baseline is the board file that was zipped before the first build. Getting there puts those
 bytes back. It does not delete every track or hole from the live board.
+
+The TPI file used by ``test_real_builds_restore_to_the_unbuilt_fixture`` is unit coverage of a
+board ``stripforge build`` accepts. Circuit acceptance is ``test_ledswitch_acceptance.py``.
 """
 
 from __future__ import annotations
