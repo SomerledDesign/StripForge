@@ -461,10 +461,16 @@ SVGs and `<out>.cuts.csv`.
 - **PCM package:** `tools/make_pcm_zip.py` builds `metadata.json` + `resources/icon.png` +
   `plugins/**` (with the `stripforge` package, footprints and rules bundled). It is
   `type: plugin`, `runtime: ipc`, `kicad_version: 10.0`, schema v2.
-- **Footprint library:** a plugin package can't register a footprint library (the metadata
-  repository's validator only allows `footprints/*.pretty` in `library` packages), so the
-  `StripForge` library for the schematic's W links needs a separate `library` package. PCM
-  libraries get a `PCM_` nickname prefix by default, which is open.
+- **Footprint library, symbol library, and 3D models:** the same zip also carries
+  `footprints/StripForge.pretty`, `symbols/StripForge.kicad_sym`, and
+  `3dmodels/StripForge.3dshapes` (one VRML wire per straight `Link_P*`, 0.8128 mm diameter).
+  KiCad extracts those directories into `${KICADn_3RD_PARTY}/<kind>/<package id>/` for any
+  package and, when automatic library add is on, adds each `.pretty` and `.kicad_sym`. The
+  default nickname prefix is `PCM_`, so the rows arrive as `PCM_StripForge` and are renamed to
+  `StripForge` to match the lib ids the build writes. The official metadata-repository validator
+  still only allows `footprints/*.pretty` inside a package whose type is `library`; Install from
+  File does not use that validator. The plugin keeps a second copy under `plugins/` because that
+  is where the running code reads the files.
 
 ### 4.11 Straight links first, and your own edits (as built)
 

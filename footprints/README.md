@@ -11,11 +11,20 @@ python3 footprints/gen_footprints.py --cut-layer User.2   # if cut_marker_layer 
 The output is deterministic (uuid5), so a re-run with no changes gives no diff.
 `tests/test_stripforge_rules.py` fails if the library is stale.
 
-Suggested library nickname: **`StripForge`**, e.g. in a project `fp-lib-table`:
+Suggested library nickname: **`StripForge`**. Installing the plugin zip registers this library
+(KiCad's default nickname is `PCM_StripForge`; rename it to `StripForge`). From a checkout, a
+project `fp-lib-table` entry is:
 
 ```
 (lib (name "StripForge") (type "KiCad") (uri "<path to repo>/footprints/StripForge.pretty") (options "") (descr "StripForge links and cut markers"))
 ```
+
+Straight `Link_P*` footprints include a 3D model, a 0.032 in (0.8128 mm) round wire from pad centre
+to pad centre. `python3 footprints/gen_3dmodels.py` writes those files to
+`3dmodels/StripForge.3dshapes/`. The footprint points at
+`${KICAD10_3RD_PARTY}/3dmodels/com_github_somerleddesign_stripforge/StripForge.3dshapes/<name>.wrl`,
+which is where KiCad puts them on install. Diagonal links and the cut markers have no model. The
+F.Fab line stays 0.6 mm; the model is the 0.032 in wire.
 
 ## What is (and is not) a footprint
 

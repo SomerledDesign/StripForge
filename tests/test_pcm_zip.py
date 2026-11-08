@@ -63,7 +63,16 @@ def test_zip_layout_and_determinism(mk, tmp_path):
         "plugins/rules/stripforge.kicad_dru",
         "plugins/symbols/StripForge.kicad_sym",
         "plugins/LICENSE",
+        "footprints/StripForge.pretty/CUT_Hole.kicad_mod",
+        "footprints/StripForge.pretty/Link_P2.54.kicad_mod",
+        "symbols/StripForge.kicad_sym",
+        "3dmodels/StripForge.3dshapes/Link_P2.54.wrl",
+        "3dmodels/StripForge.3dshapes/Link_P81.28.wrl",
     ):
         assert required in names
-    assert not any(n.startswith("footprints/") for n in names)  # a library needs its own package
+    wrl = [n for n in names if n.startswith("3dmodels/")]
+    assert len(wrl) == 32
+    pretty = [n for n in names if n.startswith("footprints/")]
+    private = [n for n in names if n.startswith("plugins/footprints/")]
+    assert len(pretty) == len(private) == 339
     assert len(meta["versions"]) == 1 and "download_sha256" not in meta["versions"][0]

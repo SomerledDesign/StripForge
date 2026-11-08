@@ -39,6 +39,7 @@ def _load(path: Path, name: str):
 
 
 gen_fp = _load(ROOT / "footprints" / "gen_footprints.py", "sf_gen_footprints")
+gen_3d = _load(ROOT / "footprints" / "gen_3dmodels.py", "sf_gen_3dmodels")
 gen_dru = _load(ROOT / "rules" / "gen_dru.py", "sf_gen_dru")
 
 LINKS = [f"Link_P{k * 2.54:.2f}" for k in range(1, 33)]  # Link_P2.54 ... Link_P81.28
@@ -58,6 +59,25 @@ def test_library_is_generated_and_up_to_date(tmp_path):
     assert sorted(p.name for p in LIB.iterdir()) == names  # nothing stale left in the library
     for p in out.iterdir():
         assert (LIB / p.name).read_text() == p.read_text(), f"{p.name} is stale: re-run gen_footprints.py"
+
+
+def test_straight_link_models_match_the_generator(tmp_path):
+    ident = json.loads((ROOT / "metadata.json").read_text())["identifier"]
+    assert gen_fp.PCM_DIR == ident.replace(".", "_")
+    shapes = ROOT / "3dmodels" / "StripForge.3dshapes"
+    out = tmp_path / "StripForge.3dshapes"
+    gen_3d.generate(out)
+    names = sorted(p.name for p in out.iterdir())
+    assert names == sorted(f"{name}.wrl" for name in LINKS)
+    assert sorted(p.name for p in shapes.iterdir()) == names
+    for path in out.iterdir():
+        assert (shapes / path.name).read_text() == path.read_text(), path.name
+        assert "radius 0.4064" in path.read_text()
+    for name in LINKS:
+        text = (LIB / f"{name}.kicad_mod").read_text()
+        assert f'(model "{gen_fp.model_uri(name)}"' in text
+    for name in ("Link_D3.59", "CUT_Hole", "CUT_Knife"):
+        assert "(model " not in (LIB / f"{name}.kicad_mod").read_text()
 
 
 def test_link_geometry():

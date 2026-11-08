@@ -79,19 +79,33 @@ StripForge is a KiCad 10 **IPC plugin**. It is not in KiCad's official Plugin an
 
    <img src="docs/images/plugin-toolbar-buttons.png" alt="The PCB editor toolbar with the five StripForge buttons at the right: Analyze (A), Build strips (B), Run DRC (D), Add links to schematic (L) and Build sheet (S); the sixth, Restore last (R), is newer than this screenshot" width="511">
 
-4. **Add the StripForge footprint library** (once): Preferences > Manage Footprint Libraries >
-   Global Libraries, add a library with nickname `StripForge` and path
-   `${KICAD10_3RD_PARTY}/plugins/com_github_somerleddesign_stripforge/footprints/StripForge.pretty`.
-   (The Plugin and Content Manager names the plugin's folder with underscores, not dots.) The built
-   board doesn't need the library (its footprints are embedded), but **Update Footprints from
-   Library** and placing a link by hand do.
+4. **Footprints, symbols, and 3D models install with the plugin.** KiCad puts them in the
+   third-party folders and adds the libraries (Preferences > Plugin and Content Manager, "Add
+   libraries installed with PCM" is on by default). The default nickname prefix is `PCM_`, so the
+   new rows are `PCM_StripForge`. Rename each to `StripForge` so it matches the `StripForge:Link_*`
+   footprints and the `StripForge:Link` symbol the build writes. The paths are:
+
+   - Footprints: `${KICAD10_3RD_PARTY}/footprints/com_github_somerleddesign_stripforge/StripForge.pretty`
+   - Symbols: `${KICAD10_3RD_PARTY}/symbols/com_github_somerleddesign_stripforge/StripForge.kicad_sym`
+   - 3D models: `${KICAD10_3RD_PARTY}/3dmodels/com_github_somerleddesign_stripforge/StripForge.3dshapes`
+
+   The straight `Link_P*` footprints point at those models (a 0.032 in / 0.8128 mm round wire, pad
+   centre to pad centre). Diagonal links and the cut markers have no model. The built board does
+   not need the library for the copper already on it (those footprints are embedded). **Update
+   Footprints from Library**, the 3D viewer, and placing a link by hand do.
 
 To install by hand instead, copy the *contents* of the zip's `plugins/` folder to
-`~/Documents/KiCad/10.0/plugins/com.github.somerleddesign.stripforge/` (macOS; on Linux
-`~/.local/share/kicad/10.0/plugins/`, on Windows `Documents\KiCad\10.0\plugins\`), and point the
-library at the `footprints/StripForge.pretty` folder in there. To update, install the new zip the
-same way and restart KiCad. If a button does nothing, try Preferences > Plugins > **Recreate Plugin
-Environment**.
+`~/Documents/KiCad/10.0/3rdparty/plugins/com_github_somerleddesign_stripforge/` (macOS; on Linux
+`~/.local/share/kicad/10.0/3rdparty/plugins/`, on Windows
+`Documents\KiCad\10.0\3rdparty\plugins\`). Copy `footprints/StripForge.pretty` to
+`.../3rdparty/footprints/com_github_somerleddesign_stripforge/StripForge.pretty`,
+`symbols/StripForge.kicad_sym` to
+`.../3rdparty/symbols/com_github_somerleddesign_stripforge/StripForge.kicad_sym`, and
+`3dmodels/StripForge.3dshapes` to
+`.../3rdparty/3dmodels/com_github_somerleddesign_stripforge/StripForge.3dshapes`. Add the footprint
+and symbol libraries with nickname `StripForge` if KiCad has not added them. To update, install
+the new zip the same way and restart KiCad. If a button does nothing, try Preferences > Plugins >
+**Recreate Plugin Environment**.
 
 ### If the buttons don't appear (Linux)
 
@@ -351,13 +365,11 @@ status-bar warnings or Preferences > Plugins > "Recreate Plugin Environment". To
 install, delete its folder. Manual test steps: [docs/KICAD-PLUGIN-TEST.md](docs/KICAD-PLUGIN-TEST.md).
 
 The StripForge footprint library (`footprints/StripForge.pretty`, the `W` links'
-`StripForge:Link_*` footprints and the cut markers) is bundled in the plugin but **not
-registered**: add it to the footprint library table by hand, with nickname `StripForge` (see
-[Install](#install)). A PCM plugin package can't register libraries; that needs a separate library
-package. The same goes for the symbol
-library `symbols/StripForge.kicad_sym` (the generic `StripForge:Link` wire-link symbol): add it to
-the symbol library table as `StripForge` if you place links by hand. `stripforge link-symbols`
-embeds the symbol in the schematic, so it isn't needed for that.
+`StripForge:Link_*` footprints and the cut markers), the symbol library
+`symbols/StripForge.kicad_sym` (the generic `StripForge:Link` wire-link symbol), and the straight
+`Link_P*` 3D models (`3dmodels/StripForge.3dshapes`) are installed with the plugin. KiCad adds the
+footprint and symbol libraries; rename the default `PCM_StripForge` nickname to `StripForge` (see
+[Install](#install)). `stripforge link-symbols` also embeds the symbol in the schematic.
 
 ### Circuit acceptance
 

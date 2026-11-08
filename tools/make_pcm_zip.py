@@ -4,7 +4,11 @@
 
     python tools/make_pcm_zip.py [--out dist] [--url https://.../StripForge-0.2.1-pcm.zip]
 
-Archive layout (what the PCM expects for a ``plugin`` package; https://dev-docs.kicad.org/en/addons/):
+Archive layout (https://dev-docs.kicad.org/en/addons/). KiCad extracts every directory in
+``PCM_PACKAGE_DIRECTORIES`` (plugins, footprints, symbols, 3dmodels, resources, ...) into
+``${KICADn_3RD_PARTY}/<directory>/<package id>/``, then adds each ``.pretty`` and ``.kicad_sym``
+to the global library tables. The plugin code also keeps a private copy of the footprints and the
+symbol under ``plugins/``, which is where the running plugin reads them.
 
     metadata.json            the repo's metadata.json with exactly one version, no download_* fields
     resources/icon.png       64 x 64 icon shown by the PCM
@@ -14,6 +18,9 @@ Archive layout (what the PCM expects for a ``plugin`` package; https://dev-docs.
     plugins/stripforge/      the StripForge package (src/stripforge, no caches)
     plugins/footprints/StripForge.pretty/, plugins/rules/stripforge.kicad_dru, plugins/LICENSE
     plugins/symbols/StripForge.kicad_sym  the generic StripForge:Link symbol (stripforge link-symbols)
+    footprints/StripForge.pretty/          the same library, installed and registered by KiCad
+    symbols/StripForge.kicad_sym           the same symbol library, installed and registered
+    3dmodels/StripForge.3dshapes/          straight Link_P wires (VRML), one file per footprint
 
 The zip is deterministic (sorted entries, fixed timestamps and permissions), so the same tree always
 gives the same sha256. It prints the sha256, download_size and install_size for the ``versions``
@@ -34,8 +41,17 @@ ROOT = Path(__file__).resolve().parents[1]
 STAMP = (2026, 1, 1, 0, 0, 0)
 SKIP_DIRS = {"__pycache__", ".pytest_cache", ".ruff_cache"}
 SKIP_SUFFIXES = {".pyc", ".pyo"}
-# What ci/validate/package.py in gitlab.com/kicad/addons/metadata allows in a plugin package.
-ALLOWED = (re.compile(r"^metadata\.json$"), re.compile(r"^resources/icon\.png$"), re.compile(r"^plugins/.+"))
+# KiCad's installer accepts these. The official metadata-repo validator only wants footprints,
+# symbols and 3dmodels in a package whose type is "library"; Install from File still extracts them
+# from this plugin package and the library manager adds the .pretty and .kicad_sym rows.
+ALLOWED = (
+    re.compile(r"^metadata\.json$"),
+    re.compile(r"^resources/icon\.png$"),
+    re.compile(r"^plugins/.+"),
+    re.compile(r"^footprints/.+\.kicad_mod$"),
+    re.compile(r"^symbols/.+\.kicad_sym$"),
+    re.compile(r"^3dmodels/.+\.wrl$"),
+)
 
 
 def versions(root: Path = ROOT) -> dict[str, str]:
@@ -74,8 +90,11 @@ def entries(root: Path = ROOT) -> list[tuple[Path, str]]:
         items += _files(p, f"plugins/{p.name}")
     items += _files(root / "src/stripforge", "plugins/stripforge")
     items += _files(root / "footprints/StripForge.pretty", "plugins/footprints/StripForge.pretty")
+    items += _files(root / "footprints/StripForge.pretty", "footprints/StripForge.pretty")
     items += _files(root / "rules/stripforge.kicad_dru", "plugins/rules/stripforge.kicad_dru")
     items += _files(root / "symbols/StripForge.kicad_sym", "plugins/symbols/StripForge.kicad_sym")
+    items += _files(root / "symbols/StripForge.kicad_sym", "symbols/StripForge.kicad_sym")
+    items += _files(root / "3dmodels/StripForge.3dshapes", "3dmodels/StripForge.3dshapes")
     items += _files(root / "LICENSE", "plugins/LICENSE")
     return sorted(items, key=lambda t: t[1])
 

@@ -1,0 +1,20 @@
+#VRML V2.0 utf8
+# Link_P81.28: straight 0.8128 mm (0.032 in) wire, 81.28 mm pad centre to pad centre.
+Transform {
+  translation 0 -40.6400 0.4064
+  children [
+    Shape {
+      appearance Appearance {
+        material Material {
+          diffuseColor 0.75 0.75 0.78
+          specularColor 0.9 0.9 0.9
+          shininess 0.6
+        }
+      }
+      geometry Cylinder {
+        radius 0.4064
+        height 81.2800
+      }
+    }
+  ]
+}
