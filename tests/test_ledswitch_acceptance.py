@@ -9,11 +9,18 @@ the archived project. Each test extracts a new copy. The zip in the repo is not 
 from __future__ import annotations
 
 import hashlib
-import zipfile
 
 import pytest
 
-from ledswitch_fixture import PCB_SHA256, ZIP_SHA256, archive_bytes, extract
+from ledswitch_fixture import (
+    HISTORICAL_SHA256,
+    HISTORICAL_SIZE,
+    HISTORICAL_ZIP,
+    PCB_SHA256,
+    ZIP_SHA256,
+    archive_bytes,
+    extract,
+)
 from stripforge import layout
 from stripforge.analyze import analyze
 from stripforge.board import load_board
@@ -66,8 +73,11 @@ def test_archived_board_against_its_settings(tmp_path):
     cfg = load(toml_path)
     assert (cfg.rows, cfg.cols, cfg.origin_mm, cfg.pitch_mm) == (13, 13, (129.54, 104.14), 2.54)
     assert cfg.backup_policy == "move" and cfg.backup_keep == 0
+    assert cfg.output == "separate" and cfg.link_lead_allowance_in == pytest.approx(0.15)
+    assert cfg.bend == {}
     assert toml_path.read_text() == toml  # loading does not rewrite the file
 
+    original_pcb = board.read_bytes()
     assert _sha(board) == PCB_SHA256
     counts = _top_counts(board)
     assert counts.get("footprint") == 9
@@ -79,11 +89,13 @@ def test_archived_board_against_its_settings(tmp_path):
     assert 129.54 + 12 * 2.54 == pytest.approx(160.02)
     assert 104.14 + 12 * 2.54 == pytest.approx(134.62)
 
-    backup = project / "LedSwitch25-backups" / "LedSwitch25-2026-11-07_215736.zip"
-    backup_bytes = backup.read_bytes()
-    with zipfile.ZipFile(backup) as z:
-        assert z.read("LedSwitch25.kicad_pcb") == board.read_bytes()
-        assert z.read("_autosave-LedSwitch25.kicad_pcb") == board.read_bytes()
+    assert not (project / "LedSwitch25-backups").exists()
+    sw1_fp = loaded.footprint("SW1")
+    assert (sw1_fp.x_nm / 1e6, sw1_fp.y_nm / 1e6) == pytest.approx((134.62, 129.08))
+    for ref in ("R2", "R3", "R5"):
+        pads = loaded.footprint(ref).pads
+        span = ((pads[0].x_nm - pads[1].x_nm) ** 2 + (pads[0].y_nm - pads[1].y_nm) ** 2) ** 0.5
+        assert span / 1e6 == pytest.approx(10.16)
 
     analysis = analyze(board, cfg)
     assert analysis.grid.span_label == "A1-M13"
@@ -95,27 +107,34 @@ def test_archived_board_against_its_settings(tmp_path):
     accepted = sorted(s.ref for s in analysis.snaps if s.accepted)
     assert accepted == ["BT1", "C1", "D1", "D2", "Q1", "R2", "R3", "R5"]
     sw1 = next(s for s in analysis.rejected if s.ref == "SW1")
-    assert sw1.max_dev_nm == 460_000
+    assert sw1.max_dev_nm == 920_000
     assert toml_path.read_text() == toml
 
-    code = main(["build", str(board), "--config", str(toml_path), "--in-place"])
+    # Archived output is separate. No --in-place override on this check.
+    code = main(["build", str(board), "--config", str(toml_path)])
     assert code == 2
-    assert _sha(board) == PCB_SHA256
+    assert board.read_bytes() == original_pcb
     assert toml_path.read_text() == toml
-    assert backup.read_bytes() == backup_bytes
+    assert not (project / "stripforge").exists()
     assert layout.backups(board, cfg) == []
     assert hashlib.sha256(archive_bytes()).hexdigest() == ZIP_SHA256
+    assert HISTORICAL_ZIP.is_file()
+    assert HISTORICAL_ZIP.stat().st_size == HISTORICAL_SIZE
+    assert hashlib.sha256(HISTORICAL_ZIP.read_bytes()).hexdigest() == HISTORICAL_SHA256
 
 
 def test_restore_returns_to_the_archived_board(tmp_path, capsys):
+    """Six save points of this archive's own board, then six restores.
+
+    This is not six builds. The archived build is refused before it writes a save point.
+    """
     before = archive_bytes()
     project = extract(tmp_path / "proj")
     board = project / "LedSwitch25.kicad_pcb"
     toml_path = project / "stripboard.toml"
     baseline = board.read_bytes()
     toml_bytes = toml_path.read_bytes()
-    kicad_backup = project / "LedSwitch25-backups" / "LedSwitch25-2026-11-07_215736.zip"
-    kicad_backup_bytes = kicad_backup.read_bytes()
+    assert not (project / "LedSwitch25-backups").exists()
     assert hashlib.sha256(baseline).hexdigest() == PCB_SHA256
     assert USER_TRACK.encode() not in baseline
     cfg = load(toml_path)
@@ -151,7 +170,6 @@ def test_restore_returns_to_the_archived_board(tmp_path, capsys):
         assert path.is_file() and path.read_bytes() == data
     assert len(layout.backups(board, cfg)) == 6
     assert len(layout.safety_copies(board, cfg)) == 6
-    assert kicad_backup.read_bytes() == kicad_backup_bytes
     assert toml_path.read_bytes() == toml_bytes
     assert 'backup_policy = "move"' in toml_path.read_text() and "backup_keep = 0" in toml_path.read_text()
     assert archive_bytes() == before
@@ -206,52 +224,34 @@ def _apply_approved_sw1_bend(project):
     return path, edited, cfg
 
 
-def test_six_actual_builds_then_restore_the_archived_board(tmp_path, capsys):
-    """Six stripforge builds on the working copy, then six restores to the archived pcb.
+def test_approved_sw1_bend_still_refuses_the_moved_switch(tmp_path, capsys):
+    """The 0.46 mm bend is still only a disposable override, and it no longer lets a build start.
 
-    The only config delta is ``[bend] SW1 = 0.46`` (millimetres). Comments, the 13 by 13 origin,
-    and move / backup_keep 0 stay. The canonical zip is not rewritten. Exit 1 means the board was
-    written with one unlinkable net still reported, not that the build was refused.
+    SW1 moved to (134.62, 129.08). Pad 3 is 0.920 mm off its hole. The archived separate build
+    exits 2 and writes nothing. Appending the previously approved ``SW1 = 0.46`` and building
+    in place (an explicit override of ``output = "separate"``) also exits 2: the residual is a
+    0.460 mm grid shift, and 0.92 mm is over the loader's 0.5 mm bend maximum. Six builds are
+    not run. The zip is not changed.
     """
     before = archive_bytes()
     project = extract(tmp_path / "proj")
     board = project / "LedSwitch25.kicad_pcb"
     original = board.read_bytes()
-    assert hashlib.sha256(original).hexdigest() == PCB_SHA256
     toml_path, edited, cfg = _apply_approved_sw1_bend(project)
     assert list(cfg.bend) == ["SW1"] and cfg.bend["SW1"] == pytest.approx(0.46)
-    assert cfg.rows == 13 and cfg.cols == 13 and cfg.origin_mm == (129.54, 104.14)
+    assert cfg.output == "separate" and cfg.link_lead_allowance_in == pytest.approx(0.15)
+    assert cfg.rows == 13 and cfg.origin_mm == (129.54, 104.14)
     assert cfg.backup_policy == "move" and cfg.backup_keep == 0
-    assert "# 25 by 25" in edited and "(1.27, 1.27)" in edited
     assert edited.endswith(APPROVED_SW1_BEND)
-    assert any("0.46" in warning and "mm" in warning for warning in cfg.warnings)
-    kicad_backup = project / "LedSwitch25-backups" / "LedSwitch25-2026-11-07_215736.zip"
-    kicad_backup_bytes = kicad_backup.read_bytes()
-
-    for _ in range(6):
-        assert main(["build", str(board), "--config", str(toml_path), "--in-place"]) == 1
-        capsys.readouterr()
-    assert b"StripForge:CUT_" in board.read_bytes()
-    points = layout.backups(board)
-    assert len(points) == 6
-    saved = {path: path.read_bytes() for path in points}
-    assert layout.read_member(points[0], "LedSwitch25.kicad_pcb").encode() == original
-
-    for step in range(6):
-        assert main(["restore", str(board), "--config", str(toml_path)]) == 0
-        text = capsys.readouterr().out
-        assert points[5 - step].name in text
-        assert "safety" not in points[5 - step].name
-    assert board.read_bytes() == original
-    assert b"StripForge:CUT_" not in board.read_bytes()
-    assert main(["restore", str(board), "--config", str(toml_path)]) == 0
-    assert "nothing further to restore" in capsys.readouterr().out
-    assert board.read_bytes() == original
-    for path, data in saved.items():
-        assert path.read_bytes() == data
-    assert len(layout.backups(board)) == 6
-    assert len(layout.safety_copies(board)) == 6
-    assert kicad_backup.read_bytes() == kicad_backup_bytes
+    with pytest.raises(ValueError, match="0.5 mm"):
+        save_stripboard_text(toml_path, edited.replace("SW1 = 0.46", "SW1 = 0.92"), toml_path.read_bytes())
     assert toml_path.read_text() == edited
-    assert load(toml_path).backup_policy == "move" and load(toml_path).backup_keep == 0
+
+    code = main(["build", str(board), "--config", str(toml_path), "--in-place"])
+    err = capsys.readouterr().err
+    assert code == 2
+    assert "0.920 mm" in err and "(0.000, 0.460)" in err
+    assert board.read_bytes() == original
+    assert layout.backups(board) == []
+    assert b"StripForge:CUT_" not in board.read_bytes()
     assert archive_bytes() == before

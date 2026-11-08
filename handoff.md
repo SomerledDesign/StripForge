@@ -102,15 +102,16 @@ pytest
 
 Windows PowerShell uses the same three commands after `.\.venv\Scripts\Activate.ps1`.
 
-On this checkout (Linux, CPython 3.12.3), after the approved SW1 working-copy bend:
+On this checkout (Linux, CPython 3.12.3), after the 2026-11-07 23:22 archive:
 
 - `ruff check .` — exit 0
 - `ruff format --check .` — exit 0
-- `pytest -q` — exit 0, **395 passed, 8 skipped** in 828.40s
+- `pytest -q` — exit 0, **395 passed, 8 skipped** in 827.09s
 
 The eighth skip is the wx click-through of Edit stripboard.toml (`wx` is not installed here).
-The raw-editor run before this test was 394 passed, 8 skipped. Runtime code did not change, so
-the PCM zip is still `6104d7a9a71b06501b46349287543c76b6c3d2989eb3b062e06b1c80a6b87c32`.
+Runtime code did not change, so the PCM zip is still
+`6104d7a9a71b06501b46349287543c76b6c3d2989eb3b062e06b1c80a6b87c32`. Six actual builds were not
+run: both the archived separate build and the `SW1 = 0.46` in-place override exit 2.
 
 Skips: the five `kicad-cli` tests, `test_clicking_rows_ticks_strikes_saves_and_resets` (headless
 Chrome did not finish), and `test_headless_dialog_saves_origin_and_refuses_a_dirty_action`
@@ -200,10 +201,17 @@ against the previous hash.
 ## LedSwitch25 acceptance archive (2026-11-08)
 
 Kevin's current circuit is `tests/fixtures/ledswitch25/LedSwitch25-kicad.zip`. Source file
-`Niveus Dropbox/KiCad/LedSwitch25-kicad.zip`, mtime 2026-11-07 21:58:07 EST, 53157 bytes, sha256
-`a6686c6265ef05eb9a9ed1c85a405f472a3deab466ef3f64e4825496b0ba4592`. The committed file is those
-bytes. Tests call `tests/ledswitch_fixture.py`, which checks the hash, extracts a new directory,
-and skips `__MACOSX`, `.DS_Store`, and lock files. Nothing writes the zip back.
+`Niveus Dropbox/KiCad/LedSwitch25-kicad.zip`, mtime 2026-11-07 23:22:26 EST, 25859 bytes, sha256
+`cf5b92d393f2172d25f48329f92281ed4a41d2f8a8290fcf72f68dd8cbb09e6c`. The committed file is those
+bytes. The previous acceptance zip is kept as
+`tests/fixtures/ledswitch25/LedSwitch25-kicad-2026-11-07-2158.zip` (53157 bytes, sha256
+`a6686c6265ef05eb9a9ed1c85a405f472a3deab466ef3f64e4825496b0ba4592`, source mtime 2026-11-07
+21:58:07 EST) and is not what tests open. A 9022-byte `LedSwitch25-kicad.zip` under agent
+artifacts is older still and is not this archive. Tests call `tests/ledswitch_fixture.py`, which
+checks the current hash, extracts a new directory, and skips `__MACOSX`, `.DS_Store`, and lock
+files. Nothing writes either zip back. The versioned box path
+`/workspace/test-fixtures/stripforge-canonical-2026-11-07-2323/` was not mounted here; the
+attached file matched the mandated hash and those bytes were copied.
 
 TPI (`examples/tpi-fixture/`, `tests/fixtures/tpi-m1/`) stays for unit tests. It is not the
 acceptance circuit. An older LedSwitch zip is not this file.
@@ -212,32 +220,27 @@ Disposable extract, measured, config not rewritten:
 
 - 9 footprints, 20 through-hole pads, no segments, arcs, or vias. One `gr_rect` outline,
   (127.00, 101.60)–(160.02, 134.62) mm.
-- `LedSwitch25-backups/LedSwitch25-2026-11-07_215736.zip` holds `LedSwitch25.kicad_pcb` and
-  `_autosave-LedSwitch25.kicad_pcb`, both byte-identical to the main board
-  (`9ce0cd5dd4150162b3fe5bfb1f205534bb9ec355fe58ec3e4e5ed6ac20732ba5`).
-- Comments still say 25 by 25 and hole A1 at (1.27, 1.27) mm. The loaded settings are rows 13,
-  cols 13, origin `[129.54, 104.14]`, pitch 2.54, `backup_policy = "move"`, `backup_keep = 0`.
-  Those settings were left as archived.
+- The pcb is `b7e624dfb801e234b9702f0bb3d378ebb75cdc443f0ad07bce8c79210ee760c4` (63325 bytes).
+  This zip has no KiCad backup folder.
+- Comments still say 25 by 25 and hole A1 at (1.27, 1.27) mm. Those comments are stale. The
+  loaded settings are rows 13, cols 13, origin `[129.54, 104.14]`, pitch 2.54,
+  `output = "separate"`, `link_lead_allowance_in = 0.15` (inches a leg), `backup_policy = "move"`,
+  `backup_keep = 0`. Those settings were left as archived.
 - The 13×13 hole grid is A1–M13. From that origin the last hole centres sit on the outline's
   far edges (160.02, 134.62). Analyze reports that this grid extends past Edge.Cuts. Both spans
   are 33.020 mm; the outline starts 2.54 mm before A1.
-- Eight parts snap. C1's second pad is 0.040 mm along the strip and is inside tolerance. SW1's
-  outer pads are 0.460 mm off the holes across the strip (the 3.00 mm switch pitch). Pad 2 is on
-  a hole. The archive has no `[bend]` table. `stripforge build --in-place` on that file exits 2
-  and does not change the board, the toml, or the KiCad backup.
-- Kevin (2026-11-08) approved one working-copy delta, not a new zip: append only
-
-  ```toml
-  [bend]
-  SW1 = 0.46
-  ```
-
-  `0.46` is millimetres. No other reference is bent. Comments, rows 13, cols 13, origin
-  `[129.54, 104.14]`, `backup_policy = "move"`, and `backup_keep = 0` stay. The editor save helper
-  writes that text. Six actual `stripforge build --in-place` runs then exit 1 (the board is
-  written; `Net-(D2-K)` stays unlinkable). Each build makes a save point. Six Restore last calls
-  return the pcb to the archived bytes. The six save points, six safety copies, and the KiCad
-  backup zip remain. The canonical zip hash does not change.
+- Eight parts snap. C1's second pad is 0.040 mm along the strip and is inside tolerance. R2, R3,
+  and R5 are 10.16 mm pad to pad. SW1 is at (134.62, 129.08) mm. Pad 1 is on a hole, pad 2 is
+  0.460 mm off, and pad 3 is 0.920 mm off. The archive has no `[bend]` table.
+  `stripforge build` with the archived `output = "separate"` exits 2. The original pcb is
+  unchanged and no StripForge save point is written. `Net-(D2-K)` was not reached.
+- The previously approved working-copy line `[bend]` / `SW1 = 0.46` (millimetres, not baked into
+  the zip) was applied with the editor save helper and built with an explicit `--in-place`
+  override. That also exits 2. The message says the pins match the hole pitch and the part is
+  0.460 mm off the grid (Move Exactly X = 0.000, Y = 0.460 mm). `SW1 = 0.92` is refused by the
+  existing loader because it is over 0.5 mm. No placement, schematic, or loader change was made.
+  Six actual builds were not run. A separate test still takes six save points of the archived
+  board and restores them to the original pcb bytes.
 - Restore acceptance still uses this board's bytes. Six save points are taken, the disposable
   board is changed, and six restores return the exact archived pcb. A seventh restore changes
   nothing. The six save-point zips, the six safety copies, the KiCad backup zip, the toml

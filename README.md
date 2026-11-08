@@ -363,12 +363,14 @@ embeds the symbol in the schematic, so it isn't needed for that.
 
 The acceptance circuit is Kevin's **LedSwitch25** project, the zip
 [tests/fixtures/ledswitch25/LedSwitch25-kicad.zip](tests/fixtures/ledswitch25/LedSwitch25-kicad.zip)
-(53157 bytes, sha256 `a6686c6265ef05eb9a9ed1c85a405f472a3deab466ef3f64e4825496b0ba4592`). Check the
-hash, extract a new copy, and do not edit or re-zip the archive. The `stripboard.toml` comments
-still say 25 by 25 and origin (1.27, 1.27) mm. The settings are 13 by 13, origin
-`[129.54, 104.14]`, `backup_policy = "move"`, `backup_keep = 0`. Leave that file as it is. An
-older LedSwitch zip is not this archive. Kevin approved a working copy that appends only
-`[bend]` / `SW1 = 0.46` (millimetres). That line is not in the zip. No other part is bent.
+(25859 bytes, sha256 `cf5b92d393f2172d25f48329f92281ed4a41d2f8a8290fcf72f68dd8cbb09e6c`,
+2026-11-07 23:22:26 EST). Check the hash, extract a new copy, and do not edit or re-zip the
+archive. The previous zip is `LedSwitch25-kicad-2026-11-07-2158.zip` in that same folder and is
+not current. The toml comments still say 25 by 25 and origin (1.27, 1.27) mm. The settings are
+13 by 13, origin `[129.54, 104.14]`, `output = "separate"`, `link_lead_allowance_in = 0.15`,
+`backup_policy = "move"`, `backup_keep = 0`. Leave that file as it is. An older LedSwitch zip,
+including a 9022-byte copy, is not this archive. The working-copy line `[bend]` / `SW1 = 0.46`
+(millimetres) is not in the zip and does not make this placement build.
 
 The **ATtiny10 TPI** boards stay unit fixtures (22 real parts in
 [examples/tpi-fixture](examples/tpi-fixture/); the 25-part M1 board is frozen in

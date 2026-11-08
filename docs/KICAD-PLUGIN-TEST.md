@@ -4,15 +4,15 @@ Clicks in KiCad can't be automated, so run these by hand after an install (READM
 KiCad"). Use a **copy** of a project, because Build strips writes files next to the board.
 
 For a circuit check, unzip `tests/fixtures/ledswitch25/LedSwitch25-kicad.zip` (sha256
-`a6686c6265ef05eb9a9ed1c85a405f472a3deab466ef3f64e4825496b0ba4592`, 53157 bytes) to a new folder.
-Ignore `__MACOSX`, `.DS_Store`, and lock files. Do not use an older LedSwitch archive, and do not
-use the TPI fixture for this check. The toml comments describe 25 by 25 at (1.27, 1.27) mm; the
-settings are 13 by 13, origin `[129.54, 104.14]`, move, `backup_keep = 0`. Do not rewrite them.
-On this archive, with the toml left as shipped, Build strips stops before writing: SW1's outer
-pads are 0.46 mm off the holes. Kevin approved a working copy that appends only `[bend]` and
-`SW1 = 0.46` (millimetres) and leaves the comments, 13 by 13 origin, and move / `backup_keep = 0`.
-That copy is not the zip. With it, Build writes the board and still reports `Net-(D2-K)` unlinkable.
-The steps below are the plugin click-through on whatever project you opened.
+`cf5b92d393f2172d25f48329f92281ed4a41d2f8a8290fcf72f68dd8cbb09e6c`, 25859 bytes) to a new folder.
+Ignore `__MACOSX`, `.DS_Store`, and lock files. Do not use
+`LedSwitch25-kicad-2026-11-07-2158.zip`, a 9022-byte LedSwitch zip, or the TPI fixture for this
+check. The toml comments describe 25 by 25 at (1.27, 1.27) mm; the settings are 13 by 13, origin
+`[129.54, 104.14]`, `output = "separate"`, `link_lead_allowance_in = 0.15`, move,
+`backup_keep = 0`. Do not rewrite them. On this archive Build strips stops before writing: SW1
+at (134.62, 129.08) mm has a pad 0.920 mm off its hole. Appending `[bend]` / `SW1 = 0.46`
+(millimetres, not in the zip) still stops the build. The steps below are the plugin
+click-through on whatever project you opened.
 
 1. Quit KiCad fully (KiCad > Quit), then start it again so it scans the plugin folders.
 2. Preferences > Plugins: **Enable KiCad API** is ticked. Keep the default interpreter (KiCad's
