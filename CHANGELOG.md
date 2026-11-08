@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Edit stripboard.toml.** The Board tab opens the same `stripboard.toml` in a resizable text
+  window, including `[bend]` and the other tables. The text is checked with the TOML parser and
+  the existing config loader, then written as typed. A `[bend]` value is millimetres.
 - **Dialog text size.** Larger text, Smaller text, and Reset text size, plus Command-plus,
   Command-minus, and Command-0 (Ctrl on Windows and Linux). The size is remembered in a per-user
   file, not in `stripboard.toml`. A trackpad pinch is used when wx sends a magnify gesture.

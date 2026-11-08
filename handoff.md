@@ -38,10 +38,17 @@ action buttons stay. The window has two tabs and the same action buttons as the 
 
 - **Board** edits the project's `stripboard.toml` (the file Analyze already reads, not a second
   name). Origin X/Y are the centre of hole A1 in millimetres, not the Edge.Cuts corner. Rows,
-  columns, pitch, and the other root settings the loader accepts are editable. `[bend]`, `[drc]`,
-  `[manual]`, `[stretch]`, and `slot_max_mm_by_ref` are left in the file and are not edited.
-  Save validates first and replaces the file only if the result loads. Comments and unknown keys
-  stay. Reload discards unsaved edits. While the form is dirty, the action buttons do not run.
+  columns, pitch, and the other root settings the loader accepts are editable. The structured
+  fields still do not rewrite `[bend]`, `[drc]`, `[manual]`, `[stretch]`, or `slot_max_mm_by_ref`.
+  **Edit stripboard.toml** opens that same file in a small resizable text window. The text is
+  saved as typed, after it parses and `from_dict` accepts it. `[bend]` numbers are millimetres
+  (`SW1 = 0.46` is 0.46 mm: kept, with a warning above 0.3 mm, refused above 0.5 mm). Save, Reload,
+  and Cancel are separate. A bad text or a file that changed on disk since the window opened is
+  not written, and the text stays in the window. Cancel discards unsaved text. Reload discards it
+  and loads the file. The window stays closed while the Board fields or the Backup choice are
+  unsaved. A successful save refreshes those controls from the file. Actions do not run on the
+  unsaved text. Save validates first and replaces the file only if it is valid. Comments stay.
+  Reload discards unsaved edits. While the form is dirty, the action buttons do not run.
   The editor does not move parts or guess an origin.
 - **Backup** edits `backup_policy` and `backup_keep` in that same file.
 - **Text size** is not a board setting. Larger text, Smaller text, and Reset text size (and
@@ -95,13 +102,14 @@ pytest
 
 Windows PowerShell uses the same three commands after `.\.venv\Scripts\Activate.ps1`.
 
-On this checkout (Linux, CPython 3.12.3), after the LedSwitch25 acceptance archive:
+On this checkout (Linux, CPython 3.12.3), after the raw TOML editor:
 
 - `ruff check .` — exit 0
 - `ruff format --check .` — exit 0
-- `pytest -q` — exit 0, **390 passed, 7 skipped** in 826.19s
+- `pytest -q` — exit 0, **394 passed, 8 skipped** in 833.31s
 
-The restore-walk run before this fixture was 387 passed, 7 skipped. The board-tab run before that was 380 passed, 7 skipped.
+The eighth skip is the wx click-through of Edit stripboard.toml (`wx` is not installed here). The
+LedSwitch archive run before this editor was 390 passed, 7 skipped.
 
 Skips: the five `kicad-cli` tests, `test_clicking_rows_ticks_strikes_saves_and_resets` (headless
 Chrome did not finish), and `test_headless_dialog_saves_origin_and_refuses_a_dirty_action`
@@ -222,6 +230,8 @@ Disposable extract, measured, config not rewritten:
   nothing. The six save-point zips, the six safety copies, the KiCad backup zip, the toml
   (`move`, `backup_keep = 0`), and the canonical zip hash all stay.
 
-The PCM package does not contain `tests/`. No packaged file changed for this, so the zip from
-`3b55e12` is still the plugin to install:
-`1a4182cecc187592a1f8a3ecd855a3fff99462d8f84e727931dd0ef89d8ef4c2`.
+The PCM package does not contain `tests/`. The fixture commit did not change that zip
+(`1a4182cecc187592a1f8a3ecd855a3fff99462d8f84e727931dd0ef89d8ef4c2`, 644664 bytes). The raw TOML
+editor is in the plugin and `stripforge.config`, so the package to install now is
+`6104d7a9a71b06501b46349287543c76b6c3d2989eb3b062e06b1c80a6b87c32` (647285 bytes), still version
+0.2.1, not a release.

@@ -13,13 +13,17 @@ from stripforge.analyze import analyze
 from stripforge.config import (
     ORIGIN_HELP,
     UNSAVED_BOARD_MESSAGE,
+    StripboardConflict,
     apply_board_form_text,
     board_editor_labels,
     board_form_from_file,
     board_form_from_raw,
     board_form_is_dirty,
     load,
+    raw_toml_blocked,
+    read_stripboard_text,
     save_board_form,
+    save_stripboard_text,
 )
 
 KEVIN_ORIGIN = ("127", "73.66")
@@ -225,6 +229,115 @@ def _texts(window) -> list[str]:
     for child in window.GetChildren():
         found.extend(_texts(child))
     return found
+
+
+def test_raw_bend_save_keeps_typed_text_and_millimetre_semantics(tmp_path):
+    path = tmp_path / "stripboard.toml"
+    original = (
+        "# do not delete\n"
+        "rows = 13\n"
+        "cols = 13\n"
+        "origin_mm = [129.54, 104.14]\n"
+        'backup_policy = "move"\n'
+        "backup_keep = 0\n"
+    )
+    path.write_text(original)
+    text, baseline = read_stripboard_text(path)
+    edited = text + "\n[bend]\nSW1 = 0.46\n"
+    cfg = save_stripboard_text(path, edited, baseline)
+    assert cfg.bend["SW1"] == pytest.approx(0.46)
+    assert cfg.backup_policy == "move" and cfg.backup_keep == 0
+    assert any("0.46" in warning and "mm" in warning for warning in cfg.warnings)
+    saved = path.read_text()
+    assert saved == edited
+    assert "# do not delete" in saved and "[bend]\nSW1 = 0.46\n" in saved
+    form = board_form_from_file(path)
+    assert form["rows"] == "13" and form["origin_x_mm"] == "129.54" and form["origin_y_mm"] == "104.14"
+    assert load(path).bend["SW1"] == pytest.approx(0.46)
+
+
+def test_raw_toml_parse_and_semantic_failures_keep_the_file_and_the_text(tmp_path):
+    path = tmp_path / "stripboard.toml"
+    path.write_text('rows = 13\ncols = 13\nbackup_policy = "move"\nbackup_keep = 0\n')
+    before = path.read_bytes()
+    _text, baseline = read_stripboard_text(path)
+    broken = "[bend]\nSW1 =\n"
+    with pytest.raises(ValueError, match="not valid TOML"):
+        save_stripboard_text(path, broken, baseline)
+    assert path.read_bytes() == before
+    too_far = "[bend]\nSW1 = 0.6\n"
+    with pytest.raises(ValueError, match="0.5 mm"):
+        save_stripboard_text(path, too_far, baseline)
+    assert path.read_bytes() == before
+    path.write_bytes(before + b"# external\n")
+    external = path.read_bytes()
+    with pytest.raises(StripboardConflict, match="changed after"):
+        save_stripboard_text(path, "[bend]\nSW1 = 0.46\n", baseline)
+    assert path.read_bytes() == external
+
+
+def test_raw_toml_window_saves_syncs_and_cancel_discards_unsaved_text(tmp_path):
+    wx = pytest.importorskip("wx")
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "stripforge_plugin_raw", Path(__file__).resolve().parents[1] / "plugins" / "stripforge_plugin.py"
+    )
+    sfp = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(sfp)
+    path = tmp_path / "stripboard.toml"
+    path.write_text('rows = 13\ncols = 13\nbackup_policy = "move"\nbackup_keep = 0\n')
+    before_cancel = {}
+    app = wx.App(False)
+    ui = sfp.Ui()
+    form = board_form_from_file(path)
+    ui.show_hub(
+        "StripForge: Dialog",
+        "Config: stripboard.toml",
+        "move",
+        0,
+        lambda *_a: ("snap", "backup saved"),
+        lambda _action: "ran",
+        form,
+        lambda edited: (path, dict(edited), "snap"),
+        lambda: board_form_from_file(path),
+        show=False,
+        toml_path=path,
+    )
+    dlg = wx.GetTopLevelWindows()[-1]
+
+    def drive() -> None:
+        editor_window = [w for w in wx.GetTopLevelWindows() if w is not dlg][-1]
+        boxes = [w for w in _descendants(editor_window) if isinstance(w, wx.TextCtrl)]
+        editor = next(w for w in boxes if not (w.GetWindowStyleFlag() & wx.TE_READONLY))
+        editor.SetValue(path.read_text() + "[bend]\nSW1 = 0.46\n")
+        _click(wx, _find(editor_window, lambda w: isinstance(w, wx.Button) and w.GetLabel() == "Save"))
+        assert "SW1 = 0.46" in path.read_text()
+        assert dlg._board_controls["rows"].GetValue() == "13"
+        before_cancel["bytes"] = path.read_bytes()
+        editor.SetValue(editor.GetValue() + "# not saved\n")
+        _click(wx, _find(editor_window, lambda w: isinstance(w, wx.Button) and w.GetLabel() == "Cancel"))
+
+    wx.CallAfter(drive)
+    _click(wx, _find(dlg, lambda w: isinstance(w, wx.Button) and w.GetLabel() == "Edit stripboard.toml"))
+    assert b"# not saved" not in path.read_bytes()
+    assert path.read_bytes() == before_cancel["bytes"]
+    assert "[bend]\nSW1 = 0.46\n" in path.read_text()
+    dlg.Destroy()
+    app.Destroy()
+
+
+def _descendants(window):
+    found = [window]
+    for child in window.GetChildren():
+        found.extend(_descendants(child))
+    return found
+
+
+def test_raw_editor_stays_closed_while_a_form_is_dirty():
+    assert raw_toml_blocked(False, False) is None
+    assert "unsaved edits" in raw_toml_blocked(True, False)
+    assert "nothing was written" in raw_toml_blocked(False, True).lower()
 
 
 def load_raw(path: Path) -> dict:

@@ -18,7 +18,13 @@ from stripforge import layout
 from stripforge.analyze import analyze
 from stripforge.board import load_board
 from stripforge.cli import main
-from stripforge.config import load
+from stripforge.config import (
+    StripboardConflict,
+    board_form_from_file,
+    load,
+    read_stripboard_text,
+    save_stripboard_text,
+)
 from stripforge.sexpr import head, parse
 
 USER_TRACK = "USER-ORIGINAL-GEOMETRY"
@@ -146,4 +152,43 @@ def test_restore_returns_to_the_archived_board(tmp_path, capsys):
     assert kicad_backup.read_bytes() == kicad_backup_bytes
     assert toml_path.read_bytes() == toml_bytes
     assert 'backup_policy = "move"' in toml_path.read_text() and "backup_keep = 0" in toml_path.read_text()
+    assert archive_bytes() == before
+
+
+def test_raw_bend_on_the_archived_toml_then_restore_checks(tmp_path):
+    """[bend] is millimetres. The archived zip is not a file the editor writes."""
+    before = archive_bytes()
+    project = extract(tmp_path / "proj")
+    path = project / "stripboard.toml"
+    original, baseline = read_stripboard_text(path)
+    edited = original if original.endswith("\n") else original + "\n"
+    edited += "[bend]\nSW1 = 0.46\n"
+    cfg = save_stripboard_text(path, edited, baseline)
+    assert cfg.bend["SW1"] == pytest.approx(0.46)
+    assert cfg.rows == 13 and cfg.cols == 13 and cfg.origin_mm == (129.54, 104.14)
+    assert cfg.backup_policy == "move" and cfg.backup_keep == 0
+    assert any("0.46" in warning and "mm" in warning for warning in cfg.warnings)
+    assert path.read_text() == edited
+    assert "# 25 by 25" in edited and "(1.27, 1.27)" in edited
+    disk = path.read_bytes()
+    with pytest.raises(ValueError, match="not valid TOML"):
+        save_stripboard_text(path, edited + "SW1 =\n", disk)
+    assert path.read_bytes() == disk
+    with pytest.raises(ValueError, match="0.5 mm"):
+        save_stripboard_text(path, edited.replace("SW1 = 0.46", "SW1 = 0.6"), disk)
+    assert path.read_bytes() == disk
+    path.write_bytes(disk + b"# external\n")
+    external = path.read_bytes()
+    with pytest.raises(StripboardConflict, match="changed after"):
+        save_stripboard_text(path, edited.replace("rows = 13", "rows = 14"), disk)
+    assert path.read_bytes() == external
+
+    synced = extract(tmp_path / "sync")
+    sync_path = synced / "stripboard.toml"
+    sync_text, sync_base = read_stripboard_text(sync_path)
+    save_stripboard_text(sync_path, sync_text.replace("rows = 13", "rows = 14"), sync_base)
+    form = board_form_from_file(sync_path)
+    assert form["rows"] == "14" and form["origin_x_mm"] == "129.54" and form["origin_y_mm"] == "104.14"
+    assert load(sync_path).backup_policy == "move" and load(sync_path).backup_keep == 0
+    assert "bend" not in form
     assert archive_bytes() == before

@@ -820,3 +820,70 @@ def save_board_form(path: str | Path, form: dict[str, str]) -> None:
 def board_form_is_dirty(saved: dict[str, str], edited: dict[str, str]) -> bool:
     keys = ("origin_x_mm", "origin_y_mm", *BOARD_FIELD_KEYS)
     return any(saved.get(key, "").strip() != edited.get(key, "").strip() for key in keys)
+
+
+class StripboardConflict(ValueError):
+    """The file on disk is not the copy this editor loaded. Nothing was written."""
+
+
+def validate_stripboard_text(text: str) -> BoardConfig:
+    """Parse ``text`` and run :func:`from_dict`. The text is not rewritten.
+
+    A ``[bend]`` number is millimetres, the same rule as :func:`bend_from_dict`. ``SW1 = 0.46`` is
+    0.46 mm: over :data:`BEND_WARN_MM` it is kept and warned, over :data:`BEND_MAX_MM` it is refused.
+    A warning does not reject the text.
+    """
+    try:
+        data = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as exc:
+        raise ValueError(f"stripboard.toml is not valid TOML: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ValueError("stripboard.toml must be a table")
+    return from_dict(data)
+
+
+def read_stripboard_text(path: str | Path) -> tuple[str, bytes | None]:
+    """``(text, bytes)`` for ``path``. ``(empty string, None)`` when the file is not there yet."""
+    path = Path(path)
+    if not path.is_file():
+        return "", None
+    data = path.read_bytes()
+    try:
+        text = data.decode("utf-8")
+    except UnicodeError as exc:
+        raise ValueError(f"{path} is not UTF-8, so it was not opened: {exc}") from exc
+    return text, data
+
+
+def save_stripboard_text(path: str | Path, text: str, baseline: bytes | None) -> BoardConfig:
+    """Validate ``text``, then replace ``path`` with those exact characters.
+
+    ``baseline`` is what :func:`read_stripboard_text` last returned (``None`` if there was no file).
+    The write happens only when the file is still those bytes, and only after the TOML parses and
+    :func:`from_dict` accepts it. Comments and spacing stay as typed. A bad text or a file that
+    changed in the meantime leaves the disk as it was.
+    """
+    cfg = validate_stripboard_text(text)
+    path = Path(path)
+    current = path.read_bytes() if path.is_file() else None
+    if current != baseline:
+        raise StripboardConflict(
+            f"{path} changed after this editor opened it. Nothing was written. "
+            "Reload to pick up the file, or Cancel to keep the text you typed."
+        )
+    write_text_atomic(path, text)
+    return cfg
+
+
+def raw_toml_blocked(board_dirty: bool, backup_dirty: bool) -> str | None:
+    """Why the raw TOML window must stay closed, or None when it may open.
+
+    An unsaved Board field or an unsaved Backup choice would be thrown away when the text editor
+    saved the whole file and then refreshed those controls from disk.
+    """
+    if board_dirty or backup_dirty:
+        return (
+            "The Board or Backup form has unsaved edits. Save them, or Reload, before editing "
+            "the TOML text. The file was not opened, and nothing was written."
+        )
+    return None

@@ -664,8 +664,10 @@ with the separate toolbar buttons kept until that window is the one used for the
   size** (Command-plus, Command-minus, Command-0 on a Mac; Ctrl with those keys on Windows and
   Linux) change the dialog's type size and remember it outside ``stripboard.toml``. A trackpad
   pinch is applied only when wx delivers a magnify gesture. The six action buttons stay until Kevin is building
-  from the window alone. `[bend]`, `[drc]`, `[manual]`, `[stretch]`, and the per-part choice table
-  are not edited here. The built-in sheet view is not in this window yet.
+  from the window alone. **Edit stripboard.toml** on the Board tab opens that same file as text,
+  including `[bend]` (millimetres, the existing loader). The structured fields still do not rewrite
+  `[bend]`, `[drc]`, `[manual]`, `[stretch]`, or the per-part choice table. The built-in sheet
+  view is not in this window yet.
   - **Settings**, saved to `stripboard.toml`: board size (rows, cols, origin), slotted parts (with
     the filing amount and the lopsided warning shown per part), DRC ignores and allowed courtyard
     overlaps, cut style, link options (`diagonal_links` and friends, see M4c).

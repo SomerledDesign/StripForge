@@ -29,7 +29,10 @@ opened.
      should make the labels, fields, buttons, and report bigger, and the size should still be
      bigger the next time the dialog opens. Unsaved board numbers must still be there after a
      size change. Command-plus, Command-minus, and Command-0 do the same on a Mac.
-   - Expect a **Board** tab and a **Backup** tab. Origin X/Y are the centre of hole A1, not the
+   - Expect a **Board** tab and a **Backup** tab. **Edit stripboard.toml** opens the same file in
+     a resizable window (Save, Reload, Cancel). `[bend]` is millimetres. Invalid text leaves the
+     file unchanged and keeps what you typed. Cancel discards unsaved text. The window does not
+     open while the Board fields or the Backup choice have unsaved edits. Origin X/Y are the centre of hole A1, not the
      corner of the Edge.Cuts rectangle. Change origin, rows, columns, or pitch and click
      **Save board settings**. An invalid value leaves the file unchanged. **Reload** discards
      unsaved edits. With unsaved edits, Analyze and Build strips do not run.

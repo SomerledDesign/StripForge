@@ -531,18 +531,26 @@ class Ui:
         on_reload_board,
         show: bool = True,
         text_scale_path=None,
+        toml_path=None,
     ) -> None:
         """The shared window. ``on_save_board(form)`` returns ``(path, fresh form, snapshot)`` or raises.
 
         ``on_reload_board()`` returns the form last saved. Actions are refused while the board form
-        is dirty, so a build cannot run on values that were typed but not saved.
+        is dirty, so a build cannot run on values that were typed but not saved. ``toml_path`` is
+        that same ``stripboard.toml``. Edit stripboard.toml opens it as text, including ``[bend]``.
         """
         from stripforge.config import (
             ORIGIN_HELP,
             UNSAVED_BOARD_MESSAGE,
+            StripboardConflict,
             board_editor_labels,
             board_field_kind,
+            board_form_from_file,
             board_form_is_dirty,
+            load,
+            raw_toml_blocked,
+            read_stripboard_text,
+            save_stripboard_text,
         )
         from stripforge.dialog_text import (
             default_dialog_text_scale_path,
@@ -596,8 +604,10 @@ class Ui:
         buttons = wx.BoxSizer(wx.HORIZONTAL)
         save_board = wx.Button(board_page, label="Save board settings")
         reload_board = wx.Button(board_page, label="Reload")
+        edit_toml = wx.Button(board_page, label="Edit stripboard.toml")
         buttons.Add(save_board, 0, wx.RIGHT, 8)
         buttons.Add(reload_board, 0, wx.RIGHT, 8)
+        buttons.Add(edit_toml, 0, wx.RIGHT, 8)
         buttons.Add(dirty_label, 0, wx.ALIGN_CENTER_VERTICAL)
         board_sizer.Add(buttons, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
         board_page.SetSizer(board_sizer)
@@ -657,6 +667,9 @@ class Ui:
         retention.Bind(wx.EVT_RADIOBUTTON, _toggle)
 
         baseline = [dict(board_form)]
+        saved_backup = {"policy": "retention" if policy == "retention" else "move", "keep": max(0, int(keep))}
+        raw_windows: list = []
+        raw_open = {"value": False}
 
         def current_form() -> dict:
             form = {}
@@ -673,6 +686,20 @@ class Ui:
 
         def is_dirty() -> bool:
             return board_form_is_dirty(baseline[0], current_form())
+
+        def backup_is_dirty() -> bool:
+            which = "retention" if retention.GetValue() else "move"
+            return which != saved_backup["policy"] or int(keep_ctrl.GetValue()) != int(saved_backup["keep"])
+
+        def show_backup(policy_name: str, keep_value: int) -> None:
+            saved_backup["policy"] = policy_name
+            saved_backup["keep"] = int(keep_value)
+            if policy_name == "retention":
+                retention.SetValue(True)
+            else:
+                move.SetValue(True)
+            keep_ctrl.SetValue(int(keep_value))
+            keep_ctrl.Enable(policy_name == "retention")
 
         def refresh_dirty(_evt=None) -> None:
             dirty_label.SetLabel(
@@ -718,10 +745,15 @@ class Ui:
         def _reload(_evt):
             try:
                 fresh = on_reload_board()
+                cfg = load(toml_path) if toml_path is not None and Path(toml_path).is_file() else None
             except (OSError, ValueError) as exc:
                 report.SetValue(f"Could not reload stripboard.toml.\n\n{exc}")
                 return
             apply_form(fresh)
+            if cfg is not None:
+                show_backup(cfg.backup_policy, cfg.backup_keep)
+            elif toml_path is not None:
+                show_backup("move", 0)
             report.SetValue("Reloaded stripboard.toml. Unsaved edits were discarded.")
 
         save_board.Bind(wx.EVT_BUTTON, _save_board)
@@ -737,6 +769,7 @@ class Ui:
             except (OSError, ValueError) as exc:
                 report.SetValue(f"Backup policy was not saved.\n\n{exc}")
                 return
+            show_backup(which, int(keep_ctrl.GetValue()))
             report.SetValue(status)
 
         save_btn.Bind(wx.EVT_BUTTON, _save)
@@ -746,6 +779,12 @@ class Ui:
             button = wx.Button(dlg, label=label)
 
             def _run(_evt, action=action):
+                if raw_open["value"]:
+                    report.SetValue(
+                        "The TOML editor is open. Save it or close it before running an action. "
+                        "Nothing was read from that text, and nothing was written or built."
+                    )
+                    return
                 if is_dirty():
                     report.SetValue(UNSAVED_BOARD_MESSAGE)
                     return
@@ -788,11 +827,14 @@ class Ui:
             mono = wx.Font(wx.FontInfo(point).Family(wx.FONTFAMILY_TELETYPE))
 
             def walk(win) -> None:
-                win.SetFont(mono if win is report else body)
+                mono_this = win is report or getattr(win, "_stripforge_mono", False)
+                win.SetFont(mono if mono_this else body)
                 for child in win.GetChildren():
                     walk(child)
 
             walk(dlg)
+            for extra in raw_windows:
+                walk(extra)
             # apply_form writes the baseline; put the real saved baseline back so an unsaved
             # origin is still unsaved after the fonts change.
             apply_form(form_now)
@@ -883,6 +925,149 @@ class Ui:
                     save_text_scale(scale_path, scale_state["value"])
 
             dlg.Bind(wx.EVT_GESTURE_ZOOM, on_zoom)
+
+        def open_raw(_evt=None) -> None:
+            blocked = raw_toml_blocked(is_dirty(), backup_is_dirty())
+            if blocked:
+                report.SetValue(blocked)
+                return
+            if toml_path is None:
+                report.SetValue("No stripboard.toml is selected for this board. Nothing was written.")
+                return
+            try:
+                loaded, baseline = read_stripboard_text(toml_path)
+            except (OSError, ValueError) as exc:
+                report.SetValue(f"Could not open {toml_path}.\n\n{exc}")
+                return
+            state = {"baseline": baseline, "loaded": loaded}
+            ed = wx.Dialog(
+                dlg,
+                title="StripForge: stripboard.toml",
+                style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER,
+            )
+            ed.SetMinSize((480, 320))
+            point = point_size(scale_state["value"])
+            ed.SetFont(wx.Font(wx.FontInfo(point)))
+            box = wx.BoxSizer(wx.VERTICAL)
+            box.Add(wx.StaticText(ed, label=str(toml_path)), 0, wx.ALL, 8)
+            box.Add(
+                wx.StaticText(
+                    ed,
+                    label="Edits this file, including [bend], [drc], [manual] and [stretch]. "
+                    "A [bend] number is millimetres (SW1 = 0.46 is 0.46 mm). "
+                    "Save checks the TOML and the config loader, then writes the text as typed.",
+                ),
+                0,
+                wx.LEFT | wx.RIGHT | wx.BOTTOM,
+                8,
+            )
+            edit_style = wx.TE_MULTILINE | wx.HSCROLL
+            if hasattr(wx, "TE_DONTWRAP"):
+                edit_style |= wx.TE_DONTWRAP
+            editor = wx.TextCtrl(ed, value=loaded, style=edit_style)
+            editor._stripforge_mono = True
+            editor.SetFont(wx.Font(wx.FontInfo(point).Family(wx.FONTFAMILY_TELETYPE)))
+            box.Add(editor, 1, wx.EXPAND | wx.LEFT | wx.RIGHT, 8)
+            status = wx.TextCtrl(ed, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.HSCROLL)
+            status._stripforge_mono = True
+            status.SetFont(wx.Font(wx.FontInfo(point).Family(wx.FONTFAMILY_TELETYPE)))
+            box.Add(status, 0, wx.EXPAND | wx.ALL, 8)
+            row = wx.BoxSizer(wx.HORIZONTAL)
+            save_text = wx.Button(ed, label="Save")
+            reload_text = wx.Button(ed, label="Reload")
+            cancel_text = wx.Button(ed, label="Cancel")
+            row.Add(save_text, 0, wx.RIGHT, 8)
+            row.Add(reload_text, 0, wx.RIGHT, 8)
+            row.Add(cancel_text, 0)
+            box.Add(row, 0, wx.ALIGN_RIGHT | wx.ALL, 8)
+            ed.SetSizer(box)
+            ed.SetSize((720, 520))
+            raw_windows.append(ed)
+
+            def do_save(_evt=None) -> None:
+                typed = editor.GetValue()
+                try:
+                    cfg = save_stripboard_text(toml_path, typed, state["baseline"])
+                except StripboardConflict as exc:
+                    status.SetValue(str(exc))
+                    return
+                except (OSError, ValueError) as exc:
+                    status.SetValue(f"Not saved. The file is unchanged.\n\n{exc}")
+                    return
+                try:
+                    fresh_text, fresh_bytes = read_stripboard_text(toml_path)
+                except (OSError, ValueError) as exc:
+                    status.SetValue(f"Saved, but could not re-read {toml_path}.\n\n{exc}")
+                    return
+                state["baseline"] = fresh_bytes
+                state["loaded"] = fresh_text
+                editor.ChangeValue(fresh_text)
+                apply_form(board_form_from_file(toml_path))
+                show_backup(cfg.backup_policy, cfg.backup_keep)
+                lines = [f"Saved {toml_path}.", "The Board and Backup controls now match this file."]
+                if cfg.warnings:
+                    lines.append("")
+                    lines.extend(cfg.warnings)
+                status.SetValue("\n".join(lines))
+                report.SetValue("\n".join(lines))
+
+            def do_reload(_evt=None) -> None:
+                try:
+                    fresh_text, fresh_bytes = read_stripboard_text(toml_path)
+                except (OSError, ValueError) as exc:
+                    status.SetValue(
+                        f"Could not reload {toml_path}. The text in this window was kept.\n\n{exc}"
+                    )
+                    return
+                state["baseline"] = fresh_bytes
+                state["loaded"] = fresh_text
+                editor.ChangeValue(fresh_text)
+                status.SetValue("Reloaded stripboard.toml. Unsaved text in this window was discarded.")
+
+            def do_cancel(_evt=None) -> None:
+                ed.EndModal(wx.ID_CANCEL)
+
+            save_text.Bind(wx.EVT_BUTTON, do_save)
+            reload_text.Bind(wx.EVT_BUTTON, do_reload)
+            cancel_text.Bind(wx.EVT_BUTTON, do_cancel)
+
+            def on_editor_key(evt) -> None:
+                code = evt.GetKeyCode()
+                escape = getattr(wx, "WXK_ESCAPE", None)
+                if escape is not None and code == escape:
+                    do_cancel()
+                    return
+                on_char_hook(evt)
+
+            def on_editor_close(evt) -> None:
+                if ed.IsModal():
+                    ed.EndModal(wx.ID_CANCEL)
+                else:
+                    evt.Skip()
+
+            ed.Bind(wx.EVT_CHAR_HOOK, on_editor_key)
+            ed.Bind(wx.EVT_CLOSE, on_editor_close)
+            if hasattr(wx, "EVT_MAGNIFY"):
+                ed.Bind(wx.EVT_MAGNIFY, on_magnify)
+            if hasattr(wx, "EVT_GESTURE_ZOOM"):
+                ed.Bind(wx.EVT_GESTURE_ZOOM, on_zoom)
+            editor.SetFocus()
+            raw_open["value"] = True
+            try:
+                ed.ShowModal()
+            finally:
+                raw_open["value"] = False
+                if ed in raw_windows:
+                    raw_windows.remove(ed)
+            discarded = editor.GetValue() != state["loaded"]
+            ed.Destroy()
+            if discarded:
+                report.SetValue(
+                    "Closed the TOML editor. Text that was not saved was discarded. "
+                    "Closing did not write the file."
+                )
+
+        edit_toml.Bind(wx.EVT_BUTTON, open_raw)
 
         dlg.SetSizer(root)
         dlg._board_controls = controls  # tests set values without a click on each field
@@ -1161,6 +1346,7 @@ def _open_dialog(ui, kicad, board_doc, board, project_name) -> int:
         board_form,
         on_save_board,
         on_reload_board,
+        toml_path=backup_settings_path(board),
     )
     return 0
 
