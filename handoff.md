@@ -93,7 +93,7 @@ On this checkout (Linux, CPython 3.12.3), after the board-tab editor:
 
 - `ruff check .` — exit 0
 - `ruff format --check .` — exit 0
-- `pytest -q` — exit 0, **375 passed, 7 skipped** in 757.26s
+- `pytest -q` — exit 0, **377 passed, 7 skipped** in 845.83s (adds the PNG chunk check)
 
 Skips: the five `kicad-cli` tests, `test_clicking_rows_ticks_strikes_saves_and_resets` (headless
 Chrome did not finish), and `test_headless_dialog_saves_origin_and_refuses_a_dirty_action`
@@ -103,4 +103,23 @@ was done.
 CI (`.github/workflows/ci.yml`) is pinned to `ubuntu-24.04` with Python 3.9, 3.11, and 3.12.
 On `3635f6d`, `ubuntu-latest` was Ubuntu 26.04 and the 3.9 job failed in `setup-python` before
 pytest (`The version '3.9' ... was not found for Ubuntu 26.04`). 3.11 and 3.12 on that run passed
-(369 passed, 5 skipped). Kevin approved the pin.
+(369 passed, 5 skipped). Kevin approved the pin. The pin commit `1aa9f85` then passed all six
+jobs (369 passed, 5 skipped each).
+
+## PNG profiles (2026-11-08)
+
+Kevin sees an iCCP warning in KiCad. The phrase he quoted ("cRMG") matches libpng's
+`cHRM chunk does not match sRGB` (the ICC/PNG cHRM tag, not a cRMG chunk).
+
+libpng 1.6.43 on this machine decoded every PNG in the repo and printed no warning. The PCM
+zip's PNGs are `plugins/icons/*.png` (including the dialog icons) and `resources/icon.png`.
+None of them contain an iCCP or cHRM chunk. `resources/icon.png` has an sRGB intent byte only.
+Ten screenshots under `docs/images/` do contain an iCCP profile (Apple "Display" or "Display P3")
+and no cHRM chunk. Those screenshots are not in the PCM zip, and this libpng did not warn on
+them either. No pixels were rewritten. The package hash is unchanged:
+`0a77c6eb5d1929b9d2f5acd21d00ceabd22dae2f31be116c6610a6d4eeeff00d` (638190 bytes).
+
+This checkout has no wx and no KiCad, so the Mac GUI warning was not reproduced. The next
+useful line is the full libpng warning from Terminal.app while starting
+`/Applications/KiCad/KiCad.app/Contents/MacOS/kicad`, plus whether it appears before any
+StripForge board is opened.
