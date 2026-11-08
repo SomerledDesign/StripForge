@@ -16,6 +16,10 @@ KiCad"). Use a **copy** of a project, because Build strips writes files next to 
    Plugins > "Recreate Plugin Environment", then reopen the PCB editor.
 5. If the project has an X56-style config, copy it next to the board as `stripboard.toml` (a single other `*.toml`, e.g. `X56.toml`, is also picked up; the report says which config was used).
 6. Click **StripForge: Dialog**.
+   - Expect **Larger text**, **Smaller text**, and **Reset text size** at the top. Larger text
+     should make the labels, fields, buttons, and report bigger, and the size should still be
+     bigger the next time the dialog opens. Unsaved board numbers must still be there after a
+     size change. Command-plus, Command-minus, and Command-0 do the same on a Mac.
    - Expect a **Board** tab and a **Backup** tab. Origin X/Y are the centre of hole A1, not the
      corner of the Edge.Cuts rectangle. Change origin, rows, columns, or pitch and click
      **Save board settings**. An invalid value leaves the file unchanged. **Reload** discards

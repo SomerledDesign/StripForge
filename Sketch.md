@@ -657,7 +657,10 @@ with the separate toolbar buttons kept until that window is the one used for the
   loader accepts). The **Backup** tab edits backup policy (M4b). Save validates before it replaces
   the file. Unsaved board edits block the action buttons, so a build cannot run on a value that
   was only typed. Analyze, Build strips, Add links to schematic, Run DRC, Build sheet and Restore
-  last still use the same code as the toolbar. The six action buttons stay until Kevin is building
+  last still use the same code as the toolbar. **Larger text**, **Smaller text**, and **Reset text
+  size** (Command-plus, Command-minus, Command-0 on a Mac; Ctrl with those keys on Windows and
+  Linux) change the dialog's type size and remember it outside ``stripboard.toml``. A trackpad
+  pinch is applied only when wx delivers a magnify gesture. The six action buttons stay until Kevin is building
   from the window alone. `[bend]`, `[drc]`, `[manual]`, `[stretch]`, and the per-part choice table
   are not edited here. The built-in sheet view is not in this window yet.
   - **Settings**, saved to `stripboard.toml`: board size (rows, cols, origin), slotted parts (with

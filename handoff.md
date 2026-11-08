@@ -44,6 +44,12 @@ action buttons stay. The window has two tabs and the same action buttons as the 
   stay. Reload discards unsaved edits. While the form is dirty, the action buttons do not run.
   The editor does not move parts or guess an origin.
 - **Backup** edits `backup_policy` and `backup_keep` in that same file.
+- **Text size** is not a board setting. Larger text, Smaller text, and Reset text size (and
+  Command-plus / Command-minus / Command-0, or Ctrl on Windows and Linux) write a per-user
+  file: `~/Library/Application Support/StripForge/dialog-text-scale` on macOS,
+  `%APPDATA%\StripForge\dialog-text-scale` on Windows, `$XDG_CONFIG_HOME/stripforge/dialog-text-scale`
+  on Linux. Range 100% to 300% in 25% steps. Pinch is bound to wx magnify / zoom gestures when
+  that wx build has them. It has not been tried on a Mac trackpad.
 - Analyze, Build strips, Add links, Run DRC, Build sheet and Restore last go through `_perform`.
 
 The end state is still one dialog. This button is not that end state.
@@ -93,7 +99,7 @@ On this checkout (Linux, CPython 3.12.3), after the board-tab editor:
 
 - `ruff check .` — exit 0
 - `ruff format --check .` — exit 0
-- `pytest -q` — exit 0, **377 passed, 7 skipped** in 845.83s (adds the PNG chunk check)
+- `pytest -q` — exit 0, **380 passed, 7 skipped** in 880.28s (text-size checks included)
 
 Skips: the five `kicad-cli` tests, `test_clicking_rows_ticks_strikes_saves_and_resets` (headless
 Chrome did not finish), and `test_headless_dialog_saves_origin_and_refuses_a_dirty_action`

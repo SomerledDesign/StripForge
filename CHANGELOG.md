@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Dialog text size.** Larger text, Smaller text, and Reset text size, plus Command-plus,
+  Command-minus, and Command-0 (Ctrl on Windows and Linux). The size is remembered in a per-user
+  file, not in `stripboard.toml`. A trackpad pinch is used when wx sends a magnify gesture.
 - **StripForge: Dialog (M4a, started).** One shared window has a Board tab and a Backup tab.
   The Board tab edits `stripboard.toml` (origin is the centre of hole A1, not the outline corner;
   rows, columns, pitch, and the other root settings). Save checks the result before replacing the

@@ -527,6 +527,7 @@ class Ui:
         on_save_board,
         on_reload_board,
         show: bool = True,
+        text_scale_path=None,
     ) -> None:
         """The shared window. ``on_save_board(form)`` returns ``(path, fresh form, snapshot)`` or raises.
 
@@ -540,9 +541,22 @@ class Ui:
             board_field_kind,
             board_form_is_dirty,
         )
+        from stripforge.dialog_text import (
+            default_dialog_text_scale_path,
+            load_text_scale,
+            point_size,
+            save_text_scale,
+            scale_from_magnify_delta,
+            scale_from_zoom_factor,
+            scale_percent,
+            step_text_scale,
+        )
 
         wx = self.wx
-        dlg = wx.Dialog(None, title=title, size=(980, 760), style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
+        scale_path = text_scale_path if text_scale_path is not None else default_dialog_text_scale_path()
+        scale_state = {"value": load_text_scale(scale_path), "gesture_start": None}
+        dlg = wx.Dialog(None, title=title, style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
+        dlg.SetFont(wx.Font(wx.FontInfo(point_size(scale_state["value"]))))
         root = wx.BoxSizer(wx.VERTICAL)
         book = wx.Notebook(dlg)
         board_page = wx.Panel(book)
@@ -614,6 +628,23 @@ class Ui:
         )
         backup_page.SetSizer(backup_sizer)
         book.AddPage(backup_page, "Backup")
+
+        text_bar = wx.WrapSizer(wx.HORIZONTAL) if hasattr(wx, "WrapSizer") else wx.BoxSizer(wx.HORIZONTAL)
+        larger = wx.Button(dlg, label="Larger text")
+        smaller = wx.Button(dlg, label="Smaller text")
+        reset_text = wx.Button(dlg, label="Reset text size")
+        size_label = wx.StaticText(dlg, label=f"Text size: {scale_percent(scale_state['value'])}")
+        text_hint = wx.StaticText(
+            dlg,
+            label="Command-plus, Command-minus, and Command-0 on a Mac. Ctrl with those keys on "
+            "Windows and Linux. A trackpad pinch is used only when wx sends a magnify gesture.",
+        )
+        text_bar.Add(larger, 0, wx.RIGHT | wx.BOTTOM, 6)
+        text_bar.Add(smaller, 0, wx.RIGHT | wx.BOTTOM, 6)
+        text_bar.Add(reset_text, 0, wx.RIGHT | wx.BOTTOM, 6)
+        text_bar.Add(size_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT | wx.BOTTOM, 8)
+        text_bar.Add(text_hint, 0, wx.ALIGN_CENTER_VERTICAL | wx.BOTTOM, 6)
+        root.Add(text_bar, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 8)
         root.Add(book, 2, wx.EXPAND | wx.ALL, 8)
 
         def _toggle(_evt):
@@ -670,7 +701,7 @@ class Ui:
             refresh_dirty()
 
         report = wx.TextCtrl(dlg, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.HSCROLL)
-        report.SetFont(wx.Font(wx.FontInfo(10).Family(wx.FONTFAMILY_TELETYPE)))
+        report.SetFont(wx.Font(wx.FontInfo(point_size(scale_state["value"])).Family(wx.FONTFAMILY_TELETYPE)))
 
         def _save_board(_evt):
             try:
@@ -707,7 +738,7 @@ class Ui:
 
         save_btn.Bind(wx.EVT_BUTTON, _save)
 
-        actions = wx.BoxSizer(wx.HORIZONTAL)
+        actions = wx.WrapSizer(wx.HORIZONTAL) if hasattr(wx, "WrapSizer") else wx.BoxSizer(wx.HORIZONTAL)
         for action, label in DIALOG_ACTIONS:
             button = wx.Button(dlg, label=label)
 
@@ -736,8 +767,124 @@ class Ui:
         close.Bind(wx.EVT_BUTTON, lambda _evt: dlg.EndModal(wx.ID_CLOSE))
         bottom.Add(close, 0)
         root.Add(bottom, 0, wx.ALIGN_RIGHT | wx.ALL, 8)
+
+        def apply_text_scale(scale: float, *, persist: bool) -> None:
+            """Resize fonts and the layout. Field values, radios, and focus stay put."""
+            scale_state["value"] = scale
+            if persist:
+                save_text_scale(scale_path, scale)
+            size_label.SetLabel(f"Text size: {scale_percent(scale)}")
+            focused = dlg.FindFocus()
+            form_now = current_form()
+            saved_baseline = dict(baseline[0])
+            policy_now = "retention" if retention.GetValue() else "move"
+            keep_now = int(keep_ctrl.GetValue())
+            report_now = report.GetValue()
+            point = point_size(scale)
+            body = wx.Font(wx.FontInfo(point))
+            mono = wx.Font(wx.FontInfo(point).Family(wx.FONTFAMILY_TELETYPE))
+
+            def walk(win) -> None:
+                win.SetFont(mono if win is report else body)
+                for child in win.GetChildren():
+                    walk(child)
+
+            walk(dlg)
+            # apply_form writes the baseline; put the real saved baseline back so an unsaved
+            # origin is still unsaved after the fonts change.
+            apply_form(form_now)
+            baseline[0] = saved_baseline
+            refresh_dirty()
+            if policy_now == "retention":
+                retention.SetValue(True)
+            else:
+                move.SetValue(True)
+            keep_ctrl.SetValue(keep_now)
+            keep_ctrl.Enable(policy_now == "retention")
+            report.ChangeValue(report_now)
+            dlg.Layout()
+            scrolled.SetVirtualSize(grid.CalcMin())
+            try:
+                display = wx.DisplaySize()
+                limit_w, limit_h = max(640, display[0] - 80), max(480, display[1] - 80)
+            except Exception:
+                limit_w, limit_h = 1400, 1000
+            best = dlg.GetBestSize()
+            cur = dlg.GetSize()
+            dlg.SetSize(
+                min(limit_w, max(cur.width, best.width)),
+                min(limit_h, max(cur.height, best.height)),
+            )
+            if focused is not None:
+                focused.SetFocus()
+
+        def enlarge(_evt=None) -> None:
+            apply_text_scale(step_text_scale(scale_state["value"], 1), persist=True)
+
+        def shrink(_evt=None) -> None:
+            apply_text_scale(step_text_scale(scale_state["value"], -1), persist=True)
+
+        def reset_size(_evt=None) -> None:
+            apply_text_scale(step_text_scale(scale_state["value"], 0), persist=True)
+
+        larger.Bind(wx.EVT_BUTTON, enlarge)
+        smaller.Bind(wx.EVT_BUTTON, shrink)
+        reset_text.Bind(wx.EVT_BUTTON, reset_size)
+
+        def on_char_hook(evt) -> None:
+            if not (evt.CmdDown() or evt.ControlDown()):
+                evt.Skip()
+                return
+            code = evt.GetKeyCode()
+            plus = {ord("="), ord("+")}
+            minus = {ord("-"), ord("_")}
+            zero = {ord("0")}
+            if hasattr(wx, "WXK_NUMPAD_ADD"):
+                plus.add(wx.WXK_NUMPAD_ADD)
+            if hasattr(wx, "WXK_NUMPAD_SUBTRACT"):
+                minus.add(wx.WXK_NUMPAD_SUBTRACT)
+            if hasattr(wx, "WXK_NUMPAD0"):
+                zero.add(wx.WXK_NUMPAD0)
+            if code in plus:
+                enlarge()
+            elif code in minus:
+                shrink()
+            elif code in zero:
+                reset_size()
+            else:
+                evt.Skip()
+
+        dlg.Bind(wx.EVT_CHAR_HOOK, on_char_hook)
+        # macOS trackpad pinch arrives as wxEVT_MAGNIFY (a delta) and, on some wx builds,
+        # wxEVT_GESTURE_ZOOM (a factor since the gesture started). If neither binder exists,
+        # the buttons and shortcuts still work.
+        if hasattr(wx, "EVT_MAGNIFY"):
+
+            def on_magnify(evt) -> None:
+                delta = evt.GetMagnification() if hasattr(evt, "GetMagnification") else 0.0
+                apply_text_scale(scale_from_magnify_delta(scale_state["value"], delta), persist=True)
+
+            dlg.Bind(wx.EVT_MAGNIFY, on_magnify)
+        if hasattr(wx, "EVT_GESTURE_ZOOM"):
+
+            def on_zoom(evt) -> None:
+                if getattr(evt, "IsGestureStart", lambda: False)():
+                    scale_state["gesture_start"] = scale_state["value"]
+                start = scale_state["gesture_start"]
+                if start is None:
+                    start = scale_state["value"]
+                factor = evt.GetZoomFactor() if hasattr(evt, "GetZoomFactor") else 1.0
+                apply_text_scale(scale_from_zoom_factor(start, factor), persist=False)
+                if getattr(evt, "IsGestureEnd", lambda: False)():
+                    scale_state["gesture_start"] = None
+                    save_text_scale(scale_path, scale_state["value"])
+
+            dlg.Bind(wx.EVT_GESTURE_ZOOM, on_zoom)
+
         dlg.SetSizer(root)
         dlg._board_controls = controls  # tests set values without a click on each field
+        dlg._text_scale = scale_state
+        apply_text_scale(scale_state["value"], persist=False)
         dlg.CentreOnScreen()
         if not show:
             return
