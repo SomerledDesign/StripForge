@@ -2,8 +2,8 @@
 # Copyright (C) 2026 Somerled Design
 """KiCad action "StripForge: Dialog" (plugin.json). KiCad 10 passes no arguments to Python actions.
 
-Temporary extra button for the shared window. The other toolbar buttons stay until that window
-covers the workflow.
+The only StripForge toolbar button. Analyze, Build strips, Add links, Run DRC, Build sheet and
+Restore last are inside this window.
 """
 
 import sys

@@ -4,15 +4,14 @@ Clicks in KiCad can't be automated, so run these by hand after an install (READM
 KiCad"). Use a **copy** of a project, because Build strips writes files next to the board.
 
 For a circuit check, unzip `tests/fixtures/ledswitch25/LedSwitch25-kicad.zip` (sha256
-`cf5b92d393f2172d25f48329f92281ed4a41d2f8a8290fcf72f68dd8cbb09e6c`, 25859 bytes) to a new folder.
+`b98f3c460938e215e9c3e6cbf87239d3cb8fce3c77d736c215f4c69600832209`, 26091 bytes) to a new folder.
 Ignore `__MACOSX`, `.DS_Store`, and lock files. Do not use
 `LedSwitch25-kicad-2026-11-07-2158.zip`, a 9022-byte LedSwitch zip, or the TPI fixture for this
-check. The toml comments describe 25 by 25 at (1.27, 1.27) mm; the settings are 13 by 13, origin
-`[129.54, 104.14]`, `output = "separate"`, `link_lead_allowance_in = 0.15`, move,
-`backup_keep = 0`. Do not rewrite them. On this archive Build strips stops before writing: SW1
-at (134.62, 129.08) mm has a pad 0.920 mm off its hole. Appending `[bend]` / `SW1 = 0.46`
-(millimetres, not in the zip) still stops the build. The steps below are the plugin
-click-through on whatever project you opened.
+check. The toml comments describe 25 by 25 and a 63.5 mm outline at (1.27, 1.27) mm. The
+settings are 13 by 13, origin `[129.54, 104.14]`, `output = "in_place"`,
+`link_lead_allowance_in = 0.15`, move, `backup_keep = 0`. Do not rewrite them. The pcb
+Edge.Cuts span is 33.020 mm, not 38.1 mm. SW1 is on the hole grid, so Build strips does not
+need a `[bend]` line. The steps below are the plugin click-through on whatever project you opened.
 
 1. Quit KiCad fully (KiCad > Quit), then start it again so it scans the plugin folders.
 2. Preferences > Plugins: **Enable KiCad API** is ticked. Keep the default interpreter (KiCad's
@@ -21,9 +20,9 @@ click-through on whatever project you opened.
    creates the plugin's environment in
    `~/Library/Caches/KiCad/10.0/python-environments/com.github.somerleddesign.stripforge`
    (macOS) and installs kicad-python.
-4. **Expect the StripForge buttons** on the PCB editor toolbar: Analyze, Build strips, Add links
-   to schematic, Run DRC, Build sheet, Restore last, and Dialog. Dialog is the shared window; the
-   other buttons stay. If they are missing: check the status-bar warnings, and Preferences >
+4. **Expect one StripForge button** on the PCB editor toolbar: Dialog. Analyze, Build strips,
+   Add links, Run DRC, Build sheet and Restore last are inside that window. The Report wraps
+   long lines. If the button is missing: check the status-bar warnings, and Preferences >
    Plugins > "Recreate Plugin Environment", then reopen the PCB editor.
 5. If the project has an X56-style config, copy it next to the board as `stripboard.toml` (a single other `*.toml`, e.g. `X56.toml`, is also picked up; the report says which config was used).
 6. Click **StripForge: Dialog**.
@@ -47,23 +46,22 @@ click-through on whatever project you opened.
      says there are unsaved edits.
    - Click **Analyze** in the window. Expect the report pane (not a second copy of the settings)
      to start with `Board:` and include hole labels (`A1`…).
-7. Click **StripForge: Analyze** on the toolbar.
-   - Expect a "Save the board first?" dialog, then a report dialog that starts with `Board:`,
-     `Config:` and `Netlist: exported from <project>.kicad_sch`.
-   - The report lists the cuts and the links needed, using hole labels (A1…).
-8. Click **StripForge: Build strips** (open the board from the KiCad project manager, so F8 works).
+7. The toolbar does not have a separate Analyze button. Use **Analyze** in the Dialog. The
+   Report pane should include `Config:` and `Netlist:` when a schematic is present, and hole
+   labels (`A1`…). Long lines wrap; there is no horizontal scrollbar.
+8. Click **Build strips** in the Dialog (open the board from the KiCad project manager, so F8 works).
    - Expect a "Save and build" dialog (OK/Cancel), then the report with "Built <name>.kicad_pcb in
      place. Reloaded the built board in the PCB editor." and "Backup: …/stripforge/<Project>-stripforge-backups/
      <Project>-stripforge-YYYY-MM-DD_HHMMSS.zip (save point: …)".
    - The open board now shows B.Cu strips, the cut markers on User.1 and the hole pads.
    - With `place_links = true` (the default) the W links are already on their holes. Click
-     **StripForge: Add links to schematic**: expect "Added N StripForge:Link symbol(s)", a
+     **Add links** in the Dialog: expect "Added N StripForge:Link symbol(s)", a
      "Backup: ….zip (save point: the sheets just before this …)" line and the "close the Schematic Editor WITHOUT saving and
      open it again" note. Reopen the schematic and check the W symbols (right of the drawing),
      then press F8: expect no new or moved footprints.
    - Click **Build strips** again (a rebuild). A second zip appears in the backups folder; the
      first is unchanged (nothing is renamed).
-   - Click **StripForge: Restore last**. Expect a "Step back to this save point?" confirmation
+   - Click **Restore last** in the Dialog. Expect a "Step back to this save point?" confirmation
      naming the newest zip, then "Loaded save point …" and "Reloaded the restored board in the PCB
      editor: respawned where you left off". The board is back to just before the rebuild. A
      `*-stripforge-safety-*.zip` appears beside the save points; the save-point zips are unchanged.
@@ -71,11 +69,11 @@ click-through on whatever project you opened.
      that is the only older one). One more click reports "nothing further to restore" and leaves
      the board and the zips as they are. `stripforge restore <board> --list` / `--backup <zip>`
      still names a zip directly.
-9. Click **StripForge: Run DRC**.
+9. Click **Run DRC** in the Dialog.
    - Expect "parity: checked against the schematic" (the board is `<name>.kicad_pcb`, so kicad-cli
      uses `<name>.kicad_sch` directly).
    - After pass 1, unconnected equals the links still to add. After pass 2 it should be 0.
-10. Click **StripForge: Build sheet**. Expect the browser to open `stripforge/<Project>-stripforge.sheet.html`,
+10. Click **Build sheet** in the Dialog. Expect the browser to open `stripforge/<Project>-stripforge.sheet.html`,
    with a `.pdf` beside it if Google Chrome is installed. Print one page to check the scale ruler.
 11. Error path: close the board (or start the action from an unsaved new board). Expect a readable
     message, not a silent failure.

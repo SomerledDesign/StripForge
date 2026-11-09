@@ -3,7 +3,7 @@
 """Kevin's current LedSwitch25 archive, the only circuit acceptance fixture.
 
 The file ``tests/fixtures/ledswitch25/LedSwitch25-kicad.zip`` is the bytes of
-``Niveus Dropbox/KiCad/LedSwitch25-kicad.zip`` (mtime 2026-11-07 23:22:26 EST, 25859 bytes,
+``Niveus Dropbox/KiCad/LedSwitch25-kicad.zip`` (mtime 2026-11-08 19:58 MST, 26091 bytes,
 sha256 below). It supersedes the 53157-byte archive kept beside it as
 ``LedSwitch25-kicad-2026-11-07-2158.zip``. Read the current file and check the hash. Extract a
 new copy for each scenario. Do not write either zip, replace them, or pack a new one.
@@ -20,10 +20,10 @@ from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parents[1]
 ARCHIVE = ROOT / "tests" / "fixtures" / "ledswitch25" / "LedSwitch25-kicad.zip"
-ZIP_SHA256 = "cf5b92d393f2172d25f48329f92281ed4a41d2f8a8290fcf72f68dd8cbb09e6c"
-ZIP_SIZE = 25859
+ZIP_SHA256 = "b98f3c460938e215e9c3e6cbf87239d3cb8fce3c77d736c215f4c69600832209"
+ZIP_SIZE = 26091
 # LedSwitch25.kicad_pcb inside the current zip. This archive has no KiCad backup zip.
-PCB_SHA256 = "b7e624dfb801e234b9702f0bb3d378ebb75cdc443f0ad07bce8c79210ee760c4"
+PCB_SHA256 = "67523a6f52b6d0ae74961c9b9216f4684ee65db5ad89f6560b55f8defff8d2a2"
 HISTORICAL_ZIP = ARCHIVE.with_name("LedSwitch25-kicad-2026-11-07-2158.zip")
 HISTORICAL_SHA256 = "a6686c6265ef05eb9a9ed1c85a405f472a3deab466ef3f64e4825496b0ba4592"
 HISTORICAL_SIZE = 53157

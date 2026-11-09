@@ -58,8 +58,8 @@ TITLES = {
     "restore": "StripForge: Restore last",
     "dialog": "StripForge: Dialog",
 }
-# Actions the shared dialog can run. The matching toolbar buttons stay until this window
-# is the one used for the whole workflow. Order is the build workflow, then undo.
+# Actions inside the Dialog window. The toolbar has only StripForge: Dialog.
+# Order is the build workflow, then undo.
 DIALOG_ACTIONS = (
     ("analyze", "Analyze"),
     ("build", "Build strips"),
@@ -437,10 +437,10 @@ def dialog_snapshot(board: Path) -> str:
     lines.append(f"drc.allow_overlap: {_fmt(pairs)}")
     lines.append("")
     lines.append(
-        "This is the shared StripForge window. The separate toolbar buttons stay until this window "
-        "covers the workflow; they are not a second product."
+        "This is the only StripForge toolbar button. Analyze, Build strips, Add links, Run DRC, "
+        "Build sheet and Restore last are in this window."
     )
-    lines.append("Actions here run the same code as those buttons. Analyze is unchanged.")
+    lines.append("The Report wraps long lines. Analyze is unchanged.")
     lines.append(
         "With wxPython, the Board tab writes these settings to stripboard.toml. Origin is the centre "
         "of hole A1, not the outline corner. The Backup tab writes the backup policy."
@@ -572,6 +572,7 @@ class Ui:
             default_dialog_text_scale_path,
             load_text_scale,
             point_size,
+            report_text_style,
             save_text_scale,
             scale_from_magnify_delta,
             scale_from_zoom_factor,
@@ -790,7 +791,7 @@ class Ui:
             dlg,
             value="Results appear here after Analyze, Build strips, Add links, Run DRC, "
             "Build sheet, or Restore last.",
-            style=wx.TE_MULTILINE | wx.TE_READONLY | wx.HSCROLL,
+            style=report_text_style(wx),
         )
         report.SetFont(make_font(scale_state["value"], teletype=True))
         report.SetMinSize(dip_size(dlg, -1, 96))
@@ -1159,7 +1160,9 @@ class Ui:
         wx = self.wx
         dlg = wx.Dialog(None, title=title, size=(900, 640), style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
         box = wx.BoxSizer(wx.VERTICAL)
-        txt = wx.TextCtrl(dlg, value=text, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.HSCROLL)
+        from stripforge.dialog_text import report_text_style
+
+        txt = wx.TextCtrl(dlg, value=text, style=report_text_style(wx))
         try:
             reported = int(wx.SystemSettings.GetFont(wx.SYS_DEFAULT_GUI_FONT).GetPointSize())
         except Exception:
@@ -1380,7 +1383,7 @@ def _open_dialog(ui, kicad, board_doc, board, project_name) -> int:
         ui.report(
             TITLES["dialog"],
             snapshot + "\n\nResult: no dialog (wxPython is missing)\n\n"
-            "The toolbar buttons still run each action. The backup policy was not changed.",
+            "The toolbar has only this Dialog button. The backup policy was not changed.",
         )
         return 0
 

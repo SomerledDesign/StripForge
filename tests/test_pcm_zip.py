@@ -25,7 +25,7 @@ def mk():
 def test_versions_agree(mk):
     v = mk.versions()
     assert len(set(v.values())) == 1, v
-    assert v["pyproject.toml"] == "0.2.1"
+    assert v["pyproject.toml"] == "0.3.0"
 
 
 def test_repo_metadata_is_an_ipc_plugin(mk):

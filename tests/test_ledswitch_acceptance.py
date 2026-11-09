@@ -39,8 +39,8 @@ from stripforge.sexpr import atom, find, find_all, head, parse
 from stripforge.writer import place_new_link
 
 USER_TRACK = "USER-ORIGINAL-GEOMETRY"
-# Kevin, 2026-11-08: working copy only. Not in the canonical zip. Millimetres, one ref.
-APPROVED_SW1_BEND = "[bend]\nSW1 = 0.46\n"
+# The archived Edge.Cuts rectangle. Kevin described a 1.5 in (38.1 mm) square. This file is not that.
+OUTLINE_NM = (127_000_000, 101_600_000, 160_020_000, 134_620_000)
 
 
 def _sha(path) -> str:
@@ -68,7 +68,7 @@ def test_archive_checksum_and_a_fresh_extract_cannot_replace_it(tmp_path):
     assert (again / "LedSwitch25.kicad_pcb").read_bytes() != board.read_bytes()
 
 
-def test_archived_board_against_its_settings(tmp_path):
+def test_archived_board_against_its_settings(tmp_path, capsys):
     project = extract(tmp_path / "proj")
     board = project / "LedSwitch25.kicad_pcb"
     toml_path = project / "stripboard.toml"
@@ -77,7 +77,7 @@ def test_archived_board_against_its_settings(tmp_path):
     cfg = load(toml_path)
     assert (cfg.rows, cfg.cols, cfg.origin_mm, cfg.pitch_mm) == (13, 13, (129.54, 104.14), 2.54)
     assert cfg.backup_policy == "move" and cfg.backup_keep == 0
-    assert cfg.output == "separate" and cfg.link_lead_allowance_in == pytest.approx(0.15)
+    assert cfg.output == "in_place" and cfg.link_lead_allowance_in == pytest.approx(0.15)
     assert cfg.bend == {}
     assert toml_path.read_text() == toml  # loading does not rewrite the file
 
@@ -88,14 +88,19 @@ def test_archived_board_against_its_settings(tmp_path):
     assert "segment" not in counts and "via" not in counts and "arc" not in counts
     loaded = load_board(board)
     assert len(loaded.footprints) == 9 and len(loaded.pads) == 20
-    assert loaded.outline == (127_000_000, 101_600_000, 160_020_000, 134_620_000)
-    # 13 holes at 2.54 mm from that origin end on the outline's far edges.
-    assert 129.54 + 12 * 2.54 == pytest.approx(160.02)
-    assert 104.14 + 12 * 2.54 == pytest.approx(134.62)
+    assert loaded.outline == OUTLINE_NM
+    x0, y0, x1, y1 = (v / 1e6 for v in loaded.outline)
+    assert (x1 - x0, y1 - y0) == pytest.approx((33.02, 33.02))
+    assert (x1 - x0) != pytest.approx(38.1)
+    # Hole centres: 2.54 mm inside the near edges, and on the far edges. Not a 38.1 mm board.
+    assert 129.54 - x0 == pytest.approx(2.54) and 104.14 - y0 == pytest.approx(2.54)
+    assert 129.54 + 12 * 2.54 == pytest.approx(x1)
+    assert 104.14 + 12 * 2.54 == pytest.approx(y1)
 
     assert not (project / "LedSwitch25-backups").exists()
     sw1_fp = loaded.footprint("SW1")
-    assert (sw1_fp.x_nm / 1e6, sw1_fp.y_nm / 1e6) == pytest.approx((134.62, 129.08))
+    assert sw1_fp.lib_id == "Button_Switch_THT:SW_Slide-03_Wuerth-WS-SLTV_10x2.5x6.4_P2.54mm"
+    assert (sw1_fp.x_nm / 1e6, sw1_fp.y_nm / 1e6) == pytest.approx((129.54, 127.0))
     for ref in ("R2", "R3", "R5"):
         pads = loaded.footprint(ref).pads
         span = ((pads[0].x_nm - pads[1].x_nm) ** 2 + (pads[0].y_nm - pads[1].y_nm) ** 2) ** 0.5
@@ -107,20 +112,29 @@ def test_archived_board_against_its_settings(tmp_path):
         "grid: the configured 13x13 grid (A1-M13, 33.020 x 33.020 mm) extends past "
         "the Edge.Cuts outline (33.020 x 33.020 mm)"
     ]
-    assert [s.ref for s in analysis.rejected] == ["SW1"]
+    assert analysis.rejected == []
     accepted = sorted(s.ref for s in analysis.snaps if s.accepted)
-    assert accepted == ["BT1", "C1", "D1", "D2", "Q1", "R2", "R3", "R5"]
-    sw1 = next(s for s in analysis.rejected if s.ref == "SW1")
-    assert sw1.max_dev_nm == 920_000
+    assert accepted == ["BT1", "C1", "D1", "D2", "Q1", "R2", "R3", "R5", "SW1"]
     assert toml_path.read_text() == toml
 
-    # Archived output is separate. No --in-place override on this check.
+    # Archived output is in_place. No bend override. The 13th row and column sit on the far
+    # Edge.Cuts, so the build keeps only the holes inside that 33.02 mm outline.
     code = main(["build", str(board), "--config", str(toml_path)])
-    assert code == 2
-    assert board.read_bytes() == original_pcb
+    assert code == 0
+    assert board.read_bytes() != original_pcb
+    built = load_board(board)
+    assert built.outline == OUTLINE_NM
+    for node in built.doc.root:
+        if head(node) != "segment":
+            continue
+        for tag in ("start", "end"):
+            pt = find(node, tag)
+            x, y = float(pt[1]), float(pt[2])
+            assert 127.0 <= x <= 160.02 and 101.6 <= y <= 134.62
+    report = capsys.readouterr().out
+    assert "A1-L12" in report and "extends past Edge.Cuts" in report
     assert toml_path.read_text() == toml
-    assert not (project / "stripforge").exists()
-    assert layout.backups(board, cfg) == []
+    assert layout.backups(board, cfg)
     assert hashlib.sha256(archive_bytes()).hexdigest() == ZIP_SHA256
     assert HISTORICAL_ZIP.is_file()
     assert HISTORICAL_ZIP.stat().st_size == HISTORICAL_SIZE
@@ -130,7 +144,7 @@ def test_archived_board_against_its_settings(tmp_path):
 def test_restore_returns_to_the_archived_board(tmp_path, capsys):
     """Six save points of this archive's own board, then six restores.
 
-    This is not six builds. The archived build is refused before it writes a save point.
+    This is not six builds. A separate test builds this archive six times.
     """
     before = archive_bytes()
     project = extract(tmp_path / "proj")
@@ -218,55 +232,35 @@ def test_raw_bend_on_the_archived_toml_then_restore_checks(tmp_path):
     assert archive_bytes() == before
 
 
-def _apply_approved_sw1_bend(project):
-    """Append the approved bend with the editor save helper. Other text stays as archived."""
-    path = project / "stripboard.toml"
-    text, baseline = read_stripboard_text(path)
-    edited = text if text.endswith("\n") else text + "\n"
-    edited += APPROVED_SW1_BEND
-    cfg = save_stripboard_text(path, edited, baseline)
-    return path, edited, cfg
+def test_six_builds_then_six_restores_return_the_archived_board(tmp_path, capsys):
+    """Six in-place builds, then six restores, back to the archived pcb bytes.
 
-
-def test_approved_sw1_bend_still_refuses_the_moved_switch(tmp_path, capsys):
-    """The 0.46 mm bend is still only a disposable override, and it no longer lets a build start.
-
-    SW1 moved to (134.62, 129.08). Pad 3 is 0.920 mm off its hole. The archived separate build
-    exits 2 and writes nothing. Appending the previously approved ``SW1 = 0.46`` and building
-    in place (an explicit override of ``output = "separate"``) also exits 2: the residual is a
-    0.460 mm grid shift, and 0.92 mm is over the loader's 0.5 mm bend maximum. Six builds are
-    not run. The zip is not changed.
+    SW1 needs no bend override. The outline is 33.02 mm, so each build writes A1-L12, not a
+    13 by 13 of copper. The zip is not changed.
     """
     before = archive_bytes()
     project = extract(tmp_path / "proj")
     board = project / "LedSwitch25.kicad_pcb"
+    toml_path = project / "stripboard.toml"
     original = board.read_bytes()
-    toml_path, edited, cfg = _apply_approved_sw1_bend(project)
-    assert list(cfg.bend) == ["SW1"] and cfg.bend["SW1"] == pytest.approx(0.46)
-    assert cfg.output == "separate" and cfg.link_lead_allowance_in == pytest.approx(0.15)
-    assert cfg.rows == 13 and cfg.origin_mm == (129.54, 104.14)
-    assert cfg.backup_policy == "move" and cfg.backup_keep == 0
-    assert edited.endswith(APPROVED_SW1_BEND)
-    with pytest.raises(ValueError, match="0.5 mm"):
-        save_stripboard_text(toml_path, edited.replace("SW1 = 0.46", "SW1 = 0.92"), toml_path.read_bytes())
-    assert toml_path.read_text() == edited
-
-    code = main(["build", str(board), "--config", str(toml_path), "--in-place"])
-    err = capsys.readouterr().err
-    assert code == 2
-    assert "0.920 mm" in err and "(0.000, 0.460)" in err
+    cfg = load(toml_path)
+    assert cfg.output == "in_place" and cfg.bend == {}
+    for _ in range(6):
+        assert main(["build", str(board), "--config", str(toml_path)]) == 0
+        capsys.readouterr()
+    assert len(layout.backups(board, cfg)) == 6
+    for _ in range(6):
+        assert main(["restore", str(board), "--config", str(toml_path)]) == 0
+        capsys.readouterr()
     assert board.read_bytes() == original
-    assert layout.backups(board) == []
-    assert b"StripForge:CUT_" not in board.read_bytes()
     assert archive_bytes() == before
 
 
 def test_link_symbols_resolve_on_the_archived_schematic(tmp_path):
     """W footprints get a StripForge:Link whose uuid is the footprint path KiCad looks up.
 
-    ``stripforge build`` still exits 2 because of SW1, so this does not move SW1 and does not
-    loosen the bend limit. The link footprints are placed by the same helper the build uses,
-    then Add links to schematic is run twice. The canonical zip is not written.
+    The links are placed by the same helper the build uses, without moving SW1. Add links to
+    schematic is run twice. The canonical zip is not written.
     """
     before = archive_bytes()
     project = extract(tmp_path / "proj")
@@ -274,7 +268,7 @@ def test_link_symbols_resolve_on_the_archived_schematic(tmp_path):
     sw1 = next(fp for fp in load_board(board_path).footprints if fp.ref == "SW1")
     sw1_at = (sw1.x_nm, sw1.y_nm)
     cfg = load(project / "stripboard.toml")
-    assert cfg.output == "separate" and cfg.bend == {}
+    assert cfg.output == "in_place" and cfg.bend == {}
     analysis = analyze(board_path, cfg)
     plan = links_mod.propose(analysis)
     assert plan.links

@@ -38,8 +38,10 @@ def test_packaged_pngs_have_no_iccp_or_chrm():
         types = chunk_types(path.read_bytes())
         assert "iCCP" not in types, path.name
         assert "cHRM" not in types, path.name
-    assert (ROOT / "plugins" / "icons" / "dialog-24.png").is_file()
-    assert (ROOT / "plugins" / "icons" / "dialog-48.png").is_file()
+    assert sorted(p.name for p in (ROOT / "plugins" / "icons").glob("*.png")) == [
+        "dialog-24.png",
+        "dialog-48.png",
+    ]
 
 
 def test_pcm_zip_entries_do_not_include_doc_screenshots():

@@ -7,6 +7,7 @@ from __future__ import annotations
 from stripforge.config import board_editor_labels, board_form_groups
 from stripforge.dialog_text import (
     MAC_BODY_POINT_SIZE,
+    REPORT_STYLE_NAMES,
     SCALE_DEFAULT,
     SCALE_MAX,
     SCALE_MIN,
@@ -34,6 +35,25 @@ def test_default_body_is_the_system_font_and_not_the_old_10pt_request():
     assert point_size(1.25, 13) == 16
     assert point_size(2.0, 13) == 26  # one multiply, not a second pass
     assert point_size(1.0, baseline_point_size(10, "darwin")) == 13
+
+
+def test_report_style_word_wraps_without_a_horizontal_scrollbar():
+    assert REPORT_STYLE_NAMES == ("TE_MULTILINE", "TE_READONLY", "TE_WORDWRAP")
+    assert "TE_DONTWRAP" not in REPORT_STYLE_NAMES
+    assert "HSCROLL" not in REPORT_STYLE_NAMES and "TE_HSCROLL" not in REPORT_STYLE_NAMES
+
+    class Wx:
+        TE_MULTILINE = 1
+        TE_READONLY = 2
+        TE_WORDWRAP = 4
+        TE_DONTWRAP = 8
+        HSCROLL = 16
+
+    from stripforge.dialog_text import report_text_style
+
+    style = report_text_style(Wx)
+    assert style == 1 | 2 | 4
+    assert style & Wx.TE_DONTWRAP == 0 and style & Wx.HSCROLL == 0
 
 
 def test_board_form_groups_cover_every_field_once():

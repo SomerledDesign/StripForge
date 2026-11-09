@@ -9,7 +9,7 @@
 ![KiCad 10](https://img.shields.io/badge/KiCad-10-314CB0)
 ![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)
 
-> **Beta (0.2.1).** KiCad 10 only. So far it has been tested on one real board (an ATtiny10
+> **Beta (0.3.0).** KiCad 10 only. So far it has been tested on one real board (an ATtiny10
 > programming fixture on a 24 × 56 hole stripboard). It works well there, but expect rough
 > edges on other boards. Keep backups, check the DRC, and please report what you find.
 
@@ -62,23 +62,23 @@ StripForge is a KiCad 10 **IPC plugin**. It is not in KiCad's official Plugin an
 2. Build both packages with `python tools/make_pcm_zip.py` (they land in `dist/`), or take them
    from a release. KiCad's addon guide wants a plugin package and a library package, not one zip
    of both. In the Plugin and Content Manager, click **Install from File…** and install
-   `StripForge-libraries-0.2.1-pcm.zip` first, then `StripForge-0.2.1-pcm.zip`:
+   `StripForge-libraries-0.3.0-pcm.zip` first, then `StripForge-0.3.0-pcm.zip`:
 
    <img src="docs/images/install-pcm-install-from-file.png" alt="KiCad's Plugin and Content Manager, with the Install from File button at the bottom left" width="560">
 
    <img src="docs/images/install-pick-zip-dist.png" alt="The file dialog open on the dist folder, showing StripForge-0.1.0-pcm.zip and StripForge-0.2.0-pcm.zip" width="330"> <img src="docs/images/install-zip-selected.png" alt="StripForge-0.2.0-pcm.zip selected in the file dialog" width="210">
 
-   StripForge then shows on the **Installed** tab as version 0.2.1:
+   StripForge then shows on the **Installed** tab as version 0.3.0:
 
    <img src="docs/images/install-pcm-installed.png" alt="The Installed tab of the Plugin and Content Manager: StripForge 0.2.0, compatible, with its description and metadata" width="640">
 
 3. **Restart KiCad.** The first time you open a board, KiCad sets up the plugin's Python
-   environment, which takes a minute. The PCB editor toolbar then shows **Analyze**, **Build
-   strips**, **Add links to schematic**, **Run DRC**, **Build sheet**, **Restore last**, and
-   **Dialog**. Dialog opens the shared window (settings, backup policy, and those same actions).
-   The separate buttons stay until that window is the one you use for the whole job.
+   environment, which takes a minute. The PCB editor toolbar shows one button, **Dialog**. It
+   opens the window with the Board and Backup tabs. Analyze, Build strips, Add links, Run DRC,
+   Build sheet and Restore last are buttons in that window. The Report wraps long lines.
 
-   <img src="docs/images/plugin-toolbar-buttons.png" alt="The PCB editor toolbar with the five StripForge buttons at the right: Analyze (A), Build strips (B), Run DRC (D), Add links to schematic (L) and Build sheet (S); the sixth, Restore last (R), is newer than this screenshot" width="511">
+   The picture below is from 0.2.x, when the toolbar had a button per action. 0.3.0 does not.
+   <img src="docs/images/plugin-toolbar-buttons.png" alt="Older screenshot: the PCB editor toolbar with several StripForge buttons. 0.3.0 has only Dialog." width="511">
 
 4. **Check the footprint and symbol libraries.** KiCad's manual says a library package is added
    to the global tables, and the default nickname prefix is `PCM_`. This was not clicked in KiCad
@@ -123,8 +123,8 @@ a half-built environment with no pip, and it keeps reusing it even after you ins
 2. Install the venv package: `sudo apt install python3-venv`.
 3. Delete the broken environment:
    `rm -rf ~/.cache/kicad/10.0/python-environments/com.github.somerleddesign.stripforge`
-4. Open the PCB editor again and give it a few seconds to install. The six buttons appear at the
-   right end of the top toolbar; maximise the window if only the first one shows.
+4. Open the PCB editor again and give it a few seconds to install. The Dialog button appears at the
+   right end of the top toolbar.
 
 (The folder is `~/.cache/kicad/10.0/python-environments/` on a standard Linux install; check the
 exact name and case with `ls ~/.cache | grep -i kicad` if yours differs. On macOS it is
@@ -141,7 +141,7 @@ write into the board without a dialog to confirm it. To fix it, set Preferences 
 `wxpython`), then **Recreate Plugin Environment** and restart KiCad.
 
 StripForge isn't listed under Tools > External Plugins, because that menu is for the older SWIG
-plugins; the toolbar buttons are where it lives. If it still doesn't load, start the PCB editor from
+plugins; the Dialog toolbar button is where it lives. If it still doesn't load, start the PCB editor from
 a terminal with `KICAD_ENABLE_WXTRACE=1 WXTRACE=KICAD_API pcbnew` and look at the lines starting
 with `Manager:`.
 
@@ -307,7 +307,7 @@ explains each one.
 
 ## Status
 
-**Beta, 0.2.1.** StripForge runs inside KiCad 10's PCB editor (the IPC plugin above) and as a
+**Beta, 0.3.0.** StripForge runs inside KiCad 10's PCB editor (the IPC plugin above) and as a
 command line (`stripforge analyze | snap | build | link-symbols | drc | sheet`, see
 [Development](#development)). Tested with KiCad 10.0.4 on macOS, on one real board. Not yet in the
 official PCM.
@@ -325,7 +325,7 @@ API is avoided because KiCad 11 removes it. Python 3.9+ (KiCad 10's bundled Pyth
 | **M1: Model and splitting** | Pure-Python grid snap, strip model, cut placement, net per piece, link proposals and validation, with unit tests and a JSON plan output. |
 | **M2: Board output and DRC** | File-backend `.kicad_pcb` writer, `kicad-cli` DRC wrapper and classifier, the two-pass link flow, and mutation tests proving DRC guards the layout. |
 | **M3: Build sheet and IPC** | Mirrored SVG/PDF build sheet with cut and link lists; the KiCad plugin. Done in 0.1.0; 0.2.0 is the first beta. |
-| **M4** (in progress) | Done on this line of work: fail loudly (0.2.1); save-point zips and Restore last; diagonal links off by default. The shared Dialog window shows settings, edits backup policy (default move, never delete; retention is opt-in), and runs the existing actions. The separate toolbar buttons stay for now. See [Sketch.md](Sketch.md) §7. |
+| **M4** | In 0.3.0: fail loudly (0.2.1); save-point zips and Restore last walking back to the first save; diagonal links off by default; backup policy defaults to move and never deletes unless retention is chosen. The toolbar has one button, Dialog. That window edits settings, the raw stripboard.toml, and the backup policy, and runs the actions. See [Sketch.md](Sketch.md) §7. |
 | **Later** | More boards tested, pre-drilled mounting holes, the official PCM. |
 
 ## Reference
@@ -378,14 +378,16 @@ embeds the symbol in the schematic.
 
 The acceptance circuit is Kevin's **LedSwitch25** project, the zip
 [tests/fixtures/ledswitch25/LedSwitch25-kicad.zip](tests/fixtures/ledswitch25/LedSwitch25-kicad.zip)
-(25859 bytes, sha256 `cf5b92d393f2172d25f48329f92281ed4a41d2f8a8290fcf72f68dd8cbb09e6c`,
-2026-11-07 23:22:26 EST). Check the hash, extract a new copy, and do not edit or re-zip the
+(26091 bytes, sha256 `b98f3c460938e215e9c3e6cbf87239d3cb8fce3c77d736c215f4c69600832209`,
+2026-11-08 19:58 MST). Check the hash, extract a new copy, and do not edit or re-zip the
 archive. The previous zip is `LedSwitch25-kicad-2026-11-07-2158.zip` in that same folder and is
-not current. The toml comments still say 25 by 25 and origin (1.27, 1.27) mm. The settings are
-13 by 13, origin `[129.54, 104.14]`, `output = "separate"`, `link_lead_allowance_in = 0.15`,
-`backup_policy = "move"`, `backup_keep = 0`. Leave that file as it is. An older LedSwitch zip,
-including a 9022-byte copy, is not this archive. The working-copy line `[bend]` / `SW1 = 0.46`
-(millimetres) is not in the zip and does not make this placement build.
+not current. The toml comments still say 25 by 25, a 63.5 mm outline, and origin (1.27, 1.27) mm.
+The settings are 13 by 13, origin `[129.54, 104.14]`, `output = "in_place"`,
+`link_lead_allowance_in = 0.15`, `backup_policy = "move"`, `backup_keep = 0`. Leave that file as
+it is. The Edge.Cuts rectangle in the pcb is 33.020 mm square, from (127.00, 101.60) to
+(160.02, 134.62), not the 38.1 mm (1.5 in) square described for this board. An older LedSwitch
+zip, including a 9022-byte copy, is not this archive. SW1 is on the hole grid and the archived
+build does not use a `[bend]` override.
 
 The **ATtiny10 TPI** boards stay unit fixtures (22 real parts in
 [examples/tpi-fixture](examples/tpi-fixture/); the 25-part M1 board is frozen in
@@ -878,7 +880,7 @@ src/stripforge/
   drc.py          kicad-cli pcb drc wrapper + classifier
   buildsheet.py   stripforge sheet: printable HTML/PDF build sheet, view SVGs/PNGs, cuts CSV
   backends/       file (.kicad_pcb), ipc (kipy; stub), swig_fallback (isolated, unused)
-plugins/          KiCad 10 IPC plugin: plugin.json, sf_*.py entry scripts, stripforge_plugin.py, icons
+plugins/          KiCad 10 IPC plugin: plugin.json, sf_dialog.py, stripforge_plugin.py, icons
 symbols/          StripForge.kicad_sym: the generic StripForge:Link symbol (2 passive pins, ref W,
                   value Link, footprint filter Link_*); bundled in the plugin as plugins/symbols/
 tools/            make_pcm_zip.py (PCM package), make_icons.py (toolbar icons)
@@ -890,9 +892,8 @@ The StripForge icon is `resources/icon.png`: Kevin's 64 × 64 px icon (the coppe
 "StripForge" wordmark, 2026-09-27), used as the KiCad Plugin and Content Manager icon. The PCM
 `metadata.json` schema has no icon field: the PCM takes the icon from `resources/icon.png` in the
 package archive, and from an `icon.png` next to `metadata.json` in the metadata repository. The
-toolbar icons in `plugins/icons/` (24 and 48 px, one per action with a letter badge) are made from
-it by `python tools/make_icons.py`, cropped to the "S" because the wordmark can't be read at
-toolbar size. The larger artwork (`assets/StripForge-icon-1024x1024.png`) is kept for reference.
+The only toolbar icon is `plugins/icons/dialog-24.png` and `dialog-48.png`. Older letter-badge
+icons are not shipped. The larger artwork (`assets/StripForge-icon-1024x1024.png`) is kept for reference.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) and [CHANGELOG.md](CHANGELOG.md).
 

@@ -2,7 +2,7 @@
 
 Unit and regression tests still run on this board. It is not the circuit acceptance project.
 That is `tests/fixtures/ledswitch25/LedSwitch25-kicad.zip` (sha256
-`cf5b92d393f2172d25f48329f92281ed4a41d2f8a8290fcf72f68dd8cbb09e6c`). Do not point an acceptance
+`b98f3c460938e215e9c3e6cbf87239d3cb8fce3c77d736c215f4c69600832209`). Do not point an acceptance
 run at this folder or at an older LedSwitch zip.
 
 This board is Kevin's ATtiny10 TPI programming fixture with the real parts chosen, placed by

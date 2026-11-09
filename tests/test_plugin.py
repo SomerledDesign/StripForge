@@ -41,15 +41,8 @@ def test_plugin_json_follows_the_kicad_10_api_plugin_schema():
     assert len(pj["name"]) <= 200 and len(pj["description"]) <= 500
     assert pj["runtime"]["type"] == "python"
     names = [a["name"] for a in pj["actions"]]
-    assert names == [
-        "StripForge: Analyze",
-        "StripForge: Build strips",
-        "StripForge: Add links to schematic",
-        "StripForge: Run DRC",
-        "StripForge: Build sheet",
-        "StripForge: Restore last",
-        "StripForge: Dialog",
-    ]
+    assert names == ["StripForge: Dialog"]
+    assert len(pj["actions"]) == 1
     ids = [a["identifier"] for a in pj["actions"]]
     assert len(set(ids)) == len(ids)
     for a in pj["actions"]:
@@ -72,9 +65,12 @@ def test_requirements_file_exists_and_pins_kicad_python():
 
 
 def test_entry_scripts_map_to_actions(sfp):
+    text = (PLUGINS / "sf_dialog.py").read_text()
+    assert 'run("dialog")' in text
     for action in sfp.TITLES:
-        text = (PLUGINS / f"sf_{action}.py").read_text()
-        assert f'run("{action}")' in text
+        if action == "dialog":
+            continue
+        assert not (PLUGINS / f"sf_{action}.py").exists()
 
 
 def test_path_helpers(sfp, tmp_path):

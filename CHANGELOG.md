@@ -7,21 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-09
+
 ### Added
 
+- **One toolbar button.** The PCB editor shows StripForge: Dialog only. Analyze, Build strips,
+  Add links, Run DRC, Build sheet and Restore last are inside that window.
+- **The Report wraps.** Long lines in the dialog Report wrap on words. The text stays read-only
+  and can be copied. Text size still applies to it.
+- **Libraries package.** Footprints, the Link symbol, and the straight-link STEP and WRL models
+  install as `StripForge-libraries-0.3.0-pcm.zip`, separate from the plugin zip. Install the
+  libraries package first. Each straight `Link_P*` footprint names its STEP under
+  `${KICAD10_3RD_PARTY}`.
 - **Edit stripboard.toml.** The Board tab opens the same `stripboard.toml` in a resizable text
   window, including `[bend]` and the other tables. The text is checked with the TOML parser and
   the existing config loader, then written as typed. A `[bend]` value is millimetres.
-- **Dialog text size.** Larger text, Smaller text, and Reset text size, plus Command-plus,
+- **Dialog text size.** 100% is the system font, and on macOS that is at least 13pt. Larger text, Smaller text, and Reset text size, plus Command-plus,
   Command-minus, and Command-0 (Ctrl on Windows and Linux). The size is remembered in a per-user
-  file, not in `stripboard.toml`. A trackpad pinch is used when wx sends a magnify gesture.
+  file, not in `stripboard.toml`. A trackpad pinch zooms the dialog when wx sends a magnify
+  gesture. Kevin verified native pinch zoom on his Mac.
 - **StripForge: Dialog (M4a, started).** One shared window has a Board tab and a Backup tab.
   The Board tab edits `stripboard.toml` (origin is the centre of hole A1, not the outline corner;
   rows, columns, pitch, and the other root settings). Save checks the result before replacing the
   file and keeps comments, unknown keys, and the `[bend]` / `[drc]` tables. Unsaved board edits
   block the action buttons. The Backup tab edits the backup policy. Analyze, Build strips, Add
-  links to schematic, Run DRC, Build sheet and Restore last use the same code as the toolbar.
-  The separate buttons stay until that window is the one used for the whole job. Saving the
+  links to schematic, Run DRC, Build sheet and Restore last are buttons in that window.
+  The toolbar has only Dialog. Saving the
   policy does not delete a save point.
 - **Restore last (M4b).** Build strips and Add links to schematic each make a *save point* first:
   a new zip `stripforge/<Project>-stripforge-backups/<Project>-stripforge-YYYY-MM-DD_HHMMSS.zip`

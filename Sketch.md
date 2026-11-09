@@ -653,7 +653,7 @@ real-parts board: 22 footprints, 41 nets, 86 pads, with BT1 slotted.*
 **M4: one dialog, backup policy, safer link defaults (after the M3 freeze; Kevin, 2026-10-02).**
 M4d is in 0.2.1. M4b's save-point zips and Restore last, and M4c's diagonal defaults, are
 implemented on `m4c-no-diagonals` and the integration branch. M4a has started: one shared window,
-with the separate toolbar buttons kept until that window is the one used for the whole job.
+The toolbar has one button, Dialog. The other actions are inside that window.
 
 - **M4a: one StripForge window (in progress).** The end state is still one dialog for settings,
   actions and checks, not a permanent row of extra buttons. Today a temporary **StripForge: Dialog**
@@ -665,8 +665,8 @@ with the separate toolbar buttons kept until that window is the one used for the
   last still use the same code as the toolbar. **Larger text**, **Smaller text**, and **Reset text
   size** (Command-plus, Command-minus, Command-0 on a Mac; Ctrl with those keys on Windows and
   Linux) change the dialog's type size and remember it outside ``stripboard.toml``. A trackpad
-  pinch is applied only when wx delivers a magnify gesture. The six action buttons stay until Kevin is building
-  from the window alone. **Edit stripboard.toml** on the Board tab opens that same file as text,
+  pinch zooms the dialog when wx delivers a magnify gesture. Kevin verified that on his Mac.
+  The toolbar has only the Dialog button. **Edit stripboard.toml** on the Board tab opens that same file as text,
   including `[bend]` (millimetres, the existing loader). The structured fields still do not rewrite
   `[bend]`, `[drc]`, `[manual]`, `[stretch]`, or the per-part choice table. The built-in sheet
   view is not in this window yet.

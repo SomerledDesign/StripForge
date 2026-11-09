@@ -61,6 +61,25 @@ def baseline_point_size(system_point_size: int | None, platform: str) -> int:
     return reported if reported > 0 else FALLBACK_BODY_POINT_SIZE
 
 
+# The dialog Report. Multiline and read-only, wrapped on word boundaries. No horizontal
+# scrollbar and no TE_DONTWRAP. TE_WORDWRAP is omitted by the caller when that wx build
+# does not define it; multiline text then still wraps.
+REPORT_STYLE_NAMES = ("TE_MULTILINE", "TE_READONLY", "TE_WORDWRAP")
+
+
+def report_text_style(wx_module) -> int:
+    """wx style for the dialog Report: word wrap, read-only, no sideways scroll."""
+    style = 0
+    for name in REPORT_STYLE_NAMES:
+        flag = getattr(wx_module, name, None)
+        if flag is None:
+            if name == "TE_WORDWRAP":
+                continue
+            raise AttributeError(name)
+        style |= flag
+    return style
+
+
 def point_size(scale: float, base: int = BASE_POINT_SIZE) -> int:
     """``base`` times the text-size scale, rounded. The scale is applied once."""
     try:
