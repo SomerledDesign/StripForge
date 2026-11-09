@@ -7,6 +7,76 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-09
+
+### Added
+
+- **One toolbar button.** The PCB editor shows StripForge: Dialog only. Analyze, Build strips,
+  Add links, Run DRC, Build sheet and Restore last are inside that window.
+- **The Report wraps.** Long lines in the dialog Report wrap on words. The text stays read-only
+  and can be copied. Text size still applies to it.
+- **Libraries package.** Footprints, the Link symbol, and the straight-link STEP and WRL models
+  install as `StripForge-libraries-0.3.0-pcm.zip`, separate from the plugin zip. Install the
+  libraries package first. Each straight `Link_P*` footprint names its STEP under
+  `${KICAD10_3RD_PARTY}`.
+- **Edit stripboard.toml.** The Board tab opens the same `stripboard.toml` in a resizable text
+  window, including `[bend]` and the other tables. The text is checked with the TOML parser and
+  the existing config loader, then written as typed. A `[bend]` value is millimetres.
+- **Dialog text size.** 100% is the system font, and on macOS that is at least 13pt. Larger text, Smaller text, and Reset text size, plus Command-plus,
+  Command-minus, and Command-0 (Ctrl on Windows and Linux). The size is remembered in a per-user
+  file, not in `stripboard.toml`. A trackpad pinch zooms the dialog when wx sends a magnify
+  gesture. Kevin verified native pinch zoom on his Mac.
+- **StripForge: Dialog (M4a, started).** One shared window has a Board tab and a Backup tab.
+  The Board tab edits `stripboard.toml` (origin is the centre of hole A1, not the outline corner;
+  rows, columns, pitch, and the other root settings). Save checks the result before replacing the
+  file and keeps comments, unknown keys, and the `[bend]` / `[drc]` tables. Unsaved board edits
+  block the action buttons. The Backup tab edits the backup policy. Analyze, Build strips, Add
+  links to schematic, Run DRC, Build sheet and Restore last are buttons in that window.
+  The toolbar has only Dialog. Saving the
+  policy does not delete a save point.
+- **Restore last (M4b).** Build strips and Add links to schematic each make a *save point* first:
+  a new zip `stripforge/<Project>-stripforge-backups/<Project>-stripforge-YYYY-MM-DD_HHMMSS.zip`
+  of every file they are about to write (with a `stripforge-backup.json` listing them and the
+  files that didn't exist yet). The new **StripForge: Restore last** action (and
+  `stripforge restore <board>`, with `--list` and `--backup <zip>`) removes StripForge's work since
+  that save point, unzips the saved files under their own names and reloads the board. Repeat it
+  to walk back to the first save point. The zips are kept. A safety copy is written first and is
+  not the next step.
+- `output_dir` and `backup_dir` config keys (optional, always relative to the project folder).
+- `plugins/templates/project.gitignore`: a `.gitignore` for a KiCad + StripForge project
+  (`*-backups/`, `*.lck`, `*.kicad_prl`, `*.bak`, `fp-info-cache`, `.DS_Store`).
+
+### Changed
+
+- **Restore last walks back to the first save point.** Each Restore last (and `stripforge restore`
+  without `--backup`) loads the next earlier save point, through to the board saved before the
+  first build. Another Restore last then reports that there is nothing earlier and does not change
+  the board or the zips. A safety copy of the current board is written first; those copies are
+  kept and are not what the next Restore last loads. Previously every Restore last loaded only the
+  newest zip, so a second click reloaded that same save.
+- **Backup policy (Kevin, 2026-11-07).** `backup_policy = "move"` is the default, including when
+  the key is absent: save points are kept. `"retention"` is opt-in; then `backup_keep = N` (N ≥ 1)
+  deletes older save-point zips and older sheet copies down to N. A config that only sets
+  `backup_keep` does not start deleting.
+- **Diagonal links are off by default (M4c).** `diagonal_links` now defaults to `false`: a net that
+  needs a diagonal is joined through a spare bus strip or reported. When it is reported and a
+  diagonal would have joined it, the report says so with the shift needed and the setting to change
+  ("It can't be joined without a diagonal link (shifting 4 holes along a strip): set
+  diagonal_links = true in the config with max_diagonal_shift = 4"). With `diagonal_links = true`
+  a diagonal may move at most `max_diagonal_shift` holes along the strip it drops to (new key,
+  default 1, up to 32; 32 gives the 0.2.x behaviour). To keep 0.2.x plans, set both.
+- **Everything StripForge writes goes into a `stripforge/` folder** next to the `.kicad_pro`
+  (`${KIPRJMOD}`), named after the project: `<Project>-stripforge.links.json/.csv/.txt`,
+  `.sheet.html` (and its PDF, SVGs, CSV, PNGs), `.log`, and with `output = "separate"` the built
+  `.kicad_pcb`. The board and its `.kicad_dru` stay next to the `.kicad_pro`. The config is read
+  from `stripforge/stripboard.toml` first, then `stripboard.toml` in the project folder.
+- Backups are never renamed any more (renames make Dropbox create conflicted copies): the rotating
+  `<name>-pre-stripbuild.kicad_pcb`, `<sheet>-pre-links.kicad_sch` and `.sheet-prev.html` chains
+  are replaced by save-point zips and timestamped sheet copies. `backup_keep` now counts zips.
+- Files from 0.2.x next to the board are left where they are; the build report lists them. Old
+  `-pre-stripbuild` backups and link files are still read (manual-link history, DRC link count,
+  a 0.2.x separate output for Run DRC / Build sheet).
+
 ## [0.2.1] - 2026-10-26
 
 ### Added

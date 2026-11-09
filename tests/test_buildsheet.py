@@ -5,10 +5,12 @@ from __future__ import annotations
 import json
 import re
 import shutil
+from pathlib import Path
 
 import pytest
 
 import pass2_sim
+from conftest import X56_DIAGONALS
 from sfbuild import one_pad_board
 from stripforge import __version__, buildsheet, config, writer
 from stripforge.cli import main
@@ -20,15 +22,15 @@ DATE = "2026-09-27"
 @pytest.fixture(scope="module")
 def real(tmp_path_factory):
     """The real-parts fixture built for pass 1 and (simulated) pass 2, with both sheets rendered."""
-    from conftest import REAL_FIXTURE
+    from conftest import REAL_FIXTURE, X56_DIAGONALS
 
     tmp = tmp_path_factory.mktemp("sheet")
     board, net = REAL_FIXTURE / "ATtiny10_TPI_Fixture.kicad_pcb", REAL_FIXTURE / "ATtiny10_TPI_Fixture.net"
-    cfg = config.load(REAL_FIXTURE.parent / "x56.toml")
+    cfg = config.load(X56_DIAGONALS)
     cfg.place_links = False  # the two-pass flow: links proposed, then added by (simulated) F8
     p1 = tmp / "p1" / "fixture.kicad_pcb"
     writer.build(board, cfg, p1, netlist=str(net))
-    links = json.loads(p1.with_name("fixture-stripforge.links.json").read_text())["links"]
+    links = json.loads((p1.parent / "stripforge" / "fixture-stripforge.links.json").read_text())["links"]
     f8 = tmp / "f8"
     f8.mkdir()
     pass2_sim.add_links_to_board(board, links, f8 / "fixture.kicad_pcb")
@@ -227,7 +229,7 @@ def test_part_groups():
 
 def test_cli_sheet_writes_html_svg_and_csv(real, tmp_path, capsys):
     out = tmp_path / "s.html"
-    code = main(["sheet", str(real["p2"]), "--config", str(real["board"].parents[1] / "x56.toml"),
+    code = main(["sheet", str(real["p2"]), "--config", str(X56_DIAGONALS),
                  "-o", str(out), "--no-pdf", "--date", DATE])  # fmt: skip
     text = capsys.readouterr().out
     assert code == 0 and "Cuts: 97, slot jobs: 2, wire links: 40 (40 placed)" in text
@@ -313,14 +315,20 @@ def test_sheet_keeps_the_previous_one_only_when_it_changes(tmp_path):
     assert not res.backups  # same sheet: nothing to keep
     first = out.read_text()
     res = buildsheet.write_sheet(board, cfg, out, pdf=False, date="2026-09-29")
-    prev = tmp_path / "b-stripforge.sheet-prev.html"
-    assert res.backups == [str(prev), str(tmp_path / "b-stripforge.sheet-prev.pdf")]
-    assert prev.read_text() == first and (tmp_path / "b-stripforge.sheet-prev.pdf").read_text() == "old pdf"
+    bak = tmp_path / "stripforge" / "b-stripforge-backups"
+    prev_html, prev_pdf = (Path(b) for b in res.backups)
+    assert prev_html.parent == bak and prev_pdf.parent == bak
+    assert prev_html.name.startswith("b-stripforge.sheet-20") and prev_html.suffix == ".html"
+    assert prev_html.read_text() == first and prev_pdf.read_text() == "old pdf"
     buildsheet.write_sheet(board, cfg, out, pdf=False, date="2026-09-30")
-    assert (tmp_path / "b-stripforge.sheet-prev-1.html").read_text() == first
-    keep1 = BoardConfig(trim_pieces=False, backup_keep=1)
-    buildsheet.write_sheet(board, keep1, out, pdf=False, date="2026-10-01")
-    assert not (tmp_path / "b-stripforge.sheet-prev-1.html").exists()  # backup_keep = 1: just -prev
+    assert len(list(bak.glob("*.html"))) == 2 and prev_html.read_text() == first  # a new name; never renamed
+    kept = BoardConfig(trim_pieces=False, backup_keep=1)  # move is the default: the number does not delete
+    buildsheet.write_sheet(board, kept, out, pdf=False, date="2026-10-01")
+    assert len(list(bak.glob("*.html"))) == 3 and prev_html.is_file()
+    keep1 = BoardConfig(trim_pieces=False, backup_policy="retention", backup_keep=1)
+    buildsheet.write_sheet(board, keep1, out, pdf=False, date="2026-10-02")
+    assert len(list(bak.glob("*.html"))) == 1 and not prev_html.exists()  # retention, keep 1: the newest
+    assert not list(bak.glob("*.zip")) or all("sheet" not in z.name for z in bak.glob("*.zip"))
 
 
 # --- clickable checklists (Kevin 2026-10-02, building the TPI fixture) --------------------------

@@ -1,23 +1,33 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Somerled Design
-"""Build the KiCad Plugin and Content Manager (PCM) package: ``dist/StripForge-<version>-pcm.zip``.
+"""Build the two KiCad PCM packages KiCad's addon guide allows.
 
-    python tools/make_pcm_zip.py [--out dist] [--url https://.../StripForge-0.2.1-pcm.zip]
+    python tools/make_pcm_zip.py [--out dist]
 
-Archive layout (what the PCM expects for a ``plugin`` package; https://dev-docs.kicad.org/en/addons/):
+https://dev-docs.kicad.org/en/addons/ describes a plugin archive and a library archive as
+different packages. The file rules are the ones in
+https://gitlab.com/kicad/addons/metadata/-/blob/main/ci/validate/package.py
 
-    metadata.json            the repo's metadata.json with exactly one version, no download_* fields
-    resources/icon.png       64 x 64 icon shown by the PCM
-    plugins/plugin.json      the KiCad 10 IPC plugin (runtime python), five actions
-    plugins/requirements.txt kicad-python etc., installed by KiCad into the plugin's venv
-    plugins/sf_*.py, plugins/stripforge_plugin.py, plugins/icons/
-    plugins/stripforge/      the StripForge package (src/stripforge, no caches)
-    plugins/footprints/StripForge.pretty/, plugins/rules/stripforge.kicad_dru, plugins/LICENSE
-    plugins/symbols/StripForge.kicad_sym  the generic StripForge:Link symbol (stripforge link-symbols)
+``dist/StripForge-<version>-pcm.zip`` is type ``plugin``:
 
-The zip is deterministic (sorted entries, fixed timestamps and permissions), so the same tree always
-gives the same sha256. It prints the sha256, download_size and install_size for the ``versions``
-entry of the metadata in the PCM repository. Nothing is uploaded.
+    metadata.json, resources/icon.png, plugins/**
+
+The running plugin keeps a private copy of the footprints, the symbol and the DRC rules under
+``plugins/``. That copy is how the plugin reads them. It is not a footprint library KiCad registers.
+
+``dist/StripForge-libraries-<version>-pcm.zip`` is type ``library``:
+
+    metadata.json, resources/icon.png
+    footprints/StripForge.pretty/*.kicad_mod
+    symbols/StripForge.kicad_sym
+    3dmodels/StripForge.3dshapes/*.{step,wrl}
+
+KiCad extracts a library package to ``${KICAD10_3RD_PARTY}/<directory>/<library id>/``. The
+straight-link footprints name that 3D path. The KiCad manual says a library package's libraries
+are added to the global tables, with the ``PCM_`` nickname prefix by default. This script does
+not run KiCad, so that registration is not checked.
+
+Both zips are deterministic. Nothing is uploaded.
 """
 
 from __future__ import annotations
@@ -34,8 +44,29 @@ ROOT = Path(__file__).resolve().parents[1]
 STAMP = (2026, 1, 1, 0, 0, 0)
 SKIP_DIRS = {"__pycache__", ".pytest_cache", ".ruff_cache"}
 SKIP_SUFFIXES = {".pyc", ".pyo"}
-# What ci/validate/package.py in gitlab.com/kicad/addons/metadata allows in a plugin package.
-ALLOWED = (re.compile(r"^metadata\.json$"), re.compile(r"^resources/icon\.png$"), re.compile(r"^plugins/.+"))
+# Same members as ALLOWED_FILES in the KiCad metadata repository validator.
+PLUGIN_FILES = (
+    re.compile(r"^metadata\.json$"),
+    re.compile(r"^resources/icon\.png$"),
+    re.compile(r"^plugins/.+"),
+)
+LIBRARY_FILES = (
+    re.compile(r"^metadata\.json$"),
+    re.compile(r"^resources/icon\.png$"),
+    re.compile(r"^footprints/[^/]+\.pretty/[^/]+\.kicad_mod$"),
+    re.compile(r"^symbols/[^/]+\.kicad_sym$"),
+    re.compile(r"^3dmodels/[^/]+\.3dshapes/[^/]+\.(?:stp|step|stpz|wrl|wrz|iges)$"),
+)
+
+
+def _library_id() -> str:
+    """The library package id. One definition, shared with the footprint model path."""
+    src = str(ROOT / "src")
+    if src not in sys.path:
+        sys.path.insert(0, src)
+    from stripforge.resources import LIBRARY_PCM_ID
+
+    return LIBRARY_PCM_ID
 
 
 def versions(root: Path = ROOT) -> dict[str, str]:
@@ -62,8 +93,7 @@ def _files(src: Path, dest: str) -> list[tuple[Path, str]]:
     return out
 
 
-def entries(root: Path = ROOT) -> list[tuple[Path, str]]:
-    """(source file, archive path) for everything in the package, sorted by archive path."""
+def _plugin_entries(root: Path) -> list[tuple[Path, str]]:
     plugin = [
         p
         for p in sorted((root / "plugins").iterdir())
@@ -80,12 +110,44 @@ def entries(root: Path = ROOT) -> list[tuple[Path, str]]:
     return sorted(items, key=lambda t: t[1])
 
 
+def _library_entries(root: Path) -> list[tuple[Path, str]]:
+    items: list[tuple[Path, str]] = [(root / "resources/icon.png", "resources/icon.png")]
+    items += _files(root / "footprints/StripForge.pretty", "footprints/StripForge.pretty")
+    items += _files(root / "symbols/StripForge.kicad_sym", "symbols/StripForge.kicad_sym")
+    items += _files(root / "3dmodels/StripForge.3dshapes", "3dmodels/StripForge.3dshapes")
+    return sorted(items, key=lambda t: t[1])
+
+
 def package_metadata(root: Path = ROOT) -> dict:
-    """metadata.json for inside the zip: a single version and no download_* fields."""
+    """Plugin metadata.json for inside the plugin zip: one version, no download_* fields."""
     meta = json.loads((root / "metadata.json").read_text())
     if len(meta["versions"]) != 1:
         raise SystemExit("metadata.json must list exactly one version for the package archive")
     meta["versions"] = [{k: v for k, v in meta["versions"][0].items() if not k.startswith("download_")}]
+    return meta
+
+
+def library_metadata(root: Path = ROOT) -> dict:
+    """Library metadata. Same version as the plugin, no plugin runtime, its own identifier."""
+    meta = package_metadata(root)
+    (ver,) = meta["versions"]
+    ver.pop("runtime", None)
+    meta["versions"] = [ver]
+    meta["identifier"] = _library_id()
+    meta["type"] = "library"
+    meta["name"] = "StripForge Libraries"
+    meta["description"] = (
+        "StripForge footprint library, Link symbol, and straight-link 3D models. "
+        "Install this as well as the StripForge plugin."
+    )
+    meta["description_full"] = (
+        "Footprints for StripForge wire links and cut markers (StripForge.pretty), "
+        "the StripForge:Link symbol, and one STEP and one WRL model for each straight "
+        "Link_P footprint. The footprint names the STEP under ${KICAD10_3RD_PARTY}/3dmodels/. "
+        "KiCad's manual says a library package is added to the global library tables with the "
+        "PCM_ nickname prefix by default. Rename that nickname to StripForge if it appears, "
+        "so it matches the footprints the plugin writes. This package does not run the plugin."
+    )
     return meta
 
 
@@ -97,34 +159,46 @@ def _info(name: str) -> zipfile.ZipInfo:
     return zi
 
 
-def build(out_dir: Path, root: Path = ROOT) -> tuple[Path, dict]:
-    """Write the zip; return its path and the numbers for the metadata ``versions`` entry."""
-    vers = versions(root)
-    if len(set(vers.values())) != 1:
-        raise SystemExit(f"version mismatch: {vers}")
-    version = vers["metadata.json"]
-    meta = json.dumps(package_metadata(root), indent=4, ensure_ascii=False).encode() + b"\n"
-    items = entries(root)
+def _zip(out: Path, meta: dict, items: list[tuple[Path, str]], allowed: tuple) -> dict:
     for _, name in items:
-        if not any(r.match(name) for r in ALLOWED):
-            raise SystemExit(f"not allowed in a PCM plugin package: {name}")
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out = out_dir / f"StripForge-{version}-pcm.zip"
-    install = len(meta)
+        if not any(r.match(name) for r in allowed):
+            raise SystemExit(f"not allowed in {out.name}: {name}")
+    raw = json.dumps(meta, indent=4, ensure_ascii=False).encode() + b"\n"
+    install = len(raw)
     with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as z:
-        z.writestr(_info("metadata.json"), meta)
+        z.writestr(_info("metadata.json"), raw)
         for src, name in items:
             data = src.read_bytes()
             install += len(data)
             z.writestr(_info(name), data)
-    data = out.read_bytes()
-    info = {
-        "version": version,
-        "download_sha256": hashlib.sha256(data).hexdigest(),
-        "download_size": len(data),
+    blob = out.read_bytes()
+    return {
+        "version": meta["versions"][0]["version"],
+        "download_sha256": hashlib.sha256(blob).hexdigest(),
+        "download_size": len(blob),
         "install_size": install,
     }
-    return out, info
+
+
+def build(out_dir: Path, root: Path = ROOT) -> dict[str, tuple[Path, dict]]:
+    """Write the plugin zip and the library zip. Return ``{"plugin": (path, info), "library": ...}``."""
+    vers = versions(root)
+    if len(set(vers.values())) != 1:
+        raise SystemExit(f"version mismatch: {vers}")
+    version = vers["metadata.json"]
+    if _library_id() != LIBRARY_ID_EXPECTED:
+        raise SystemExit("library package id does not match stripforge.resources.LIBRARY_PCM_ID")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    plugin = out_dir / f"StripForge-{version}-pcm.zip"
+    library = out_dir / f"StripForge-libraries-{version}-pcm.zip"
+    return {
+        "plugin": (plugin, _zip(plugin, package_metadata(root), _plugin_entries(root), PLUGIN_FILES)),
+        "library": (library, _zip(library, library_metadata(root), _library_entries(root), LIBRARY_FILES)),
+    }
+
+
+# Compared with resources.LIBRARY_PCM_ID inside build(), so the two cannot drift unnoticed.
+LIBRARY_ID_EXPECTED = "com.github.somerleddesign.stripforge.libraries"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -132,15 +206,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", default=str(ROOT / "dist"), help="output directory (default: dist/)")
     ap.add_argument("--url", help="download URL to put in the printed versions entry")
     args = ap.parse_args(argv)
-    out, info = build(Path(args.out))
-    meta = package_metadata()
-    entry = {**meta["versions"][0], **({"download_url": args.url} if args.url else {}), **info}
-    print(f"wrote {out}")
-    print(f"sha256        {info['download_sha256']}")
-    print(f"download_size {info['download_size']}")
-    print(f"install_size  {info['install_size']}")
-    print("versions entry for the PCM repository metadata:")
-    print(json.dumps(entry, indent=4))
+    built = build(Path(args.out))
+    for kind in ("library", "plugin"):
+        out, info = built[kind]
+        print(f"wrote {out}")
+        print(f"sha256        {info['download_sha256']}")
+        print(f"download_size {info['download_size']}")
+        print(f"install_size  {info['install_size']}")
+        print(json.dumps(info, indent=4))
     return 0
 
 

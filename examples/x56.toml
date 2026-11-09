@@ -5,11 +5,17 @@
 # rows, cols and origin_mm are all given, so the grid does not come from Edge.Cuts. The origin
 # is the TPI fixture's first hole; move it to wherever hole A1 sits in your board file. Parts
 # outside A1-X56 are reported as off board.
-# Where Build strips goes: "in_place" (default) builds into <name>.kicad_pcb after saving it as it is
-# to <name>-pre-stripbuild.kicad_pcb (older backups rotate to -1, -2, ...; undo the latest build:
-# delete the board, rename the unnumbered backup back); "separate" writes <name>-stripforge.kicad_pcb
-# and leaves the board alone. backup_keep = N keeps N backups in all (0 = keep every one).
+# Put this file in <project>/stripforge/stripboard.toml (or stripboard.toml next to the .kicad_pro).
+# Where Build strips goes: "in_place" (default) builds into <name>.kicad_pcb; "separate" writes
+# stripforge/<Project>-stripforge.kicad_pcb and leaves the board alone. Every build first makes a
+# save point, a new zip in stripforge/<Project>-stripforge-backups/; "Restore last" (or
+# stripforge restore <board>) steps back one save point at a time, to the first.
+# backup_policy = "move" (the default) keeps every
+# save point. "retention" is opt-in: then backup_keep = N keeps the newest N and deletes older
+# save-point zips (0 still keeps all). A backup_keep number without "retention" does not delete.
+# output_dir / backup_dir (optional, relative to the project folder) move those folders.
 output = "in_place"
+backup_policy = "move"
 backup_keep = 0
 # place_links = true (default): the build places the W link footprints on their holes; then
 # "Add links to schematic" (or stripforge link-symbols <board> --in-place) adds their symbols.
@@ -49,10 +55,11 @@ slot_max_mm = 1.0
 # SW2 = 0.16   # DPDT slide switch: 312 mil rows on 300 mil holes, 6 mil off per row
 
 # Wire links: the longest link the planner may propose (mm; default 81.28 = 32 pitches). Links run
-# from any free hole: down a column, along a strip, on a diagonal (a rotated Link_P* when the
+# from any free hole: down a column, along a strip, on a diagonal if turned on (a rotated Link_P* when the
 # length is whole pitches, else an off-pitch Link_D*), or two links meeting on a bare bus strip.
 # max_link_mm = 81.28
-# diagonal_links = true
+# diagonal_links = false     # the default; true: diagonals when nothing straight fits
+# max_diagonal_shift = 1      # with diagonal_links: at most this many holes sideways (1 to 32)
 # off_pitch_links = true      # false: diagonals only when the length is a whole number of pitches
 # bus_strips = true
 # Build draws every free stripboard hole (plated, on its strip's net; hole cuts bare).

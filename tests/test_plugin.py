@@ -41,13 +41,8 @@ def test_plugin_json_follows_the_kicad_10_api_plugin_schema():
     assert len(pj["name"]) <= 200 and len(pj["description"]) <= 500
     assert pj["runtime"]["type"] == "python"
     names = [a["name"] for a in pj["actions"]]
-    assert names == [
-        "StripForge: Analyze",
-        "StripForge: Build strips",
-        "StripForge: Add links to schematic",
-        "StripForge: Run DRC",
-        "StripForge: Build sheet",
-    ]
+    assert names == ["StripForge: Dialog"]
+    assert len(pj["actions"]) == 1
     ids = [a["identifier"] for a in pj["actions"]]
     assert len(set(ids)) == len(ids)
     for a in pj["actions"]:
@@ -70,9 +65,12 @@ def test_requirements_file_exists_and_pins_kicad_python():
 
 
 def test_entry_scripts_map_to_actions(sfp):
+    text = (PLUGINS / "sf_dialog.py").read_text()
+    assert 'run("dialog")' in text
     for action in sfp.TITLES:
-        text = (PLUGINS / f"sf_{action}.py").read_text()
-        assert f'run("{action}")' in text
+        if action == "dialog":
+            continue
+        assert not (PLUGINS / f"sf_{action}.py").exists()
 
 
 def test_path_helpers(sfp, tmp_path):
@@ -84,18 +82,22 @@ def test_path_helpers(sfp, tmp_path):
     assert sfp.base_stem(tmp_path / "fix-pre-stripbuild.kicad_pcb") == "fix"
     assert sfp.base_stem(tmp_path / "fix-pre-stripbuild-12.kicad_pcb") == "fix"
     assert sfp.built_path(b) == b  # output = "in_place" (default)
-    assert sfp.built_path(b, "separate") == tmp_path / "fix-stripforge.kicad_pcb"
-    assert (
-        sfp.built_path(tmp_path / "fix-stripforge.kicad_pcb", "separate")
-        == tmp_path / "fix-stripforge.kicad_pcb"
-    )
-    assert sfp.backup_path(b) == tmp_path / "fix-pre-stripbuild.kicad_pcb"
-    assert sfp.sheet_path(tmp_path / "fix-stripforge.kicad_pcb") == tmp_path / "fix-stripforge.sheet.html"
-    assert sfp.sheet_path(b) == tmp_path / "fix-stripforge.sheet.html"
+    sf = tmp_path / "stripforge"
+    assert sfp.built_path(b, "separate") == sf / "fix-stripforge.kicad_pcb"
+    assert sfp.built_path(sf / "fix-stripforge.kicad_pcb", "separate") == sf / "fix-stripforge.kicad_pcb"
+    assert sfp.sheet_path(sf / "fix-stripforge.kicad_pcb") == sf / "fix-stripforge.sheet.html"
+    assert sfp.sheet_path(b) == sf / "fix-stripforge.sheet.html"
+    assert sfp.log_path(b) == sf / "fix-stripforge.log"
+    (tmp_path / "LoadMan.kicad_pro").write_text("{}")  # the project's name, not the board's
+    assert sfp.sheet_path(b) == sf / "LoadMan-stripforge.sheet.html"
+    (tmp_path / "LoadMan.kicad_pro").unlink()
     assert sfp.output_mode(None) == "in_place"
     assert sfp.find_config(b) is None
     (tmp_path / "stripboard.toml").write_text("")
     assert sfp.find_config(b) == tmp_path / "stripboard.toml"
+    sf.mkdir()
+    (sf / "stripboard.toml").write_text("")
+    assert sfp.find_config(b) == sf / "stripboard.toml"  # stripforge/ first
     assert sfp.find_schematic(b) is None
     (tmp_path / "proj.kicad_sch").write_text("")
     (tmp_path / "fix.kicad_sch").write_text("")
@@ -108,7 +110,11 @@ def test_check_target_prefers_the_built_sibling(sfp, tmp_path):
     b.write_text("(kicad_pcb)")
     target, note = sfp.check_target(b)
     assert target is None and "Build strips" in note
-    out = tmp_path / "fix-stripforge.kicad_pcb"
+    legacy = tmp_path / "fix-stripforge.kicad_pcb"  # 0.2.x put it next to the board
+    legacy.write_text("(kicad_pcb)")
+    assert sfp.check_target(b)[0] == legacy
+    out = tmp_path / "stripforge" / "fix-stripforge.kicad_pcb"
+    out.parent.mkdir()
     out.write_text("(kicad_pcb)")
     old = time.time() - 100
     os.utime(out, (old, old))
@@ -123,14 +129,14 @@ def test_check_target_prefers_the_built_sibling(sfp, tmp_path):
 def test_cli_args(sfp, tmp_path):
     b, cfg, net = tmp_path / "fix.kicad_pcb", tmp_path / "stripboard.toml", tmp_path / "fix.net"
     assert sfp.cli_args("analyze", b, None) == ["analyze", str(b)]
-    built = str(tmp_path / "fix-stripforge.kicad_pcb")
+    built = str(tmp_path / "stripforge" / "fix-stripforge.kicad_pcb")
     assert sfp.cli_args("build", b, cfg, net) == [
         "build", str(b), "-o", str(b), "--in-place", "--netlist", str(net), "--config", str(cfg),
     ]  # fmt: skip
     assert sfp.cli_args("build", b, cfg, net, mode="separate") == [
         "build", str(b), "-o", built, "--netlist", str(net), "--config", str(cfg),
     ]  # fmt: skip
-    out = tmp_path / "fix-stripforge.kicad_pcb"
+    out = tmp_path / "stripforge" / "fix-stripforge.kicad_pcb"
     sch = tmp_path / "fix.kicad_sch"
     assert sfp.cli_args("drc", out, None, schematic=sch, kicad_cli="/k") == [
         "drc", str(out), "--schematic", str(sch), "--kicad-cli", "/k",
@@ -206,27 +212,111 @@ def test_run_analyze_build_sheet_without_kicad(sfp, project):
     original = (tmp / "fix.kicad_pcb").read_bytes()
     assert sfp.run("build") == 0
     title, text, path = shown[-1]
-    backup = tmp / "fix-pre-stripbuild.kicad_pcb"
+    from stripforge import layout
+
+    (backup,) = layout.backups(tmp / "fix.kicad_pcb")
+    assert backup.parent == tmp / "stripforge" / "fix-stripforge-backups"
     assert path == tmp / "fix.kicad_pcb" and "Built fix.kicad_pcb in place" in text
     assert board.saved == 3 and board.reverted == 1 and "Reloaded the built board" in text
-    assert f"Backup: {backup} (the board just before this build)" in text and "StripForge build:" in text
+    assert f"Backup: {backup} (save point" in text and "StripForge build:" in text
     assert text.count("Backup: ") == 1
-    assert backup.read_bytes() == original and b"StripForge:CUT_" in (tmp / "fix.kicad_pcb").read_bytes()
-    assert (tmp / "fix-stripforge.links.json").is_file()
+    assert layout.read_member(backup, "fix.kicad_pcb").encode() == original
+    assert b"StripForge:CUT_" in (tmp / "fix.kicad_pcb").read_bytes()
+    assert (tmp / "stripforge" / "fix-stripforge.links.json").is_file()
+    assert not list(tmp.glob("fix-pre-stripbuild*")) and not (tmp / "fix-stripforge.log").exists()
 
-    assert sfp.run("build") == 0  # rebuild: the original moves up to -1
-    assert "moved up one: fix-pre-stripbuild-1.kicad_pcb" in shown[-1][1]
-    assert (tmp / "fix-pre-stripbuild-1.kicad_pcb").read_bytes() == original
-    assert backup.read_bytes() == (tmp / "fix.kicad_pcb").read_bytes()  # the built board, before this build
+    built = (tmp / "fix.kicad_pcb").read_bytes()
+    assert sfp.run("build") == 0  # rebuild: a second zip; the first is untouched
+    zips = layout.backups(tmp / "fix.kicad_pcb")
+    assert zips[0] == backup and len(zips) == 2
 
     assert sfp.run("sheet") == 0
     browser, (title, text, path) = shown[-2], shown[-1]
-    assert path == tmp / "fix-stripforge.sheet.html" and path.is_file()
+    assert path == tmp / "stripforge" / "fix-stripforge.sheet.html" and path.is_file()
     assert browser == ("browser", path.as_uri(), None)
     assert "StripForge sheet:" in text
 
     assert sfp.run("drc") == 0
     assert "Result:" in shown[-1][1]
+    assert (tmp / "fix.kicad_pcb").read_bytes() == built
+
+
+def test_restore_last(sfp, project, monkeypatch):
+    tmp, board, shown = project
+    assert sfp.run("restore") == 0
+    assert "No save point yet" in shown[-1][1] and getattr(board, "reverted", 0) == 0
+    original = (tmp / "fix.kicad_pcb").read_bytes()
+    assert sfp.run("build") == 0
+    links = tmp / "stripforge" / "fix-stripforge.links.json"
+    assert links.is_file() and (tmp / "fix.kicad_pcb").read_bytes() != original
+    assert sfp.run("restore") == 2  # no wx: no confirmation dialog, so nothing is changed
+    assert "Result: refused" in shown[-1][1] and links.is_file()
+    asked = []
+    monkeypatch.setattr(sfp.Ui, "confirm_restore", lambda self, b, z: asked.append(z.name) or True)
+    reverted = board.reverted
+    assert sfp.run("restore") == 0
+    text = shown[-1][1]
+    assert asked and asked[0].startswith("fix-stripforge-") and asked[0].endswith(".zip")
+    assert "Loaded save point" in text and "respawned where you left off" in text
+    assert "first save point" in text
+    assert board.reverted == reverted + 1
+    assert (tmp / "fix.kicad_pcb").read_bytes() == original and not links.exists()
+    assert sfp.run("restore") == 0  # already at the only save point: stop, do not reload
+    assert "nothing further to restore" in shown[-1][1]
+    assert (tmp / "fix.kicad_pcb").read_bytes() == original and board.reverted == reverted + 1
+
+
+def test_restore_last_walks_six_save_points_and_reopens_at_the_same_step(sfp, project, monkeypatch):
+    """Dialog and toolbar both call ``_perform`` → ``_restore``. A new ``run`` reads the cursor
+    from disk, which is what reopening the window does."""
+    from stripforge import layout
+
+    tmp, board, shown = project
+    pcb = tmp / "fix.kicad_pcb"
+    marker = b'\n(gr_line (start 0 0) (end 1 1) (layer "Dwgs.User") (uuid "USER-ORIGINAL-GEOMETRY"))\n'
+    baseline = pcb.read_bytes() + marker
+    assert b"StripForge:CUT_" not in baseline and b"R3" in baseline
+    pcb.write_bytes(baseline)
+    links = layout.out_file(pcb, "links.json")
+    t = 1_800_000_000.0
+    points = []
+    for i in range(6):
+        sp = layout.save_point(pcb, [pcb, links], action="build", now=t + i * 10)
+        points.append((sp.path, sp.path.read_bytes()))
+        pcb.write_bytes(
+            baseline
+            + f'\n(segment (start 0 0) (end {i + 1} 0) (layer "B.Cu") (net {i + 1}))\n'.encode()
+            + b'(footprint "StripForge:CUT_Hole" (layer "User.1"))\n'
+            + b'(pad "1" (size 1.7 1.7) (drill 1) (layers "F.Cu"))\n'
+        )
+        links.parent.mkdir(parents=True, exist_ok=True)
+        links.write_text("{}\n")
+    assert b"StripForge:CUT_Hole" in pcb.read_bytes()
+    asked = []
+    monkeypatch.setattr(sfp.Ui, "confirm_restore", lambda self, b, z: asked.append(z.name) or True)
+    for step in range(6):
+        assert sfp.run("restore") == 0
+        text = shown[-1][1]
+        assert "Loaded save point" in text and "respawned where you left off" in text
+        assert "safety" not in asked[-1]
+        assert asked[-1] == points[5 - step][0].name
+        if step == 2:
+            # reopen: the next choice comes from the cursor file, not from this process's Ui
+            assert layout.select_restore_zip(pcb).name == points[2][0].name
+            cursor = (layout.backup_dir(pcb) / layout.CURSOR_NAME).read_text()
+            assert points[3][0].name in cursor
+    assert pcb.read_bytes() == baseline
+    assert b"USER-ORIGINAL-GEOMETRY" in pcb.read_bytes() and b"R3" in pcb.read_bytes()
+    assert b"StripForge:CUT_Hole" not in pcb.read_bytes() and not links.exists()
+    assert board.reverted == 6
+    for path, data in points:
+        assert path.read_bytes() == data
+    assert len(layout.safety_copies(pcb)) == 6
+    assert sfp.run("restore") == 0
+    assert "nothing further to restore" in shown[-1][1]
+    assert len(asked) == 6 and board.reverted == 6 and pcb.read_bytes() == baseline
+    for path, data in points:
+        assert path.read_bytes() == data
 
 
 def test_run_build_separate_output(sfp, project):
@@ -236,15 +326,15 @@ def test_run_build_separate_output(sfp, project):
     cfg.write_text(cfg.read_text().replace('output = "in_place"', 'output = "separate"'))
     assert sfp.run("build") == 0
     title, text, path = shown[-1]
-    assert path == tmp / "fix-stripforge.kicad_pcb" and path.is_file()
+    assert path == tmp / "stripforge" / "fix-stripforge.kicad_pcb" and path.is_file()
     assert "The open board was not changed" in text and "StripForge build:" in text
     assert (tmp / "fix.kicad_pcb").read_bytes() == (
         REAL_FIXTURE / "ATtiny10_TPI_Fixture.kicad_pcb"
     ).read_bytes()
-    assert not (tmp / "fix-pre-stripbuild.kicad_pcb").exists() and getattr(board, "reverted", 0) == 0
+    assert getattr(board, "reverted", 0) == 0
 
     assert sfp.run("sheet") == 0
-    assert shown[-1][2] == tmp / "fix-stripforge.sheet.html" and "Built board:" in shown[-1][1]
+    assert shown[-1][2] == tmp / "stripforge" / "fix-stripforge.sheet.html" and "Built board:" in shown[-1][1]
 
 
 def test_build_on_an_output_rebuilds_it_in_place_and_reports_errors(sfp, project, monkeypatch):
@@ -319,7 +409,7 @@ def test_add_links_to_schematic(sfp, project, monkeypatch):
 
     tmp, board, shown = project
     assert sfp.run("links") == 0  # the placement board has no W footprints yet
-    assert "No fix.kicad_sch next to the board" in shown[-1][1]
+    assert "No fix.kicad_sch in the project folder" in shown[-1][1]
 
     (tmp / "demo-proj").mkdir()
     src, built = _project(tmp / "demo-proj")
@@ -332,13 +422,17 @@ def test_add_links_to_schematic(sfp, project, monkeypatch):
     title, text, path = shown[-1]
     assert title == "StripForge: Add links to schematic" and path == src / "demo.kicad_sch"
     assert "Added 3 StripForge:Link symbol(s) to sub.kicad_sch" in text and sfp.REOPEN_NOTE in text
-    backup = src / "sub-pre-links.kicad_sch"
-    assert f"Backup: {backup}" in text and backup.read_text() == original
+    from stripforge import layout
+
+    (backup,) = layout.backups(own)
+    assert f"Backup: {backup}" in text and layout.read_manifest(backup)["action"] == "links"
+    assert layout.read_member(backup, "sub.kicad_sch") == original
+    assert not list(src.glob("*-pre-links*"))
     assert {"W1", "W2", "W3"} <= set(_symbols(src / "sub.kicad_sch"))
     assert (src / "sym-lib-table").read_text() == table  # the symbol is embedded: table untouched
 
     assert sfp.run("links") == 0  # again: nothing to add, nothing rotated
-    assert "Nothing to add" in shown[-1][1] and not (src / "sub-pre-links-1.kicad_sch").exists()
+    assert "Nothing to add" in shown[-1][1] and len(layout.backups(own)) == 1
 
 
 class BusyError(Exception):
@@ -419,7 +513,7 @@ def test_build_reports_busy_kicad_plainly_and_builds_nothing(sfp, project, monke
     assert "KiCad is busy" in text and "saving the board" in text
     assert "Press Esc" in text and "Cmd+S" in text and "click StripForge: Build strips again" in text
     assert (tmp / "fix.kicad_pcb").read_bytes() == before
-    assert not (tmp / "fix-pre-stripbuild.kicad_pcb").exists()
+    assert not list(tmp.glob("stripforge/*-backups"))
 
 
 def test_busy_reload_after_the_build_says_revert_without_saving(sfp, project, monkeypatch):
@@ -443,7 +537,7 @@ def test_busy_reload_after_the_build_says_revert_without_saving(sfp, project, mo
 def test_every_report_is_logged_next_to_the_board(sfp, project):
     tmp, board, shown = project
     assert sfp.run("analyze") == 0
-    log = tmp / "fix-stripforge.log"
+    log = tmp / "stripforge" / "fix-stripforge.log"
     assert log.is_file() and "StripForge: Analyze" in log.read_text()
     assert f"Log: {log}" in shown[-1][1] and "Result:" in log.read_text()
 
@@ -469,7 +563,7 @@ def test_without_wx_build_in_place_is_refused_and_nothing_saved(sfp, project, mo
     assert sfp.run("build") == 2
     assert board.saved == 0 and "refused" in shown[-1][1] and "wxPython" in shown[-1][1]
     assert (tmp / "fix.kicad_pcb").read_bytes() == before
-    assert (tmp / "fix-stripforge.log").is_file()
+    assert (tmp / "stripforge" / "fix-stripforge.log").is_file()
 
 
 def test_no_edge_cuts_is_refused_before_saving(sfp, project):
@@ -489,3 +583,59 @@ def test_report_without_wx_prints_one_line_pointing_at_the_log(sfp, tmp_path, ca
     sfp.Ui.report(ui, "T", "long\nreport", log=tmp_path / "x.log")
     out = capsys.readouterr().out
     assert out.count("\n") == 1 and str(tmp_path / "x.log") in out
+
+
+def test_dialog_shows_settings_and_does_not_save_or_change_policy(sfp, project, monkeypatch):
+    tmp, board, shown = project
+    before = (tmp / "stripboard.toml").read_text()
+
+    def boom(*_a, **_k):
+        raise AssertionError("opening the dialog must not run an action")
+
+    monkeypatch.setattr(sfp, "_perform", boom)
+    assert sfp.run("dialog") == 0
+    title, text, _path = shown[-1]
+    assert title == "StripForge: Dialog"
+    assert "backup_policy: move" in text and "rows: 24" in text and "slotted: BT1" in text
+    assert "The backup policy was not changed" in text
+    assert board.saved == 0 and (tmp / "stripboard.toml").read_text() == before
+    assert (tmp / "stripforge" / "fix-stripforge.log").is_file()
+
+
+def test_dialog_analyze_uses_the_same_action_as_the_toolbar(sfp, project):
+    tmp, board, shown = project
+    ui = sfp.Ui()
+    code, text, _shown = sfp._perform(ui, "analyze", FakeKiCad(), board, board._path, board._path.stem)
+    assert code == 0 and board.saved == 1
+    assert "Result:" in text and "A1" in text and f"Config: {tmp / 'stripboard.toml'}" in text
+    assert sfp.run("analyze") == 0
+    assert "A1" in shown[-1][1]
+
+
+def test_apply_backup_policy_preserves_the_file_and_deletes_nothing(sfp, tmp_path):
+    from stripforge import layout
+    from stripforge.config import load, prune_keep
+
+    board = tmp_path / "fix.kicad_pcb"
+    board.write_text("(kicad_pcb)\n")
+    (tmp_path / "fix.kicad_pro").write_text("{}\n")
+    toml = tmp_path / "stripboard.toml"
+    toml.write_text(
+        "# Kevin's note\nrows = 24\ncols = 56\norigin_mm = [1, 2]\nbackup_keep = 4\n\n[bend]\nSW2 = 0.16\n"
+    )
+    kept = layout.save_point(board, [board], action="build")
+    legacy = tmp_path / "fix-pre-stripbuild.kicad_pcb"
+    legacy.write_text("old")
+    path = sfp.apply_backup_policy(board, "retention", 1)
+    assert path == toml
+    text = toml.read_text()
+    assert "# Kevin's note" in text and "[bend]" in text and "SW2 = 0.16" in text and "rows = 24" in text
+    assert 'backup_policy = "retention"' in text and "backup_keep = 1" in text
+    cfg = load(toml)
+    assert cfg.backup_policy == "retention" and cfg.backup_keep == 1 and prune_keep(cfg) == 1
+    assert kept.path.is_file() and legacy.read_text() == "old"  # saving the setting deletes nothing
+    snap = sfp.dialog_snapshot(board)
+    assert "backup_policy: retention" in snap and "down to 1" in snap
+    # back to move: the number stays, deletion stops, the zip stays
+    sfp.apply_backup_policy(board, "move", 1)
+    assert prune_keep(load(toml)) == 0 and kept.path.is_file() and "Kevin's note" in toml.read_text()

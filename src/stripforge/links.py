@@ -316,6 +316,11 @@ class Unlinkable:
     max_link_mm: float = LINK_MAX_PITCHES * PITCH_MM
     diagonal: bool = True  # diagonal_links: were diagonals tried?
     bus: bool = True  # bus_strips: were bus strips tried?
+    # M4c: the sideways shift (holes) a diagonal would need to join this net, when diagonals are off
+    # or limited by max_diagonal_shift and a plan with any diagonal joins it (0: no diagonal helps)
+    diagonal_shift: int = 0
+    shift_limit: int = 1  # max_diagonal_shift when it was planned
+    via_others: bool = False  # the diagonals go to other nets, freeing room for this one
 
     @property
     def text(self) -> str:
@@ -327,11 +332,36 @@ class Unlinkable:
         off = [k for k, on in (("diagonal_links", self.diagonal), ("bus_strips", self.bus)) if not on]
         if off:
             ways += f"; {' and '.join(off)} {'is' if len(off) == 1 else 'are'} off"
-        return (
+        text = (
             f"net {self.net!r} can't be fully linked: {len(self.groups)} groups of pieces [{groups}] have "
             f"no pair of free holes a link of up to {self.max_link_mm:g} mm can join ({ways}) "
             "without crossing another link; move or rotate a part so the pieces come closer, or free "
             "some holes"
+        )
+        return text + self.diagonal_hint
+
+    @property
+    def diagonal_hint(self) -> str:
+        if not self.diagonal_shift:
+            return ""
+        holes = f"{self.diagonal_shift} hole{'s' if self.diagonal_shift != 1 else ''}"
+        if self.via_others:
+            how = "set diagonal_links = true" if not self.diagonal else ""
+            if self.diagonal_shift > (self.shift_limit if self.diagonal else 1):
+                how += (" with " if how else "set ") + f"max_diagonal_shift = {self.diagonal_shift}"
+            return (
+                f". It can be joined when other nets may use diagonal links (shifting up to {holes} "
+                f"along a strip), which leaves room for it: {how} in the config"
+            )
+        if not self.diagonal:
+            how = "set diagonal_links = true in the config"
+            if self.diagonal_shift > 1:
+                how += f" with max_diagonal_shift = {self.diagonal_shift}"
+            return f". It can't be joined without a diagonal link (shifting {holes} along a strip): {how}"
+        return (
+            f". It needs a diagonal link shifting {holes} along a strip, more than "
+            f"max_diagonal_shift = {self.shift_limit}: set max_diagonal_shift = {self.diagonal_shift} "
+            "in the config to allow it"
         )
 
 
@@ -444,11 +474,13 @@ class _Planner:
         self.max_link_mm = max_mm
         self.max_pitches = max(0, min(LINK_MAX_PITCHES, int(max_mm / PITCH_MM + 1e-9)))
         self.offsets: list[tuple[int, int]] = [(dx, 0) for dx in range(1, self.max_pitches + 1)]
-        if getattr(cfg, "diagonal_links", True):
+        if getattr(cfg, "diagonal_links", False):
+            shift = int(getattr(cfg, "max_diagonal_shift", 1))
             if getattr(cfg, "off_pitch_links", True):
-                self.offsets += any_offsets(self.max_pitches)
+                diag = any_offsets(self.max_pitches)
             else:
-                self.offsets += pythagorean_offsets(self.max_pitches)
+                diag = pythagorean_offsets(self.max_pitches)
+            self.offsets += [(dx, dy) for dx, dy in diag if abs(dx) <= shift]
         self.diag_by_dy: dict[int, list[int]] = {}
         self.offset_rank: dict[int, dict[int, int]] = {}  # dy -> dx -> position in self.offsets
         for n, (dx, dy) in enumerate(self.offsets):
@@ -1023,7 +1055,7 @@ class _Planner:
                 net,
                 [[self.pieces[i].label for i in ids] for ids in comps],
                 self.max_link_mm,
-                bool(getattr(self.a.config, "diagonal_links", True)),
+                bool(getattr(self.a.config, "diagonal_links", False)),
                 self.use_bus,
             )
             for net, comps in self.groups().items()
@@ -1384,6 +1416,8 @@ def propose(a, locked=(), taken_refs=()) -> LinkPlan:
         if score[0] < best[0][0]:
             best = (score, plan, (a.strips, a.split.cuts, a.split.pieces))
     _, plan, (a.strips, a.split.cuts, a.split.pieces) = best
+    if plan.unlinkable:
+        _diagonal_hints(a, plan, start, keep, taken_refs, best[2])
     # a W you placed that could not be kept: give its ref to the new link on the same holes, else to
     # a new link of its net, but only one with the same footprint (pass 2 then moves that W onto the
     # new link's holes). Otherwise the W keeps its name and is reported as not used.
@@ -1427,6 +1461,39 @@ def propose(a, locked=(), taken_refs=()) -> LinkPlan:
             f"bus strip: {' and '.join(refs)} meet on bare strip {row}, which now carries {net!r}"
         )
     return plan
+
+
+def _diagonal_hints(a, plan: LinkPlan, start, keep, taken_refs, chosen) -> None:
+    """M4c: with diagonals off or limited, plan once more with any diagonal allowed and note on each
+    unlinkable net that this joins the sideways shift its diagonal links need (report only: the
+    plan, the board and the analysis are left as they were)."""
+    from dataclasses import replace
+
+    cfg = a.config
+    on = bool(getattr(cfg, "diagonal_links", False))
+    limit = int(getattr(cfg, "max_diagonal_shift", 1))
+    if on and limit >= LINK_MAX_PITCHES:
+        return
+    stuck = {u.net for u in plan.unlinkable}
+    try:
+        a.config = replace(cfg, diagonal_links=True, max_diagonal_shift=LINK_MAX_PITCHES)
+        a.strips, a.split.cuts, a.split.pieces = copy.deepcopy(start)
+        alt = _Planner(
+            a, priority=tuple(sorted(stuck)), locked=copy.deepcopy(keep), taken_refs=taken_refs
+        ).run()
+    finally:
+        a.config = cfg
+        a.strips, a.split.cuts, a.split.pieces = chosen
+    still = {u.net for u in alt.unlinkable}
+    for u in plan.unlinkable:
+        if u.net in still:
+            continue
+        shifts = [abs(lk.dx) for lk in alt.links if lk.net == u.net and lk.kind == "diagonal"]
+        others = [abs(lk.dx) for lk in alt.links if lk.kind == "diagonal"]
+        if shifts and max(shifts) > (limit if on else 0):
+            u.diagonal_shift, u.shift_limit = max(shifts), limit
+        elif not shifts and others and max(others) > (limit if on else 0):
+            u.diagonal_shift, u.shift_limit, u.via_others = max(others), limit, True
 
 
 # --- output ----------------------------------------------------------------------------------

@@ -458,13 +458,15 @@ SVGs and `<out>.cuts.csv`.
 - **DRC parity for the built sibling:** `stripforge drc --schematic` runs kicad-cli on a shadow
   copy named after the schematic (with sub-sheets, `.kicad_pro`, library tables and links to the
   project's folders), so parity works for `<name>-stripforge.kicad_pcb`.
-- **PCM package:** `tools/make_pcm_zip.py` builds `metadata.json` + `resources/icon.png` +
-  `plugins/**` (with the `stripforge` package, footprints and rules bundled). It is
-  `type: plugin`, `runtime: ipc`, `kicad_version: 10.0`, schema v2.
-- **Footprint library:** a plugin package can't register a footprint library (the metadata
-  repository's validator only allows `footprints/*.pretty` in `library` packages), so the
-  `StripForge` library for the schematic's W links needs a separate `library` package. PCM
-  libraries get a `PCM_` nickname prefix by default, which is open.
+- **PCM packages:** `tools/make_pcm_zip.py` writes two archives. The plugin zip is
+  `type: plugin`, `runtime: ipc`, `kicad_version: 10.0`, and contains `plugins/**` (code, a
+  private footprint copy, the symbol, and the DRC rules). The libraries zip is `type: library`
+  and contains `footprints/StripForge.pretty`, `symbols/StripForge.kicad_sym`, and
+  `3dmodels/StripForge.3dshapes`. Its id is `com.github.somerleddesign.stripforge.libraries`.
+  Straight `Link_P*` footprints name the STEP under `${KICAD10_3RD_PARTY}/3dmodels/` for that id.
+  The KiCad manual says a library package is added to the global tables with the `PCM_` prefix
+  by default. That click was not run, so the install notes say to check and, if needed, add the
+  row as `StripForge`.
 
 ### 4.11 Straight links first, and your own edits (as built)
 
@@ -585,6 +587,9 @@ Out of scope:
 
 ## 6. Success criteria on the ATtiny10 TPI fixture (25 THT parts)
 
+*Circuit acceptance is `tests/fixtures/ledswitch25/LedSwitch25-kicad.zip`. The list below is the
+M1 unit criteria for the frozen TPI fixture, not a second acceptance board.*
+
 *The M1 fixture has 25 footprints and 36 nets (82 THT pads), not the 26 and 37 first assumed; it is
 frozen in `tests/fixtures/tpi-m1/`. Since M2 part B, `examples/tpi-fixture/` is Mildrew's
 real-parts board: 22 footprints, 41 nets, 86 pads, with BT1 slotted.*
@@ -645,12 +650,26 @@ real-parts board: 22 footprints, 41 nets, 86 pads, with BT1 slotted.*
   mutation tests are open.
 - *Exit:* criterion 5 passes. Kevin's real build (criterion 8) is the final sign-off.
 
-**M4: one dialog, tidy backups, safer link defaults (after the M3 freeze; Kevin, 2026-10-02).**
-Docs only so far: nothing here is built yet.
+**M4: one dialog, backup policy, safer link defaults (after the M3 freeze; Kevin, 2026-10-02).**
+M4d is in 0.2.1. M4b's save-point zips and Restore last, and M4c's diagonal defaults, are
+implemented on `m4c-no-diagonals` and the integration branch. M4a has started: one shared window,
+The toolbar has one button, Dialog. The other actions are inside that window.
 
-- **M4a: one StripForge button, one dialog.** Replace the five toolbar buttons (Analyze, Build
-  strips, Add links to schematic, Run DRC, Build sheet) with **one "StripForge" button** that opens
-  a single settings / actions / check dialog, the way other KiCad plugins work.
+- **M4a: one StripForge window (in progress).** The end state is still one dialog for settings,
+  actions and checks, not a permanent row of extra buttons. Today a temporary **StripForge: Dialog**
+  button opens that window. The **Board** tab edits `stripboard.toml` (origin is the centre of
+  hole A1, not the Edge.Cuts corner; rows, columns, pitch, and the other root settings the config
+  loader accepts). The **Backup** tab edits backup policy (M4b). Save validates before it replaces
+  the file. Unsaved board edits block the action buttons, so a build cannot run on a value that
+  was only typed. Analyze, Build strips, Add links to schematic, Run DRC, Build sheet and Restore
+  last still use the same code as the toolbar. **Larger text**, **Smaller text**, and **Reset text
+  size** (Command-plus, Command-minus, Command-0 on a Mac; Ctrl with those keys on Windows and
+  Linux) change the dialog's type size and remember it outside ``stripboard.toml``. A trackpad
+  pinch zooms the dialog when wx delivers a magnify gesture. Kevin verified that on his Mac.
+  The toolbar has only the Dialog button. **Edit stripboard.toml** on the Board tab opens that same file as text,
+  including `[bend]` (millimetres, the existing loader). The structured fields still do not rewrite
+  `[bend]`, `[drc]`, `[manual]`, `[stretch]`, or the per-part choice table. The built-in sheet
+  view is not in this window yet.
   - **Settings**, saved to `stripboard.toml`: board size (rows, cols, origin), slotted parts (with
     the filing amount and the lopsided warning shown per part), DRC ignores and allowed courtyard
     overlaps, cut style, link options (`diagonal_links` and friends, see M4c).
@@ -659,8 +678,9 @@ Docs only so far: nothing here is built yet.
     Beckham tolerance, with the leg bend shown in mm and mil) / **skip** (wired off-board) /
     **adapter** (a carrier board or socket; not implemented yet). The dialog suggests the fitting
     choice the way the rejection hints do, and writes `slotted`, `[bend]` and `skip`.
-  - **Actions:** Build strips, Add links to schematic, Run DRC, Build sheet and Clean (M4b) as
-    buttons in the dialog, in workflow order, each with the save-first prompt it has today.
+  - **Actions:** Build strips, Add links to schematic, Run DRC, Build sheet and Restore last (M4b)
+    as buttons in the dialog, in workflow order, each with the save-first or confirm prompt it has
+    today. The first window already does this, and also Analyze.
   - **Check:** Analyze inside the dialog as a live report pane, plus the DRC result, so the
     dialog is also where you look before and after a build.
   - **Built-in Sheet view:** a PDF-viewer-like preview of the build sheet (pages, zoom, copper /
@@ -675,39 +695,39 @@ Docs only so far: nothing here is built yet.
     KiCad plugins are fine too; record each borrowed file and its licence in Credits.
   - The toolbar keeps working until the dialog covers every action; the CLI is unchanged.
 
-- **M4b: Clean (tidy the backups into `stripforge-backups/`).** A Clean action (a dialog button,
-  and `stripforge clean <board> [--dry-run]`) **moves** every StripForge backup out of the project
-  root into a `stripforge-backups/` folder in the project. It **never deletes** anything.
-  - **What it moves:** board backups `<name>-pre-stripbuild.kicad_pcb` and `-pre-stripbuild-<n>`
-    (and the `-pre-stripbuild.kicad_dru` copy); schematic backups `<sheet>-pre-links.kicad_sch` and
-    `-pre-links-<n>`; previous build sheets `<name>-stripforge.sheet-prev.html` / `.pdf` and
-    `-prev-<n>`; and the nested files from building a backup board by mistake, such as
-    `<name>-pre-stripbuild-pre-stripbuild.kicad_pcb`, `<name>-pre-stripbuild.kicad_dru` /
-    `.kicad_pro` / `.kicad_prl` next to it, and `<name>-pre-stripbuild-stripforge.links.*` (seen
-    in Kevin's project on 2026-10-01).
-  - **What it never touches:** the project's own `<name>.kicad_pcb`, `.kicad_sch` sheets,
-    `.kicad_pro`, `.kicad_prl`, `.kicad_dru`, the current `<name>-stripforge.*` outputs (sheet,
-    SVGs, CSV, link lists), `stripboard.toml`, and KiCad's own `<name>-backups/` folder. Only names
-    that match StripForge's backup patterns move.
-  - **How:** list what would move first (the dry run), ask, then move with `os.replace` only when
-    the target doesn't exist, so nothing is overwritten. Names stay as they are. If a name is
-    already in `stripforge-backups/` (a second Clean), that batch goes into a dated subfolder
-    `stripforge-backups/<YYYY-MM-DD_HHMMSS>/`. The report lists every move, so undoing one is a
-    move back. Refuse while the open board is itself one of the backups.
-  - **Keep the "(yours)" evidence working.** `writer.moved_in_backups` (links you moved, §4.11)
-    reads the `-pre-stripbuild` chain through `numbered_backups` / `backup_path`. After Clean it
-    must find the backups in `stripforge-backups/` (and its dated subfolders) as well as next to
-    the board, as one chain in the right order, since it compares each backup with the next. Order:
-    the oldest Clean batch first, then the newer ones, then the backups still in the project root;
-    inside each, the highest number first (oldest), as now. A test moves a project's backups with
-    Clean and checks that the build gives the same "(yours)" marks before and after.
-  - **Rotation and `backup_keep`** stay as they are and act only on the project root: Clean'd
-    files are never renumbered or pruned. (Writing new backups straight into the folder could be
-    an option later; not in M4.)
-  - Related, small: warn (or refuse) when Build strips runs on a backup board
-    (`*-pre-stripbuild*.kicad_pcb`), which is how the nested files above were made.
+- **M4b: backup policy (Kevin, 2026-11-07).** Save points stay timestamped zips under
+  `stripforge/<Project>-stripforge-backups/`. Restore last steps back one save point at a time,
+  from the newest through to the first (the board before StripForge built it), then stops without
+  changing files. A safety copy of the current board is written first and is not a step in that
+  walk. The user chooses what happens to older save points. This replaces both the earlier "Clean moves
+  files and never deletes" sketch and a fixed "retention always deletes" rule.
+  - **`backup_policy = "move"`** is the default, including when the key is absent. Each save point
+    is a new zip (never renamed, never overwritten). Older zips are kept. `backup_keep` is stored
+    and shown, and it does not delete.
+  - **`backup_policy = "retention"`** is opt-in. Then `backup_keep = N` with N ≥ 1 deletes older
+    StripForge save-point zips, and older sheet copies in that folder, so N remain. `backup_keep = 0`
+    still keeps every one. A file that only sets `backup_keep` and never sets `backup_policy` does
+    not delete: that is the safe reading of an old config, not a silent switch to pruning.
+  - **Saving the setting deletes nothing.** The next build, sheet or link update applies the
+    policy. Switching back to move stops deletion and leaves the zips that are already there.
+  - **Restore last** is the same in both policies. It asks first. Each time, it unpacks the next
+    earlier zip under the real names and removes only files that zip recorded as not existing yet
+    (work written since the save), until the first save point. The next click then says there is
+    nothing earlier and changes nothing. The zip itself is kept. Restore does not prune other
+    save points. Before replacing files it writes a `*-stripforge-safety-*.zip` of the current
+    board; that copy is kept and is not what the next Restore last loads.
+  - **What retention may delete:** StripForge zip names
+    `<Project>-stripforge-YYYY-MM-DD_HHMMSS.zip` in the backup folder, and previous sheet copies
+    named from the sheet stem in that same folder. KiCad's own `<Project>-YYYY-MM-DD_HHMMSS.zip`
+    backups are not those names and are left alone. Legacy `-pre-stripbuild` files next to the
+    board are left alone.
+  - **"(yours)"** still reads legacy `-pre-stripbuild` files and the save-point zips that are
+    still on disk (`writer.moved_in_backups`). Retention can drop an old zip the user opted to
+    drop; move keeps the chain.
+  - "Move" here is "file the save point and keep it", using the zip Restore already understands.
+    A second on-disk format that `os.replace`s loose backup files is not part of this policy.
 
-- **M4c: diagonal links off by default, and at most a one-hole shift.** Change the default to
+- **M4c (done, branch m4c-no-diagonals): diagonal links off by default, and at most a one-hole shift.** Change the default to
   `diagonal_links = false` (the TPI fixture already builds with it off: 34 straight links, joined
   through spare strips where needed), and when diagonals are turned on, allow only a **one-hole
   sideways shift** (a link that drops to another strip and moves at most one hole along it). A
@@ -731,9 +751,10 @@ Docs only so far: nothing here is built yet.
     note (set Preferences > Plugins > Python interpreter to a Python with wxPython, then Recreate
     Plugin Environment).
 
-- *Exit:* Kevin builds and checks a board using only the dialog; Clean on his project leaves the
-  root tidy with every backup in `stripforge-backups/` and the same "(yours)" marks on the next
-  build; the TPI fixture builds unchanged with the new diagonal defaults.
+- *Exit:* Kevin builds and checks a board from the shared dialog; with the default move policy
+  every save point is still there after several builds, and with retention chosen a later build
+  keeps only `backup_keep` zips; Restore last and the "(yours)" marks still find what was kept;
+  the TPI fixture builds unchanged with the diagonal defaults.
 
 **Later (after M4): pre-existing mounting holes (Kevin, 2026-09-29; not in M3).**
 - A `stripboard.toml` option for mounting holes already drilled in the stripboard, given either

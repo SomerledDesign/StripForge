@@ -9,7 +9,7 @@
 ![KiCad 10](https://img.shields.io/badge/KiCad-10-314CB0)
 ![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)
 
-> **Beta (0.2.1).** KiCad 10 only. So far it has been tested on one real board (an ATtiny10
+> **Beta (0.3.0).** KiCad 10 only. So far it has been tested on one real board (an ATtiny10
 > programming fixture on a 24 × 56 hole stripboard). It works well there, but expect rough
 > edges on other boards. Keep backups, check the DRC, and please report what you find.
 
@@ -59,38 +59,58 @@ StripForge is a KiCad 10 **IPC plugin**. It is not in KiCad's official Plugin an
 
 1. KiCad > Preferences > Plugins: tick **Enable KiCad API**, and check that the Python interpreter
    is KiCad's own (the default on macOS).
-2. Get the package `StripForge-0.2.1-pcm.zip` (from the release, or build it yourself with
-   `python tools/make_pcm_zip.py`, which writes it to `dist/`). In KiCad, open the Plugin and
-   Content Manager, click **Install from File…** at the bottom left, and pick the zip:
+2. Build both packages with `python tools/make_pcm_zip.py` (they land in `dist/`), or take them
+   from a release. KiCad's addon guide wants a plugin package and a library package, not one zip
+   of both. In the Plugin and Content Manager, click **Install from File…** and install
+   `StripForge-libraries-0.3.0-pcm.zip` first, then `StripForge-0.3.0-pcm.zip`:
 
    <img src="docs/images/install-pcm-install-from-file.png" alt="KiCad's Plugin and Content Manager, with the Install from File button at the bottom left" width="560">
 
    <img src="docs/images/install-pick-zip-dist.png" alt="The file dialog open on the dist folder, showing StripForge-0.1.0-pcm.zip and StripForge-0.2.0-pcm.zip" width="330"> <img src="docs/images/install-zip-selected.png" alt="StripForge-0.2.0-pcm.zip selected in the file dialog" width="210">
 
-   StripForge then shows on the **Installed** tab as version 0.2.1:
+   StripForge then shows on the **Installed** tab as version 0.3.0:
 
    <img src="docs/images/install-pcm-installed.png" alt="The Installed tab of the Plugin and Content Manager: StripForge 0.2.0, compatible, with its description and metadata" width="640">
 
 3. **Restart KiCad.** The first time you open a board, KiCad sets up the plugin's Python
-   environment, which takes a minute. Five StripForge buttons then appear in the PCB editor's
-   toolbar: **Analyze**, **Build strips**, **Add links to schematic**, **Run DRC** and
-   **Build sheet**.
+   environment, which takes a minute. The PCB editor toolbar shows one button, **Dialog**. It
+   opens the window with the Board and Backup tabs. Analyze, Build strips, Add links, Run DRC,
+   Build sheet and Restore last are buttons in that window. The Report wraps long lines.
 
-   <img src="docs/images/plugin-toolbar-buttons.png" alt="The PCB editor toolbar with the five StripForge buttons at the right: Analyze (A), Build strips (B), Run DRC (D), Add links to schematic (L) and Build sheet (S)" width="511">
+   The picture below is from 0.2.x, when the toolbar had a button per action. 0.3.0 does not.
+   <img src="docs/images/plugin-toolbar-buttons.png" alt="Older screenshot: the PCB editor toolbar with several StripForge buttons. 0.3.0 has only Dialog." width="511">
 
-4. **Add the StripForge footprint library** (once): Preferences > Manage Footprint Libraries >
-   Global Libraries, add a library with nickname `StripForge` and path
-   `${KICAD10_3RD_PARTY}/plugins/com_github_somerleddesign_stripforge/footprints/StripForge.pretty`.
-   (The Plugin and Content Manager names the plugin's folder with underscores, not dots.) The built
-   board doesn't need the library (its footprints are embedded), but **Update Footprints from
-   Library** and placing a link by hand do.
+4. **Check the footprint and symbol libraries.** KiCad's manual says a library package is added
+   to the global tables, and the default nickname prefix is `PCM_`. This was not clicked in KiCad
+   here, so look at Preferences > Manage Footprint Libraries and Manage Symbol Libraries. If rows
+   appeared, they are named `PCM_StripForge`. Rename each to `StripForge` so it matches the
+   `StripForge:Link_*` footprints and the `StripForge:Link` symbol the build writes. If no row
+   appeared, add them with nickname `StripForge` and these paths:
 
-To install by hand instead, copy the *contents* of the zip's `plugins/` folder to
-`~/Documents/KiCad/10.0/plugins/com.github.somerleddesign.stripforge/` (macOS; on Linux
-`~/.local/share/kicad/10.0/plugins/`, on Windows `Documents\KiCad\10.0\plugins\`), and point the
-library at the `footprints/StripForge.pretty` folder in there. To update, install the new zip the
-same way and restart KiCad. If a button does nothing, try Preferences > Plugins > **Recreate Plugin
-Environment**.
+   - Footprints: `${KICAD10_3RD_PARTY}/footprints/com_github_somerleddesign_stripforge_libraries/StripForge.pretty`
+   - Symbols: `${KICAD10_3RD_PARTY}/symbols/com_github_somerleddesign_stripforge_libraries/StripForge.kicad_sym`
+   - 3D models (no library table): `${KICAD10_3RD_PARTY}/3dmodels/com_github_somerleddesign_stripforge_libraries/StripForge.3dshapes`
+
+   Each straight `Link_P*` footprint names the matching `.step` in that 3D folder. The `.wrl` has
+   the same name beside it. A new straight link copies the footprint, so it inherits that model.
+   Diagonal links and the cut markers have no model. The plugin also keeps a private copy of the
+   footprints so it can build without the library table. The 3D files themselves are only in the
+   libraries package. **Update Footprints from Library**, the 3D viewer, and placing a link by
+   hand use the library-table row.
+
+To install by hand instead, copy the *contents* of the plugin zip's `plugins/` folder to
+`~/Documents/KiCad/10.0/3rdparty/plugins/com_github_somerleddesign_stripforge/` (macOS; on Linux
+`~/.local/share/kicad/10.0/3rdparty/plugins/`, on Windows
+`Documents\KiCad\10.0\3rdparty\plugins\`). From the libraries zip, copy
+`footprints/StripForge.pretty` to
+`.../3rdparty/footprints/com_github_somerleddesign_stripforge_libraries/StripForge.pretty`,
+`symbols/StripForge.kicad_sym` to
+`.../3rdparty/symbols/com_github_somerleddesign_stripforge_libraries/StripForge.kicad_sym`, and
+`3dmodels/StripForge.3dshapes` to
+`.../3rdparty/3dmodels/com_github_somerleddesign_stripforge_libraries/StripForge.3dshapes`.
+Add the footprint and symbol libraries with nickname `StripForge`. To update, install both new
+zips the same way and restart KiCad. If a button does nothing, try Preferences > Plugins >
+**Recreate Plugin Environment**.
 
 ### If the buttons don't appear (Linux)
 
@@ -103,8 +123,8 @@ a half-built environment with no pip, and it keeps reusing it even after you ins
 2. Install the venv package: `sudo apt install python3-venv`.
 3. Delete the broken environment:
    `rm -rf ~/.cache/kicad/10.0/python-environments/com.github.somerleddesign.stripforge`
-4. Open the PCB editor again and give it a few seconds to install. The five buttons appear at the
-   right end of the top toolbar; maximise the window if only the first one shows.
+4. Open the PCB editor again and give it a few seconds to install. The Dialog button appears at the
+   right end of the top toolbar.
 
 (The folder is `~/.cache/kicad/10.0/python-environments/` on a standard Linux install; check the
 exact name and case with `ls ~/.cache | grep -i kicad` if yours differs. On macOS it is
@@ -115,13 +135,13 @@ file names are case-insensitive, so the case doesn't matter there.)
 
 StripForge's dialogs need wxPython in the plugin's environment. On NixOS (and any Python without
 wxPython) the buttons run but every message only reaches the PCB editor's status-bar warnings; the
-full report is still in `<name>-stripforge.log` next to the board, and Build strips refuses to
+full report is still in `stripforge/<Project>-stripforge.log`, and Build strips refuses to
 write into the board without a dialog to confirm it. To fix it, set Preferences > Plugins >
 **Python interpreter** to a Python that has wxPython (on NixOS, one whose packages include
 `wxpython`), then **Recreate Plugin Environment** and restart KiCad.
 
 StripForge isn't listed under Tools > External Plugins, because that menu is for the older SWIG
-plugins; the toolbar buttons are where it lives. If it still doesn't load, start the PCB editor from
+plugins; the Dialog toolbar button is where it lives. If it still doesn't load, start the PCB editor from
 a terminal with `KICAD_ENABLE_WXTRACE=1 WXTRACE=KICAD_API pcbnew` and look at the lines starting
 with `Manager:`.
 
@@ -133,22 +153,23 @@ rectangle the size of your stripboard (StripForge derives the hole grid from it,
 `stripboard.toml` sets `origin_mm`, `rows` and `cols`; without either it refuses before saving
 anything). Place the parts on the stripboard's hole grid (a 2.54 mm grid with its origin on a hole
 helps); the rest is StripForge's job. Every action also writes its report to
-`<name>-stripforge.log` next to the board, so if a button seems to do nothing, look there.
+`stripforge/<Project>-stripforge.log` (see **Where StripForge puts its files** below), so if a
+button seems to do nothing, look there.
 
-1. **Save the board** (Cmd+S / Ctrl+S), then click **Build strips**. StripForge backs the board up,
+1. **Save the board** (Cmd+S / Ctrl+S), then click **Build strips**. StripForge makes a save point,
    writes the strip copper, the cuts and the wire links into it, and reloads it. The report lists
-   every link, anything it couldn't do, and the backup it made. If KiCad says it is busy, press Esc,
+   every link, anything it couldn't do, and the save point it made. If KiCad says it is busy, press Esc,
    save and click again.
 
-   <img src="docs/images/plugin-build-strips-confirm.png" alt="Build strips asks before writing: it names the board file, saves it first and backs it up as ATtiny10_TPI_Fixture-pre-stripbuild.kicad_pcb" width="530">
+   <img src="docs/images/plugin-build-strips-confirm.png" alt="Build strips asks before writing: it names the board file and saves it first (this screenshot is from 0.2.x, which named a -pre-stripbuild backup; now it makes a save point zip)" width="530">
 
    <img src="docs/images/plugin-build-strips-report.png" alt="The Build strips report: parts snapped, strips, cuts and holes, then every W link with its holes, length, footprint and net" width="720">
 2. **Tools > Update Footprints from Library** (select all footprints, or just the `W` links). This
    gives the links the footprints from the installed library. It matters after you update
    StripForge, e.g. to get 0.2.0's slimmer link outline.
 3. Click **Add links to schematic**. It adds a `StripForge:Link` symbol for each `W` link to the
-   schematic (and takes out the ones the board no longer has). Each sheet it changes is backed up
-   first.
+   schematic (and takes out the ones the board no longer has). It makes a save point of the
+   sheets it changes first.
 
    <img src="docs/images/schematic-link-symbols.png" alt="Link symbols W1 to W6 in the schematic, each with net labels on both pins" width="600">
 4. **Close the Schematic Editor without saving, and reopen it.** It doesn't reload a file changed on
@@ -159,51 +180,94 @@ helps); the rest is StripForge's job. Every action also writes its report to
    problems from the noise every stripboard has (dead strip ends, for example).
 
    <img src="docs/images/plugin-drc-report.png" alt="The Run DRC report: shorts 0, clearance 0, unconnected 0, parity 0; the expected stripboard items filtered; Result: clean" width="720">
-7. Click **Build sheet**. It writes `<name>-stripforge.sheet.html` (and `.pdf` with Chrome) and
+7. Click **Build sheet**. It writes `stripforge/<Project>-stripforge.sheet.html` (and `.pdf` with Chrome) and
    opens it. Print it, cut the strips from the copper-side view, then fit the links and parts.
    Or keep the HTML open on the bench: click a row to tick it off (see **Ticking it off in the
    browser** below).
 
 Changed something? Move parts, cut markers or links and click **Build strips** again: StripForge
-keeps your cuts and links and fills in the rest. Then repeat steps 3 to 7.
+keeps your cuts and links and fills in the rest. Then repeat steps 3 to 7. Didn't like the result?
+Click **Restore last** (below).
 
 | Build sheet, page 1: the copper side, mirrored | Build sheet: checklists in build order |
 |---|---|
 | ![Build sheet copper side](docs/images/sheet-page1-copper-side.png) | ![Build sheet checklists](docs/images/sheet-page3-checklists.png) |
 
-### Backups
+### Restore last: your save points
 
-Nothing is overwritten without a copy:
+Think of it like a text adventure: before StripForge does anything to your files, it saves the
+game. **Build strips** and **Add links to schematic** each make a *save point* first, a zip of
+every file they are about to write. If a build went somewhere you didn't want to go, click
+**StripForge: Restore last**: each click steps back one save point and you respawn there.
 
-- **The board:** before every build, `<name>.kicad_pcb` is saved as
-  `<name>-pre-stripbuild.kicad_pcb`. Older backups move up to `-1`, `-2`, … (the highest number is
-  the oldest, usually your placement board before the first build). To undo a build, close the
-  board and rename the backup back to `<name>.kicad_pcb`.
-- **The schematic:** each sheet Add links to schematic changes is first saved as
-  `<sheet>-pre-links.kicad_sch`, rotating the same way.
-- **The build sheet:** when it changes, the old one is kept as `<name>-stripforge.sheet-prev.html`
-  (and `.pdf`).
-- `backup_keep = N` in the config limits how many backups are kept (default `0`: keep them all).
+- Restore last removes StripForge's work since that save (the built board, the link lists, the
+  link symbols it added to the schematic), puts the saved files back under their own names, and
+  reloads the board in the PCB editor. It asks first; unsaved changes in the open board are lost.
+- Press it again to step to the next earlier save point, through to the **first** one: the board
+  from before StripForge added strips, holes and tracks. One more press reports that there is
+  nothing earlier and does not change the board or the zips.
+- Before it replaces anything it writes a safety copy,
+  `<Project>-stripforge-safety-YYYY-MM-DD_HHMMSS.zip`, in the same folder. That copy is kept.
+  The next Restore last does not load it (so the button cannot toggle). `stripforge restore
+  <board> --list` shows it; `--backup <zip>` still loads one zip you name.
+- If schematic sheets were restored, close the Schematic Editor without saving and reopen it.
+- Save points are new files every time, named
+  `<Project>-stripforge-YYYY-MM-DD_HHMMSS.zip`; nothing is ever renamed (renames make Dropbox and
+  friends create "conflicted copies"). `backup_policy = "move"` (the default) keeps every save
+  point. `backup_policy = "retention"` is opt-in: then `backup_keep = N` keeps the newest N
+  (`0` still keeps all). A `backup_keep` number on its own does not delete.
+- The build sheet isn't a save point; when it changes, the old HTML/PDF are copied into the
+  backups folder as `<Project>-stripforge.sheet-YYYY-MM-DD_HHMMSS.html` / `.pdf`.
 
-To start over from scratch, restore the oldest board backup **and** the oldest schematic backup.
+### Where StripForge puts its files
+
+Everything StripForge writes goes into one `stripforge/` folder next to your `.kicad_pro`
+(`${KIPRJMOD}`), named after the project:
+
+```
+LoadMan/
+  LoadMan.kicad_pro
+  LoadMan.kicad_sch
+  LoadMan.kicad_pcb               <- Build strips builds into the board itself
+  LoadMan.kicad_dru               <- the StripForge DRC rules (KiCad needs them here)
+  stripforge/
+    stripboard.toml               <- your config (or stripboard.toml next to the .kicad_pro)
+    LoadMan-stripforge.links.json   .links.csv   .links.txt
+    LoadMan-stripforge.sheet.html   .sheet.pdf   .sheet.copper.svg   .sheet.cuts.csv ...
+    LoadMan-stripforge.log
+    LoadMan-stripforge.kicad_pcb  <- only with output = "separate"
+    LoadMan-stripforge-backups/
+      LoadMan-stripforge-2026-10-26_143012.zip   <- save points (Restore last)
+```
+
+`output_dir` and `backup_dir` in the config move these folders; both are relative to the project
+folder (absolute paths and `..` are refused). Files from StripForge 0.2.x next to the board
+(`<name>-pre-stripbuild*.kicad_pcb`, `<name>-stripforge.links.*`, ...) are left where they are;
+the build report lists them so you can tidy up.
+
+**Git:** [`plugins/templates/project.gitignore`](plugins/templates/project.gitignore) (also in
+the installed plugin's folder) is a `.gitignore` for a KiCad + StripForge project: it ignores the
+backups folders, lock files, `*.kicad_prl`, `*.bak`, `fp-info-cache` and `.DS_Store`. Copy it into
+your project as `.gitignore`.
 
 ### The config file
 
-StripForge reads `stripboard.toml` next to the board, or the only other `.toml` there (e.g.
-`X56.toml`). Without one it takes the grid from the board outline. The options most people need:
+StripForge reads `stripforge/stripboard.toml`, else `stripboard.toml` next to the board, else the
+only other `.toml` there (e.g. `X56.toml`). Without one it takes the grid from the board outline. The options most people need:
 
 ```toml
 rows = 24                    # strips (A..X)
 cols = 56                    # holes along each strip
 origin_mm = [51.27, 51.27]   # the centre of hole A1 in the board file
 strip_width_mm = 1.8         # measure your board
-diagonal_links = false       # true: allow diagonal links when nothing straight fits
+diagonal_links = false       # the default; true: allow diagonal links when nothing straight fits
+max_diagonal_shift = 1       # with diagonal_links: at most this many holes sideways
 bus_strips = true            # join two pieces through a spare bare strip
 max_link_mm = 81.28          # the longest link (32 holes)
 knife_cuts = ["SW2"]         # parts with big pads: cut between holes, not at a hole
 slotted = ["BT1"]            # parts whose pins need a hole filed longer
 skip = ["SW3"]               # parts that are not on the stripboard
-backup_keep = 0              # how many board backups to keep (0 = all)
+backup_keep = 0              # how many save points to keep (0 = all)
 
 [bend]                       # parts whose legs you can bend onto the holes (mm off)
 SW2 = 0.16
@@ -228,10 +292,11 @@ explains each one.
 - **Never put a link on a cut.** A wire in a cut hole has no copper to solder to. If you do,
   StripForge drops the cut and warns you, and cuts the strip elsewhere only if two nets would
   short (if the cut is needed exactly there, it keeps the cut and doesn't use the link).
-- **Diagonal links: your choice.** StripForge's default allows them when nothing straight fits.
-  The test board's config turns them off (`diagonal_links = false`, as in the example above),
-  because straight links are easier to fit and check. With diagonals off, a net that needs one is
-  joined through a spare strip (two straight links) or reported.
+- **Diagonal links: your choice.** They are off by default (`diagonal_links = false`), because
+  straight links are easier to fit and check: a net that would need one is joined through a spare
+  strip (two straight links) or reported. The report then says when a diagonal would have joined
+  it and which setting to change. With `diagonal_links = true` a link may drop to another strip and
+  move at most one hole along it; raise `max_diagonal_shift` for longer diagonals.
 - **Read the build report.** Anything StripForge couldn't join is listed with its pieces: move or
   turn a part so they come closer, or free some holes.
 
@@ -242,7 +307,7 @@ explains each one.
 
 ## Status
 
-**Beta, 0.2.1.** StripForge runs inside KiCad 10's PCB editor (the IPC plugin above) and as a
+**Beta, 0.3.0.** StripForge runs inside KiCad 10's PCB editor (the IPC plugin above) and as a
 command line (`stripforge analyze | snap | build | link-symbols | drc | sheet`, see
 [Development](#development)). Tested with KiCad 10.0.4 on macOS, on one real board. Not yet in the
 official PCM.
@@ -260,7 +325,7 @@ API is avoided because KiCad 11 removes it. Python 3.9+ (KiCad 10's bundled Pyth
 | **M1: Model and splitting** | Pure-Python grid snap, strip model, cut placement, net per piece, link proposals and validation, with unit tests and a JSON plan output. |
 | **M2: Board output and DRC** | File-backend `.kicad_pcb` writer, `kicad-cli` DRC wrapper and classifier, the two-pass link flow, and mutation tests proving DRC guards the layout. |
 | **M3: Build sheet and IPC** | Mirrored SVG/PDF build sheet with cut and link lists; the KiCad plugin. Done in 0.1.0; 0.2.0 is the first beta. |
-| **M4** (planned) | One StripForge button and dialog (settings, actions, Analyze, a built-in sheet view); Clean, which moves backups into `stripforge-backups/` (never deletes); diagonal links off by default, at most a one-hole shift. See [Sketch.md](Sketch.md) §7. |
+| **M4** | In 0.3.0: fail loudly (0.2.1); save-point zips and Restore last walking back to the first save; diagonal links off by default; backup policy defaults to move and never deletes unless retention is chosen. The toolbar has one button, Dialog. That window edits settings, the raw stripboard.toml, and the backup policy, and runs the actions. See [Sketch.md](Sketch.md) §7. |
 | **Later** | More boards tested, pre-drilled mounting holes, the official PCM. |
 
 ## Reference
@@ -271,49 +336,63 @@ The rest of this README is the detailed reference: every action, option and repo
 
 - **StripForge: Analyze**: a read-only report: snap, cuts, links needed, slot jobs, hints.
 - **StripForge: Build strips**: builds **in the open board itself** (`<name>.kicad_pcb`, the
-  project's own board, so F8 keeps working), after saving it and backing it up to
-  `<name>-pre-stripbuild.kicad_pcb` (older backups rotate to `-1`, `-2`, …). With
+  project's own board, so F8 keeps working), after saving it and making a save point (a zip in
+  `stripforge/<Project>-stripforge-backups/`). With
   `place_links = true` (the default) the `W` link footprints are placed on their holes too. It
-  then reloads the board in the PCB editor. Writes `<name>.kicad_dru` and the link lists
-  (`<name>-stripforge.links.*`) next to it. See **Where the build goes** below;
-  `output = "separate"` gives the old `<name>-stripforge.kicad_pcb`.
+  then reloads the board in the PCB editor. Writes `<name>.kicad_dru` next to it and the link lists
+  (`stripforge/<Project>-stripforge.links.*`). See **Where the build goes** below;
+  `output = "separate"` writes `stripforge/<Project>-stripforge.kicad_pcb` instead.
 - **StripForge: Add links to schematic**: writes a `StripForge:Link` symbol for every placed `W`
   footprint into the project's schematic, in place (see **Links from the board to the schematic**
-  below). Each changed sheet is backed up first as `<sheet>-pre-links.kicad_sch`, and older
-  backups rotate like the board's. **Then close the Schematic Editor without saving and reopen
+  below). A save point of the changed sheets is made first. **Then close the Schematic Editor without saving and reopen
   it**: it does not reload a file changed on disk.
 - **StripForge: Run DRC**: kicad-cli DRC with schematic parity on the built board, classified.
-- **StripForge: Build sheet**: writes `<name>-stripforge.sheet.html` (and `.pdf` if Chrome is
-  installed) and opens it in the browser.
+- **StripForge: Build sheet**: writes `stripforge/<Project>-stripforge.sheet.html` (and `.pdf` if
+  Chrome is installed) and opens it in the browser.
+- **StripForge: Restore last**: steps back one save point and reloads the board, repeating back
+  to the first save point (see **Restore last** above); `stripforge restore` on the command line.
+- **StripForge: Dialog**: the shared window. It shows the saved settings, lets you set
+  `backup_policy` (`move` or `retention`) and `backup_keep`, and runs the actions above through
+  the same code as their buttons. Saving the policy does not delete a save point. The other
+  buttons remain.
 
 Each action offers to save the board first, because StripForge reads the saved file:
 
 <img src="docs/images/plugin-save-first.png" alt="StripForge asks: Save the board in KiCad first? Save and continue, Use the saved file, or Cancel" width="271">
 
  It uses
-`stripboard.toml` next to the board if there is one. Without it, it uses the only other `*.toml`
-next to the board (e.g. `X56.toml`) if that is a valid StripForge config, and says so in the
+`stripforge/stripboard.toml` or `stripboard.toml` next to the board if there is one. Without it,
+it uses the only other `*.toml` there (e.g. `X56.toml`) if that is a valid StripForge config, and says so in the
 report; with several, or none, it derives the grid from the Edge.Cuts outline. If
 `<project>.kicad_sch` is there, it exports a fresh netlist with kicad-cli to cross-check pad nets.
 Results appear in a dialog ("Show in Finder", "Copy report"). If a button does nothing, see the
 status-bar warnings or Preferences > Plugins > "Recreate Plugin Environment". To uninstall a hand
 install, delete its folder. Manual test steps: [docs/KICAD-PLUGIN-TEST.md](docs/KICAD-PLUGIN-TEST.md).
 
-The StripForge footprint library (`footprints/StripForge.pretty`, the `W` links'
-`StripForge:Link_*` footprints and the cut markers) is bundled in the plugin but **not
-registered**: add it to the footprint library table by hand, with nickname `StripForge` (see
-[Install](#install)). A PCM plugin package can't register libraries; that needs a separate library
-package. The same goes for the symbol
-library `symbols/StripForge.kicad_sym` (the generic `StripForge:Link` wire-link symbol): add it to
-the symbol library table as `StripForge` if you place links by hand. `stripforge link-symbols`
-embeds the symbol in the schematic, so it isn't needed for that.
+The footprint library, the `StripForge:Link` symbol, and the straight `Link_P*` 3D models are the
+libraries package, installed separately from the plugin (see [Install](#install)). A new straight
+link copies the footprint, so it inherits that footprint's model. `stripforge link-symbols` also
+embeds the symbol in the schematic.
 
-### First test case
+### Circuit acceptance
 
-An **ATtiny10 TPI programming fixture** (22 real THT parts, 41 nets; the earlier 25-part M1 board is
-frozen in `tests/fixtures/tpi-m1/`). See [examples/tpi-fixture](examples/tpi-fixture/).
-It is done when every part snaps, DRC with schematic parity is clean, and the fixture can be built
-from the build sheet with no rework on the copper side.
+The acceptance circuit is Kevin's **LedSwitch25** project, the zip
+[tests/fixtures/ledswitch25/LedSwitch25-kicad.zip](tests/fixtures/ledswitch25/LedSwitch25-kicad.zip)
+(25819 bytes, sha256 `4b6641a48ca721d24437f30cdbdc85c4168e3854628f75778c3d98b421883e3c`).
+Check the hash, extract a new copy, and do not edit or re-zip the archive. It is Kevin's
+2026-11-08 board with only `rows = 12` and `cols = 12` changed. The previous zip is
+`LedSwitch25-kicad-2026-11-07-2158.zip` in that same folder and is not current. The toml
+comments still say 25 by 25, a 63.5 mm outline, and origin (1.27, 1.27) mm. Those comments are
+Kevin's and were left as archived. The settings are 12 by 12, origin `[129.54, 104.14]`,
+`output = "in_place"`, `link_lead_allowance_in = 0.15`, `backup_policy = "move"`,
+`backup_keep = 0`. Edge.Cuts is a 33.020 mm (1.3 in) square, from (127.00, 101.60) to
+(160.02, 134.62). The first hole is 2.54 mm in from the edges, and the last hole has the same
+100 mil margin on the far sides. An older LedSwitch zip, including a 9022-byte copy, is not
+this archive. SW1 is on the hole grid and the archived build does not use a `[bend]` override.
+
+The **ATtiny10 TPI** boards stay unit fixtures (22 real parts in
+[examples/tpi-fixture](examples/tpi-fixture/); the 25-part M1 board is frozen in
+`tests/fixtures/tpi-m1/`). They are not the acceptance circuit.
 
 ### Development
 
@@ -355,38 +434,39 @@ build goes** below for which file):
 - **links**: see below;
 - next to the built board: `<name>.kicad_dru` (a copy of `rules/stripforge.kicad_dru`, which
   `kicad-cli` and pcbnew pick up automatically; a different `.kicad_dru` that was already there is
-  first copied to `<name>-pre-stripbuild.kicad_dru`) and the link proposal as
-  `<name>-stripforge.links.json`, `.links.csv` and `.links.txt`.
+  kept in the save point), and in `stripforge/` the link proposal as
+  `<Project>-stripforge.links.json`, `.links.csv` and `.links.txt`.
 
 **Where the build goes: `output`.**
 
 | toml key | values | default |
 |---|---|---|
-| `output` | `"in_place"`: build into the board itself (`<name>.kicad_pcb`) · `"separate"`: write `<name>-stripforge.kicad_pcb` and leave the board alone | `"in_place"` |
-| `backup_keep` | how many `-pre-stripbuild` backups to keep in all (the unnumbered one counts as 1); `0` keeps every one | `0` |
+| `output` | `"in_place"`: build into the board itself (`<name>.kicad_pcb`) · `"separate"`: write `stripforge/<Project>-stripforge.kicad_pcb` and leave the board alone | `"in_place"` |
+| `backup_policy` | `"move"`: keep every save point. `"retention"`: opt in to deleting older ones | `"move"` |
+| `backup_keep` | with `"retention"`, how many save points to keep (the newest N). `0` keeps every one. Ignored while policy is `"move"` | `0` |
+| `output_dir` | StripForge's folder, relative to the project folder | `"stripforge"` |
+| `backup_dir` | the save points' folder, relative to the project folder | `"<output_dir>/<Project>-stripforge-backups"` |
 
 In place is the default because F8 (Update PCB from Schematic) only works in the project's own
 board, opened from the KiCad project manager: in a separate file pcbnew says "PCB editor is opened
 in stand-alone mode".
 
-**Backups rotate like logrotate.** Before every in-place build, just before the board is written:
-1. if `<name>-pre-stripbuild.kicad_pcb` exists, the numbered backups move up by one, highest number
-   first (`-pre-stripbuild-2` → `-3`, then `-1` → `-2`), and then `-pre-stripbuild` → `-1`;
-2. the board as it is right now is saved as the new **`<name>-pre-stripbuild.kicad_pcb`**.
-
-So the unnumbered backup is always the board just before the latest build, `-1` the one before
-that, and the highest number is the oldest (the first build's placement board, unless `backup_keep`
-deleted it). Nothing is ever
-overwritten: if a rename fails or its target already exists, the build stops with an error before
-the board or `.kicad_dru` is written (the renames already done stay done; nothing is lost).
-`backup_keep = N` (default `0` = no limit) deletes the oldest numbered backups after rotating so
-that N backups remain in all. The report prints the backup path, which backups moved, and how to
-undo. **To undo the latest build:** close the board, delete `<name>.kicad_pcb` and rename
-`<name>-pre-stripbuild.kicad_pcb` back to `<name>.kicad_pcb`. To go further back, rename `-1`, `-2`,
-… instead. A `.kicad_dru` with other DRC rules is copied once to `<name>-pre-stripbuild.kicad_dru`
-(it doesn't rotate); rename it back too if you undo the first build. On the command line `--separate` (or `-o <other file>`) overrides the
-toml for one run; `-o <board> --in-place` is the same as the default. A `-stripforge` board (from
-`output = "separate"`) is always rebuilt in place, with no backup.
+**Save points.** Before every build, just before anything is written, StripForge zips the files
+the build is about to write (the board, its `.kicad_dru`, the link lists) into a new
+`<Project>-stripforge-YYYY-MM-DD_HHMMSS.zip` in the backups folder, with a small
+`stripforge-backup.json` listing them and the ones that didn't exist yet. Nothing is ever renamed
+or overwritten (two builds in the same second get `-2`, `-3`, ...); if the zip can't be written the
+build stops before touching anything. With `backup_policy = "retention"` and `backup_keep = N`
+(N at least 1) the oldest zips are then deleted so N remain. The default policy `"move"`, and a
+file that never sets `backup_policy`, does not delete, even if `backup_keep` is set. **To undo
+builds:** `stripforge restore <board>` (the plugin's Restore last) steps back one save point
+each time, until the first. It deletes the files that didn't exist at that save point and unzips
+the rest under their own names, after writing a safety copy of the current board. At the first
+save point the next run changes nothing. `--list` shows the save points, `--backup <zip>` loads
+the one you name.
+On the command line `--separate` (or `-o <other file>`) overrides the toml for one run;
+`-o <board> --in-place` is the same as the default. A `-stripforge` board (from
+`output = "separate"`) is always rebuilt in place.
 
 The input must be the placement board: a track or via StripForge did not write is refused. Building
 again from a StripForge output removes its own strips and cut markers first and rewrites them (a
@@ -407,10 +487,30 @@ link's hole). In order of preference a link runs:
    bare strip that the net takes over, with a straight drop from each piece (a cut may slide to line
    one up); hole cuts isolate the bus from the rest of that strip where that leaves a useful
    remainder (the report says "hole cut at R5 isolates a bus strip");
-4. only when nothing straight fits, on a diagonal (`diagonal_links`, default on), rotated: a
+4. only when nothing straight fits and you turned them on, on a diagonal (`diagonal_links`, default
+   **off**; at most `max_diagonal_shift` holes sideways, default 1), rotated: a
    `Link_P*` when the length is a whole number of pitches (3-4-5 and friends), otherwise an
    off-pitch `Link_D<mm>` (`Link_D3.59` for a 1x1 offset … `Link_D81.16`; 305 footprints in the
    library; `off_pitch_links = false` keeps to whole-pitch diagonals).
+
+| toml key | what it does | default |
+|---|---|---|
+| `diagonal_links` | allow diagonal links when nothing straight fits | `false` |
+| `max_diagonal_shift` | with `diagonal_links`: how many holes a diagonal may move along the strip it drops to (1 to 32) | `1` |
+| `off_pitch_links` | with `diagonal_links`: also use the off-pitch `Link_D*` (`false`: whole-pitch diagonals only, which need a shift of 3 or more) | `true` |
+| `bus_strips` | join two pieces through a spare bare strip | `true` |
+| `max_link_mm` | the longest link | `81.28` (32 holes) |
+
+> [!WARNING]
+> With `off_pitch_links = false`, a `max_diagonal_shift` of 1 or 2 rules out **every** diagonal:
+> the shortest whole-pitch diagonal (3-4-5) needs a shift of 3. Use `max_diagonal_shift = 3` or
+> more, or leave `off_pitch_links = true`.
+
+When a net is left unjoined and a diagonal (or a longer one than `max_diagonal_shift` allows) would
+have joined it, the report says so and names the setting, e.g. "It can't be joined without a
+diagonal link (shifting 4 holes along a strip): set diagonal_links = true in the config with
+max_diagonal_shift = 4". (StripForge plans once more with any diagonal allowed to find out; a net
+that only gets room because *other* nets use diagonals is reported that way.)
 
 A straight link always beats a diagonal, however long; then fewer crossings under parts, fewer
 moved cuts, shorter wire.
@@ -493,7 +593,7 @@ of adding the `W` symbols by hand, let the board lead:
 ```sh
 stripforge build MyProject.kicad_pcb --config X56.toml            # place_links = true by default
 stripforge link-symbols MyProject.kicad_pcb --in-place             # reads/edits MyProject.kicad_sch
-#   each changed sheet is first backed up as <sheet>-pre-links.kicad_sch (older ones rotate to -1, -2, ...)
+#   a save point (zip) of the changed sheets is made first; stripforge restore undoes it
 #   or --out-dir DIR: a copy of the project; --schematic <root .kicad_sch> picks another schematic
 ```
 
@@ -532,10 +632,10 @@ are embedded in the board, and F8 leaves a matched footprint alone when its libr
 same, so the footprint library isn't needed for F8 either.
 
 **The same flow in KiCad** (open the project in the KiCad project manager, then its board):
-1. Click **Build strips**. The board is saved, backed up to `<name>-pre-stripbuild.kicad_pcb`,
+1. Click **Build strips**. The board is saved, a save point is made,
    built in place with the `W` links placed on their holes, and reloaded.
 2. Click **Add links to schematic**. It adds the `W` symbols to the schematic, and the report
-   lists them with the sheet backups. If the Schematic Editor is open, close it without saving
+   lists them with the save point. If the Schematic Editor is open, close it without saving
    and reopen it.
 3. Optionally press F8 in the same board. The symbols and the placed footprints match by path, so
    nothing moves and nothing is duplicated.
@@ -601,8 +701,9 @@ writes one self-contained, printable HTML file (Letter landscape, light backgrou
 When Chrome/Chromium is found (`--chrome`, `$STRIPFORGE_CHROME`, `PATH`, or the macOS app) it
 also writes `<out>.pdf`. `--png` adds `<out>.copper.png` / `<out>.component.png` previews. The two
 view SVGs and `<out>.cuts.csv` are always written. When the new sheet differs from the one already
-there, the old HTML and PDF are kept as `<out>-prev.html` / `.pdf` first (older ones rotate to
-`-prev-1`, `-prev-2`, ..., limited by `backup_keep`); an unchanged sheet makes no backup. The sheet has:
+there, the old HTML and PDF are first copied into the backups folder as
+`<out stem>-YYYY-MM-DD_HHMMSS.html` / `.pdf` (new names each time, limited by `backup_keep`); an
+unchanged sheet makes no copy. The sheet has:
 
 1. **Copper side (bottom), MIRRORED:** as seen with the board flipped over to cut (hole 1 on the
    right). It shows cuts (hole ✕, knife bar), solder points, link ends and slot jobs, with strip
@@ -780,7 +881,7 @@ src/stripforge/
   drc.py          kicad-cli pcb drc wrapper + classifier
   buildsheet.py   stripforge sheet: printable HTML/PDF build sheet, view SVGs/PNGs, cuts CSV
   backends/       file (.kicad_pcb), ipc (kipy; stub), swig_fallback (isolated, unused)
-plugins/          KiCad 10 IPC plugin: plugin.json, sf_*.py entry scripts, stripforge_plugin.py, icons
+plugins/          KiCad 10 IPC plugin: plugin.json, sf_dialog.py, stripforge_plugin.py, icons
 symbols/          StripForge.kicad_sym: the generic StripForge:Link symbol (2 passive pins, ref W,
                   value Link, footprint filter Link_*); bundled in the plugin as plugins/symbols/
 tools/            make_pcm_zip.py (PCM package), make_icons.py (toolbar icons)
@@ -792,9 +893,8 @@ The StripForge icon is `resources/icon.png`: Kevin's 64 × 64 px icon (the coppe
 "StripForge" wordmark, 2026-09-27), used as the KiCad Plugin and Content Manager icon. The PCM
 `metadata.json` schema has no icon field: the PCM takes the icon from `resources/icon.png` in the
 package archive, and from an `icon.png` next to `metadata.json` in the metadata repository. The
-toolbar icons in `plugins/icons/` (24 and 48 px, one per action with a letter badge) are made from
-it by `python tools/make_icons.py`, cropped to the "S" because the wordmark can't be read at
-toolbar size. The larger artwork (`assets/StripForge-icon-1024x1024.png`) is kept for reference.
+The only toolbar icon is `plugins/icons/dialog-24.png` and `dialog-48.png`. Older letter-badge
+icons are not shipped. The larger artwork (`assets/StripForge-icon-1024x1024.png`) is kept for reference.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) and [CHANGELOG.md](CHANGELOG.md).
 

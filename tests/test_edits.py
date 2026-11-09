@@ -90,7 +90,7 @@ def test_manual_link_is_locked(tmp_path):
     (lk,) = res.plan.links
     assert (lk.start, lk.end, lk.origin) == ("A3", "C3", "config") and res.plan.ok
     assert lk.to_dict()["locked"] == "config"
-    assert "[manual] links" in (tmp_path / "out-stripforge.links.txt").read_text()
+    assert "[manual] links" in (tmp_path / "stripforge" / "out-stripforge.links.txt").read_text()
 
 
 def test_manual_link_on_a_pin_or_shorting_two_nets_is_rejected(tmp_path):
@@ -111,7 +111,7 @@ def pass2(tmp_path, cfg=None, parts=SPLIT):
     """Pass 1 then pass 2 (links placed): returns the built pass-2 board path."""
     cfg = cfg or BoardConfig(trim_pieces=False)
     build(tmp_path, cfg, parts, name="p1.kicad_pcb")
-    lks = json.loads((tmp_path / "p1-stripforge.links.json").read_text())["links"]
+    lks = json.loads((tmp_path / "stripforge" / "p1-stripforge.links.json").read_text())["links"]
     pass2_sim.add_links_to_board(tmp_path / "in.kicad_pcb", lks, tmp_path / "f8.kicad_pcb")
     out = tmp_path / "p2.kicad_pcb"
     res = writer.build(tmp_path / "f8.kicad_pcb", cfg, out)
@@ -417,7 +417,7 @@ def test_only_moved_links_are_yours(tmp_path, legacy):
     from stripforge import buildsheet
 
     p2 = pass2(tmp_path, parts=TWO)
-    lj = tmp_path / "p2-stripforge.links.json"
+    lj = tmp_path / "stripforge" / "p2-stripforge.links.json"
     data = json.loads(lj.read_text())
     assert [d["yours"] for d in data["links"]] == [False, False]
     if legacy:
@@ -435,7 +435,7 @@ def test_only_moved_links_are_yours(tmp_path, legacy):
         detail = {p.ref: p.detail for p in res.placements}
         assert detail["W1"].endswith("(yours, kept)") and detail["W2"].endswith("(kept)")
         assert "(yours" not in detail["W2"]
-        text = (tmp_path / "p2-stripforge.links.txt").read_text()
+        text = (tmp_path / "stripforge" / "p2-stripforge.links.txt").read_text()
         (w1,) = [ln for ln in text.splitlines() if ln.strip().startswith("W1 ")]
         (w2,) = [ln for ln in text.splitlines() if ln.strip().startswith("W2 ")]
         assert "(yours, kept)" in w1 and "(kept)" in w2 and "yours" not in w2
@@ -472,7 +472,7 @@ def _moved_w1(tmp_path):
     row_a = next(r for r in ("CUT1", "CUT2") if _cut_label(p2, r).startswith("A"))
     edit(p2, "W1", "A5")
     edit(p2, row_a, "A6")
-    return p2, tmp_path / "p2-stripforge.links.json"
+    return p2, tmp_path / "stripforge" / "p2-stripforge.links.json"
 
 
 def test_guessed_yours_marks_are_cleared(tmp_path):
@@ -534,7 +534,7 @@ def test_links_moved_before_the_last_build_are_found_in_the_backups(tmp_path):
     edit(p2, "W1", "A5")
     edit(p2, row_a, "A6")
     rebuild(p2)  # backups now: W1 at A2-C2, then A5-C5
-    lj = tmp_path / "p2-stripforge.links.json"
+    lj = tmp_path / "stripforge" / "p2-stripforge.links.json"
     data = json.loads(lj.read_text())
     del data["yours_record"]  # as a pre-release saved it: marks without reasons
     for d in data["links"]:

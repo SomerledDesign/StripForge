@@ -60,6 +60,59 @@ def test_library_is_generated_and_up_to_date(tmp_path):
         assert (LIB / p.name).read_text() == p.read_text(), f"{p.name} is stale: re-run gen_footprints.py"
 
 
+def test_straight_link_model_inventory():
+    """The 32 supplied STEP+WRL pairs, not a generated cylinder. Checksums are 3dmodels/SHA256SUMS."""
+    import hashlib
+
+    from stripforge.resources import LIBRARY_PCM_ID, PCM_PACKAGE_DIR, link_model_uri
+
+    plugin_id = json.loads((ROOT / "metadata.json").read_text())["identifier"]
+    assert PCM_PACKAGE_DIR == LIBRARY_PCM_ID.replace(".", "_")
+    assert LIBRARY_PCM_ID != plugin_id
+    shapes = ROOT / "3dmodels" / "StripForge.3dshapes"
+    names = sorted(p.name for p in shapes.iterdir() if p.is_file())
+    assert names == sorted(f"{name}{ext}" for name in LINKS for ext in (".step", ".wrl"))
+    listed = {}
+    for line in (ROOT / "3dmodels" / "SHA256SUMS").read_text(encoding="utf-8").splitlines():
+        digest, rel = line.split(None, 1)
+        listed[rel] = digest
+    assert set(listed) == set(names)
+    num = re.compile(r"[-+]?(?:\d+\.\d*|\d*\.\d+|\d+)(?:[eE][-+]?\d+)?")
+    for name in LINKS:
+        for ext in (".step", ".wrl"):
+            path = shapes / f"{name}{ext}"
+            assert hashlib.sha256(path.read_bytes()).hexdigest() == listed[path.name]
+        span = float(name.removeprefix("Link_P"))
+        xmin = ymin = zmin = float("inf")
+        xmax = ymax = zmax = float("-inf")
+        in_pts = False
+        for line in (shapes / f"{name}.wrl").open(encoding="utf-8"):
+            if "point [" in line:
+                in_pts = True
+                continue
+            if in_pts and line.strip().startswith("]"):
+                in_pts = False
+                continue
+            if not in_pts:
+                continue
+            vals = [float(v) for v in num.findall(line)]
+            if len(vals) < 3:
+                continue
+            x, y, z = vals[:3]
+            xmin, xmax = min(xmin, x), max(xmax, x)
+            ymin, ymax = min(ymin, y), max(ymax, y)
+            zmin, zmax = min(zmin, z), max(zmax, z)
+        assert abs((xmax - xmin) - 0.6) < 0.02, name  # 0.6 mm wire, across the pads
+        assert abs(ymax - 0.3) < 0.02 and abs(ymin - -(span + 0.3)) < 0.02, name
+        assert abs(zmin - -2.6) < 0.02 and abs(zmax - 0.9) < 0.02, name
+        text = (LIB / f"{name}.kicad_mod").read_text()
+        uri = link_model_uri(name)
+        assert f'(model "{uri}"' in text and "${KICAD10_3RD_PARTY}/" in uri
+        assert "Dropbox" not in uri and not uri.startswith("/")
+    for name in ("Link_D3.59", "CUT_Hole", "CUT_Knife"):
+        assert "(model " not in (LIB / f"{name}.kicad_mod").read_text()
+
+
 def test_link_geometry():
     for k, name in enumerate(LINKS, start=1):
         t = (LIB / f"{name}.kicad_mod").read_text()

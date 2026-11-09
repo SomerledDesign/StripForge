@@ -24,9 +24,9 @@ For each W footprint on the board:
 The schematic is written to a copy (``--out-dir``: every sheet of the hierarchy, the project file
 and the library tables with ``${KIPRJMOD}`` pointing back at the original project, plus the board
 under the project's name, so ``kicad-cli`` netlist/ERC/DRC parity run on the copy), or in place
-(``--in-place``), in which case every sheet that changes is first backed up next to it as
-``<sheet>-pre-links.kicad_sch``, rotating older backups to ``-1``, ``-2``, ... like the board's
-``-pre-stripbuild`` backups (all renames happen before any sheet is written). The
+(``--in-place``), in which case a save point of every sheet that changes is made first (a new
+zip in ``stripforge/<Project>-stripforge-backups/``, see :mod:`stripforge.layout`; "Restore last"
+steps back to it). The
 ``StripForge:Link`` symbol definition is embedded in each sheet (``lib_symbols``) as KiCad does, so
 the schematic opens without the library configured and needs no sym-lib-table entry."""
 
@@ -47,7 +47,6 @@ NS = uuid.UUID("7b1e6c1a-51f0-4e43-9b3a-5354524950f1")  # the writer's namespace
 LINK_LIB_ID = f"{resources.LIB_NICKNAME}:Link"
 LINK_RE = re.compile(r"^W\d+$")
 GRID = 1.27  # schematic connection grid (mm)
-LINKS_BACKUP_SUFFIX = "-pre-links"  # in place: <sheet>-pre-links.kicad_sch, rotated like the board backups
 # landscape paper sizes (mm) KiCad knows, smallest first
 PAPER = {
     "A4": (297, 210), "USLetter": (279.4, 215.9), "A": (279.4, 215.9), "USLegal": (355.6, 215.9),
@@ -645,9 +644,9 @@ def _planned_refs(board_path: Path) -> set[str] | None:
     """The W refs in the board's latest link plan (``<name>-stripforge.links.json``), or None."""
     import json
 
-    from .writer import link_file
+    from .writer import saved_link_file
 
-    path = link_file(board_path, ".json")
+    path = saved_link_file(board_path, ".json")
     try:
         return {d["ref"] for d in json.loads(path.read_text(encoding="utf-8"))["links"]}
     except (OSError, ValueError, KeyError, TypeError):
@@ -703,6 +702,7 @@ def add_link_symbols(
     in_place: bool = False,
     symbol_lib: str | Path | None = None,
     backup_keep: int = 0,
+    cfg=None,
 ) -> LinkSymbolResult:
     """Add a StripForge:Link symbol for every W footprint on ``board_path`` that the schematic
     (root sheet ``schematic``) lacks. See the module docstring. Raises LinkSymbolError."""
@@ -749,7 +749,12 @@ def add_link_symbols(
             _relink(lk, sh, node, res)
             pts = pin_points(sh, node)
             if not pts:
-                res.warnings.append(f"{lk.ref}: its symbol has no pins StripForge can find; label it by hand")
+                lib_id = atom(find(node, "lib_id"), 1) or "(no lib_id)"
+                res.warnings.append(
+                    f"Cannot find symbol {lib_id} for {lk.ref}: {sh.file.name} lib_symbols has no "
+                    "unit whose name starts with that symbol's item name (for StripForge:Link the "
+                    "units are Link_1_1 and Link_0_1). Its pins were not labelled."
+                )
                 continue
             kind, name = _label_on(lk.net, sh)
             clash = {}
@@ -789,14 +794,22 @@ def add_link_symbols(
             by_net = by_uuid_path.get(max(on_net, key=on_net.get)) if on_net else None
             target = (by_uuid_path.get(prefix) if lk.path else None) or by_net or busiest
             label_name = lk.net
-        if not sym_uuid or prefix != target.uuid_path:
-            if lk.path:
-                res.warnings.append(
-                    f"{lk.ref}: its board path doesn't name the sheet its net is on; rebuild the board "
-                    "(stripforge build) so F8 matches the new symbol, or tick 'Re-link footprints to "
-                    "schematic symbols based on their reference designators' in F8"
-                )
+        # KiCad looks up a footprint's (path) against "/" + symbol uuid on the root sheet
+        # (or "/<child-sheet-uuid>/<symbol uuid>" on a child). That is "Cannot find symbol for
+        # footprint '<ref>'" when the uuid does not match. Keep the uuid the footprint already
+        # names. Only invent one when the footprint has no path.
+        if not sym_uuid:
             sym_uuid = _u(f"link-symbol/{lk.ref}")
+        elif prefix and prefix != target.uuid_path:
+            named = by_uuid_path.get(prefix)
+            if named is not None:
+                target = named
+            else:
+                res.warnings.append(
+                    f"Cannot match sheet for {lk.ref}: footprint path {lk.path} is not a sheet in "
+                    f"this schematic. Symbol {LINK_LIB_ID} still uses uuid {sym_uuid} so KiCad can "
+                    "find that footprint."
+                )
         plans.setdefault(str(target.file), []).append((lk, target, kind, label_name, sym_uuid))
 
     # unnamed nets: a global label of the same name on one of the net's existing pins
@@ -917,16 +930,16 @@ def add_link_symbols(
     if not any(sh.changed for sh in sheets):
         return res
     if in_place:
-        from .writer import BuildError, rotate_backups
+        from . import layout
 
         changed = [sh for sh in sheets if sh.changed]
-        for sh in changed:  # every backup first, then the writes
-            try:
-                rot = rotate_backups(sh.file, backup_keep, LINKS_BACKUP_SUFFIX)
-            except BuildError as exc:
-                raise LinkSymbolError(str(exc).replace("nothing built", "no sheet written")) from exc
-            res.backups.append(str(rot.backup))
-            res.warnings += rot.warnings
+        try:  # the save point first, then the writes
+            files = [sh.file for sh in changed]
+            sp = layout.save_point(board_path, files, cfg, "links", keep=backup_keep or None)
+        except (OSError, ValueError) as exc:
+            raise LinkSymbolError(f"could not make the save point ({exc}); no sheet written") from exc
+        res.backups.append(str(sp.path))
+        res.warnings += sp.warnings
         for sh in changed:
             sh.doc.save(sh.file)
             res.outputs.append(str(sh.file))

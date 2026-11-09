@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+from conftest import X56_DIAGONALS
 from sfbuild import one_pad_board
 from stripforge import config, writer
 from stripforge.config import BoardConfig
@@ -88,7 +89,7 @@ def test_overlap_in_a_column_is_avoided(tmp_path):
 
 def test_report_files(tmp_path):
     res = build(tmp_path, [("P1", 0, 0, "A"), ("P2", 6, 0, "B"), ("P3", 0, 2, "A")])
-    data = json.loads((tmp_path / "out-stripforge.links.json").read_text())
+    data = json.loads((tmp_path / "stripforge" / "out-stripforge.links.json").read_text())
     assert data["links"][0] == {
         "ref": "W1", "net": "A", "from": "A2", "to": "C2", "col": 1, "row_a": 0, "col_b": 1, "row_b": 2,
         "kind": "vertical", "rotation": 0.0, "bus": "", "locked": "", "pitches": 2, "length_mm": 5.08,
@@ -99,12 +100,12 @@ def test_report_files(tmp_path):
         "ref,net,from,to,pitches,length_mm,footprint,kind,rotation,bus",
         "W1,A,A2,C2,2,5.08,StripForge:Link_P5.08,vertical,0.0,",
     ]
-    txt = (tmp_path / "out-stripforge.links.txt").read_text()
+    txt = (tmp_path / "stripforge" / "out-stripforge.links.txt").read_text()
     assert "F8" in txt and "W1" in txt and "StripForge:Link_P5.08" in txt
 
 
 def test_real_fixture_plan(tmp_path, real_board_path, real_netlist_path):
-    cfg = config.load(real_board_path.parents[1] / "x56.toml")
+    cfg = config.load(X56_DIAGONALS)
     out = tmp_path / "b.kicad_pcb"
     res = writer.build(real_board_path, cfg, out, netlist=str(real_netlist_path))
     plan = res.plan

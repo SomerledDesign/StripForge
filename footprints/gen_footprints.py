@@ -71,6 +71,13 @@ LINK_RING_GAP = 0.25
 LINK_RING_W = 0.15
 
 
+def model_uri(name: str) -> str:
+    """Where KiCad finds ``name``.step after Install from File. Same path the footprint carries."""
+    from stripforge.resources import link_model_uri
+
+    return link_model_uri(name)
+
+
 def fmt(v: float) -> str:
     s = f"{v:.4f}".rstrip("0").rstrip(".")
     return "0" if s in ("-0", "") else s
@@ -217,7 +224,19 @@ def make_link(k: int, n: int | None = None) -> tuple[str, str]:
     # The wire joins pads 1 and 2: a jumper pad group tells KiCad's connectivity (ratsnest, DRC
     # unconnected items) that they are one node. Without it a placed link connects nothing.
     jumper = '  (jumper_pad_groups ("1" "2"))'
-    return name, fp.render(descr, tags, "through_hole", props.lines, (jumper,))
+    text = fp.render(descr, tags, "through_hole", props.lines, (jumper,))
+    if n is None:
+        # The supplied model already points pad 2 along model -Y (footprint +Y) with formed legs.
+        # Offset, scale and rotation stay zero; a horizontal link is the footprint's own angle.
+        block = (
+            f'  (model "{model_uri(name)}"\n'
+            "    (offset (xyz 0 0 0))\n"
+            "    (scale (xyz 1 1 1))\n"
+            "    (rotate (xyz 0 0 0))\n"
+            "  )"
+        )
+        text = text.removesuffix(")\n") + block + "\n)\n"
+    return name, text
 
 
 def make_cut(kind: str, layer: str) -> tuple[str, str]:

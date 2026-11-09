@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Somerled Design
-"""StripForge inside KiCad 10's PCB editor: the shared code behind the four IPC plugin actions.
+"""StripForge inside KiCad 10's PCB editor: the shared code behind the IPC plugin actions.
 
 KiCad starts ``sf_<action>.py`` in this plugin's own virtual environment (``requirements.txt``;
 created with ``--system-site-packages``, so KiCad's wxPython is there for dialogs) with
@@ -9,18 +9,21 @@ created with ``--system-site-packages``, so KiCad's wxPython is there for dialog
 1. connects to KiCad with kicad-python (``kipy``) and asks for the open board's file name;
 2. offers to save the board first (StripForge works on the saved ``.kicad_pcb``; KiCad 10's API has
    no "modified" flag, so it always asks; "Build strips" in place requires it);
-3. uses ``stripboard.toml`` next to the board if there is one, else derives the grid from
-   Edge.Cuts; exports a fresh netlist from ``<name>.kicad_sch`` with kicad-cli when it exists;
+3. uses ``stripforge/stripboard.toml`` (or ``stripboard.toml`` in the project folder) if there is
+   one, else derives the grid from Edge.Cuts; exports a fresh netlist from ``<name>.kicad_sch``
+   with kicad-cli when it exists;
 4. runs the same code as the ``stripforge`` command line and shows its report.
 
 "Build strips" (``output = "in_place"``, the default) saves the open board, builds into that same
 file (the project's own ``<name>.kicad_pcb``, so F8 and schematic parity keep working), and reloads
-it in the editor (the API's RevertDocument). Every build first saves the board as it is to
-``<name>-pre-stripbuild.kicad_pcb``, rotating older backups to ``-1``, ``-2``, ... (``backup_keep``);
-a rebuild keeps your cuts and links where you put them. To undo the latest build: delete the built
-board and rename the unnumbered backup back.
-``output = "separate"`` keeps the old behaviour: ``<name>-stripforge.kicad_pcb`` next to the board,
-the open board left alone. "Run DRC" and "Build sheet" work on the built board. Why not live edits
+it in the editor (the API's RevertDocument). Every build first makes a save point, a new zip in
+``stripforge/<Project>-stripforge-backups/``. Older zips are deleted only when the config's
+``backup_policy`` is ``"retention"`` and ``backup_keep`` is 1 or more. A rebuild keeps your cuts and links
+where you put them. "Restore last" steps back one save point at a time, reloading the board,
+until the first save point (the board from before that work). The next click then stops.
+``output = "separate"`` writes ``stripforge/<Project>-stripforge.kicad_pcb``, the open board left alone.
+StripForge's other files (link lists, sheet, log) go to ``stripforge/`` too. "Run DRC" and
+"Build sheet" work on the built board. Why not live edits
 through the API: see Sketch.md §4.10.
 
 The helpers at the top are pure (no kipy, no wx) so they can be tested without KiCad.
@@ -43,7 +46,8 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 IDENTIFIER = "com.github.somerleddesign.stripforge"
 BUILT_SUFFIX = "-stripforge"
-BACKUP_SUFFIX = "-pre-stripbuild"
+BACKUP_SUFFIX = "-pre-stripbuild"  # 0.2.x backups (still recognised by base_stem)
+OUTPUT_DIR = "stripforge"
 CONFIG_NAME = "stripboard.toml"
 TITLES = {
     "analyze": "StripForge: Analyze",
@@ -51,7 +55,19 @@ TITLES = {
     "drc": "StripForge: Run DRC",
     "sheet": "StripForge: Build sheet",
     "links": "StripForge: Add links to schematic",
+    "restore": "StripForge: Restore last",
+    "dialog": "StripForge: Dialog",
 }
+# Actions inside the Dialog window. The toolbar has only StripForge: Dialog.
+# Order is the build workflow, then undo.
+DIALOG_ACTIONS = (
+    ("analyze", "Analyze"),
+    ("build", "Build strips"),
+    ("links", "Add links"),
+    ("drc", "Run DRC"),
+    ("sheet", "Build sheet"),
+    ("restore", "Restore last"),
+)
 REOPEN_NOTE = (
     "IMPORTANT: if the Schematic Editor is open, close it WITHOUT saving and open it again. It does "
     "not reload a schematic changed on disk, and saving the old copy would remove the links again."
@@ -88,17 +104,38 @@ def base_stem(board: Path) -> str:
     return s
 
 
-def built_path(board: Path, mode: str = "in_place") -> Path:
+def _out_file(board: Path, kind: str, config: Path | None = None) -> Path:
+    """``<project>/stripforge/<Project>-stripforge.<kind>`` (stripforge.layout; the config's
+    ``output_dir`` when given)."""
+    cfg = None
+    if config is not None:
+        try:
+            from stripforge.config import load
+
+            cfg = load(config)
+        except Exception:  # a broken config is reported by the action itself
+            cfg = None
+    try:
+        from stripforge.layout import out_file
+    except ImportError:  # before bootstrap(): the default layout, without a project lookup
+        return board.parent / OUTPUT_DIR / f"{base_stem(board)}{BUILT_SUFFIX}.{kind}"
+    return out_file(board, kind, cfg)
+
+
+def built_path(board: Path, mode: str = "in_place", config: Path | None = None) -> Path:
     """Where "Build strips" writes: the board itself (``output = "in_place"``) or
-    ``<name>-stripforge.kicad_pcb`` next to it (``"separate"``)."""
+    ``stripforge/<Project>-stripforge.kicad_pcb`` (``"separate"``)."""
     if mode == "in_place" or is_output_name(board):
         return board
-    return board.with_name(base_stem(board) + BUILT_SUFFIX + ".kicad_pcb")
+    return _out_file(board, "kicad_pcb", config)
 
 
-def backup_path(board: Path) -> Path:
-    """``<name>-pre-stripbuild.kicad_pcb``: the board just before the latest in-place build."""
-    return board.with_name(board.stem + BACKUP_SUFFIX + board.suffix)
+def backups_dir(board: Path, config: Path | None = None) -> Path:
+    """``stripforge/<Project>-stripforge-backups``: the save points."""
+    from stripforge.config import load
+    from stripforge.layout import backup_dir
+
+    return backup_dir(board, load(config) if config else None)
 
 
 def output_mode(config: Path | None) -> str:
@@ -118,15 +155,23 @@ def is_output_name(board: Path) -> bool:
 
 
 def find_config(board: Path) -> Path | None:
-    """``stripboard.toml`` next to the board, or None (derive the grid from Edge.Cuts)."""
-    p = board.parent / CONFIG_NAME
-    return p if p.is_file() else None
+    """``stripforge/stripboard.toml``, then ``stripboard.toml`` in the project folder (next to the
+    board), or None (derive the grid from Edge.Cuts)."""
+    for p in (board.parent / OUTPUT_DIR / CONFIG_NAME, board.parent / CONFIG_NAME):
+        if p.is_file():
+            return p
+    try:
+        from stripforge.layout import find_config as layout_find
+    except ImportError:
+        return None
+    return layout_find(board)
 
 
 def fallback_config(board: Path) -> tuple[Path | None, str | None]:
-    """No ``stripboard.toml``: use the only other ``*.toml`` next to the board if it is a valid
-    StripForge config (e.g. ``X56.toml``), else point the other files out. Returns (config, note)."""
-    others = sorted(board.parent.glob("*.toml"))
+    """No ``stripboard.toml``: use the only other ``*.toml`` in ``stripforge/`` or next to the board
+    if it is a valid StripForge config (e.g. ``X56.toml``), else point the other files out.
+    Returns (config, note)."""
+    others = sorted(board.parent.glob(f"{OUTPUT_DIR}/*.toml")) or sorted(board.parent.glob("*.toml"))
     if not others:
         return None, None
     if len(others) == 1:
@@ -144,12 +189,26 @@ def fallback_config(board: Path) -> tuple[Path | None, str | None]:
 
 
 def find_schematic(board: Path, project_name: str = "") -> Path | None:
-    """The project's root schematic: ``<project>.kicad_sch`` or ``<name>.kicad_sch`` next to the board."""
+    """The project's root schematic: ``<project>.kicad_sch`` next to the board or in the project folder.
+
+    A separate build lives in ``stripforge/``, so the schematic is one directory up, beside the
+    ``.kicad_pro``, not next to that board file.
+    """
     names = [n for n in (project_name, base_stem(board)) if n]
-    for n in names:
-        p = board.parent / f"{n}.kicad_sch"
-        if p.is_file():
-            return p
+    dirs = [board.parent]
+    try:
+        from stripforge.layout import project_dir
+
+        proj = project_dir(board)
+        if proj not in dirs:
+            dirs.append(proj)
+    except Exception:
+        pass
+    for folder in dirs:
+        for n in names:
+            path = folder / f"{n}.kicad_sch"
+            if path.is_file():
+                return path
     return None
 
 
@@ -167,7 +226,10 @@ def check_target(board: Path) -> tuple[Path | None, str]:
     """The built board that DRC and the sheet should use, and a note (or why there is none)."""
     if has_strips(board):
         return board, ""
-    out = built_path(board, "separate")
+    out = built_path(board, "separate", find_config(board))
+    legacy = board.with_name(base_stem(board) + BUILT_SUFFIX + ".kicad_pcb")  # 0.2.x: next to the board
+    if not out.is_file() and legacy.is_file():
+        out = legacy
     if out == board or not out.is_file():
         return None, (f'No built board yet: run "{TITLES["build"]}" first (it builds into {board.name}).')
     note = ""
@@ -185,7 +247,7 @@ def cli_args(action: str, board: Path, config: Path | None, netlist: Path | None
     if action == "analyze":
         return ["analyze", str(board), *net, *cfg]
     if action == "build":
-        out = built_path(board, mode)
+        out = built_path(board, mode, config)
         in_place = ["--in-place"] if out == board else []
         return ["build", str(board), "-o", str(out), *in_place, *net, *cfg]
     if action == "drc":
@@ -198,11 +260,11 @@ def cli_args(action: str, board: Path, config: Path | None, netlist: Path | None
 
 
 def sheet_path(board: Path) -> Path:
-    """``<name>-stripforge.sheet.html`` (for an in-place built board too)."""
-    return board.with_name(base_stem(board) + BUILT_SUFFIX + ".sheet.html")
+    """``stripforge/<Project>-stripforge.sheet.html`` (for an in-place built board too)."""
+    return _out_file(board, "sheet.html", find_config(board))
 
 
-LOG_SUFFIX = "-stripforge.log"
+LOG_SUFFIX = "-stripforge.log"  # stripforge/<Project>-stripforge.log
 NO_WX_NOTE = (
     "StripForge can't show dialogs: wxPython is not importable in the plugin's Python environment, "
     "so KiCad only shows its messages in the PCB editor's status-bar warnings. Fix: Preferences > "
@@ -212,10 +274,10 @@ NO_WX_NOTE = (
 
 
 def log_path(board: Path | None) -> Path:
-    """``<name>-stripforge.log`` next to the board; without a board, ``stripforge.log`` in the temp dir."""
+    """``stripforge/<Project>-stripforge.log``; without a board, ``stripforge.log`` in the temp dir."""
     if board is None:
         return Path(tempfile.gettempdir()) / "stripforge.log"
-    return board.with_name(base_stem(board) + LOG_SUFFIX)
+    return _out_file(board, "log")
 
 
 def write_log(board: Path | None, title: str, text: str) -> Path | None:
@@ -225,6 +287,7 @@ def write_log(board: Path | None, title: str, text: str) -> Path | None:
     body = f"{title}  ({stamp})\n\n{text.rstrip()}\n"
     for p in dict.fromkeys([log_path(board), log_path(None)]):
         try:
+            p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text(body, encoding="utf-8")
             return p
         except OSError:
@@ -250,7 +313,7 @@ def outline_problem(board: Path, config: Path | None) -> str | None:
         "stripboard is (nothing was changed).\n\n"
         "Draw the board outline first: select the Edge.Cuts layer, draw a rectangle the size of your "
         "stripboard around the parts, save the board, and run this again.\n"
-        f"Or set origin_mm, rows and cols in {CONFIG_NAME} next to the board."
+        f"Or set origin_mm, rows and cols in {OUTPUT_DIR}/{CONFIG_NAME}."
     )
 
 
@@ -279,6 +342,114 @@ def export_netlist(kicad_cli: str | None, schematic: Path, out: Path) -> str | N
     if proc.returncode != 0 or not out.is_file():
         return f"netlist export failed (exit {proc.returncode}): {(proc.stdout + proc.stderr).strip()[:400]}"
     return None
+
+
+def _loaded_config(board: Path):
+    """``(path or None, note or None, BoardConfig, raw toml dict)`` for the file Analyze would use."""
+    bootstrap()
+    from stripforge.config import BoardConfig, load, raw_dict
+
+    path = find_config(board)
+    note = None
+    if path is None:
+        path, note = fallback_config(board)
+    if path is None:
+        return None, note, BoardConfig(), {}
+    return path, note, load(path), raw_dict(path)
+
+
+def backup_settings_path(board: Path) -> Path:
+    """The config file the dialog edits: the one Analyze reads, not a second file that would hide it.
+
+    No config yet: ``stripforge/stripboard.toml`` (created on save). A lone ``X56.toml`` is edited
+    in place so a new ``stripboard.toml`` does not take over and drop the rest of that file.
+    """
+    path = find_config(board)
+    if path is not None:
+        return path
+    fallback, _note = fallback_config(board)
+    if fallback is not None:
+        return fallback
+    return board.parent / OUTPUT_DIR / CONFIG_NAME
+
+
+def apply_backup_policy(board: Path, policy: str, keep: int) -> Path:
+    """Save the backup policy. Does not delete any backup; the next save point applies retention."""
+    from stripforge.config import save_backup_settings
+
+    path = backup_settings_path(board)
+    save_backup_settings(path, policy, keep)
+    return path
+
+
+def _fmt(values) -> str:
+    if isinstance(values, dict):
+        return ", ".join(f"{k} = {v:g}" for k, v in values.items()) if values else "(none)"
+    if isinstance(values, (list, tuple)):
+        return ", ".join(str(v) for v in values) if values else "(none)"
+    return str(values)
+
+
+def dialog_snapshot(board: Path) -> str:
+    """Read-only settings text, plus the backup policy the dialog can edit. No wx, no KiCad."""
+    from stripforge.config import prune_keep
+
+    try:
+        path, note, cfg, raw = _loaded_config(board)
+    except (OSError, ValueError) as exc:
+        return f"Board: {board}\nConfig error: {exc}\nThe backup policy was not changed."
+    lines = [f"Board: {board}"]
+    if path is None:
+        lines.append("Config: none; grid derived from Edge.Cuts")
+        lines.append("backup_policy: move (default; no config file)")
+    else:
+        lines.append(f"Config: {path}")
+        if note:
+            lines.append(note)
+        if "backup_policy" in raw:
+            lines.append(f"backup_policy: {cfg.backup_policy}")
+        else:
+            lines.append("backup_policy: move (default; this file does not set backup_policy)")
+    limit = prune_keep(cfg)
+    if limit:
+        lines.append(f"backup_keep: {cfg.backup_keep} (retention deletes older save points down to {limit})")
+    elif cfg.backup_policy == "retention":
+        lines.append(f"backup_keep: {cfg.backup_keep} (retention is on; 0 keeps every save point)")
+    else:
+        lines.append(
+            f"backup_keep: {cfg.backup_keep} (not used while policy is move; save points are not deleted)"
+        )
+    if cfg.origin_mm is None:
+        origin = "from the board outline"
+    else:
+        origin = f"{cfg.origin_mm[0]:g}, {cfg.origin_mm[1]:g}"
+    lines.append(f"rows: {cfg.rows if cfg.rows else 'from the board outline'}")
+    lines.append(f"cols: {cfg.cols if cfg.cols else 'from the board outline'}")
+    lines.append(f"origin_mm: {origin}")
+    lines.append(f"cut_style: {cfg.cut_style}")
+    lines.append(f"diagonal_links: {str(cfg.diagonal_links).lower()}")
+    lines.append(f"max_diagonal_shift: {cfg.max_diagonal_shift}")
+    lines.append(f"slotted: {_fmt(cfg.slotted)}")
+    lines.append(f"skip: {_fmt(cfg.skip)}")
+    lines.append(f"bend: {_fmt(cfg.bend)}")
+    lines.append(f"drc.ignore: {_fmt(cfg.drc.ignore)}")
+    pairs = [f"{a}+{b}" for a, b in cfg.drc.allow_overlap]
+    lines.append(f"drc.allow_overlap: {_fmt(pairs)}")
+    lines.append("")
+    lines.append(
+        "This is the only StripForge toolbar button. Analyze, Build strips, Add links, Run DRC, "
+        "Build sheet and Restore last are in this window."
+    )
+    lines.append("The Report wraps long lines. Analyze is unchanged.")
+    lines.append(
+        "With wxPython, the Board tab writes these settings to stripboard.toml. Origin is the centre "
+        "of hole A1, not the outline corner. The Backup tab writes the backup policy."
+    )
+    lines.append(
+        "Move keeps every save point. Retention deletes older ones only when Keep is 1 or more, "
+        "and only on a later build, sheet or link update: saving this setting deletes nothing."
+    )
+    return "\n".join(lines)
 
 
 def reveal(path: Path) -> None:
@@ -320,9 +491,9 @@ class Ui:
             dlg = wx.MessageDialog(
                 None,
                 f"Build strips writes into this board file and then reloads it:\n{board}\n\n"
-                f"The board is saved first and backed up as:\n{backup_path(board).name}\n\n"
-                "Older backups move up to -1, -2, and so on. To undo the build, close the board "
-                f"and rename that backup back to {board.name}.",
+                "The board is saved first, and a save point (a zip of the files the build "
+                f"writes) goes into {OUTPUT_DIR}/{base_stem(board)}{BUILT_SUFFIX}-backups.\n\n"
+                f"To undo the build: {TITLES['restore']}.",
                 "StripForge",
                 wx.OK | wx.CANCEL | wx.ICON_QUESTION,
             )
@@ -341,6 +512,646 @@ class Ui:
         dlg.Destroy()
         return {wx.ID_YES: True, wx.ID_NO: False}.get(r)
 
+    def confirm_restore(self, board: Path, save: Path) -> bool:
+        """Restore last: OK to replace the files? Never without a dialog (no wx: False)."""
+        if self.wx is None:
+            return False
+        wx = self.wx
+        dlg = wx.MessageDialog(
+            None,
+            f"Step back to this save point?\n{save.name}\n\n"
+            f"{board.name} is reloaded as it was then (built strips, holes, tracks and link edits "
+            "from later saves are removed). A safety copy of the current board is kept first. "
+            "Repeat Restore last to walk back to the board from before the first build. "
+            "Unsaved changes in the open board are lost.",
+            "StripForge",
+            wx.OK | wx.CANCEL | wx.ICON_QUESTION,
+        )
+        dlg.SetOKCancelLabels("Restore", "Cancel")
+        r = dlg.ShowModal()
+        dlg.Destroy()
+        return r == wx.ID_OK
+
+    def show_hub(
+        self,
+        title,
+        snapshot,
+        policy,
+        keep,
+        on_save,
+        on_action,
+        board_form,
+        on_save_board,
+        on_reload_board,
+        show: bool = True,
+        text_scale_path=None,
+        toml_path=None,
+    ) -> None:
+        """The shared window. ``on_save_board(form)`` returns ``(path, fresh form, snapshot)`` or raises.
+
+        ``on_reload_board()`` returns the form last saved. Actions are refused while the board form
+        is dirty, so a build cannot run on values that were typed but not saved. ``toml_path`` is
+        that same ``stripboard.toml``. Edit stripboard.toml opens it as text, including ``[bend]``.
+        """
+        from stripforge.config import (
+            ORIGIN_HELP,
+            UNSAVED_BOARD_MESSAGE,
+            StripboardConflict,
+            board_editor_labels,
+            board_field_kind,
+            board_form_from_file,
+            board_form_groups,
+            board_form_is_dirty,
+            load,
+            raw_toml_blocked,
+            read_stripboard_text,
+            save_stripboard_text,
+        )
+        from stripforge.dialog_text import (
+            baseline_point_size,
+            default_dialog_text_scale_path,
+            load_text_scale,
+            point_size,
+            report_text_style,
+            save_text_scale,
+            scale_from_magnify_delta,
+            scale_from_zoom_factor,
+            scale_percent,
+            step_text_scale,
+        )
+
+        wx = self.wx
+        scale_path = text_scale_path if text_scale_path is not None else default_dialog_text_scale_path()
+        scale_state = {"value": load_text_scale(scale_path), "gesture_start": None}
+        system_font = wx.SystemSettings.GetFont(wx.SYS_DEFAULT_GUI_FONT)
+        try:
+            reported_points = int(system_font.GetPointSize())
+        except Exception:
+            reported_points = 0
+        body_base = baseline_point_size(reported_points, sys.platform)
+
+        def make_font(scale: float, teletype: bool = False):
+            """Absolute font for this scale, from the baseline. Not a scale of the current font."""
+            points = point_size(scale, body_base)
+            if teletype:
+                return wx.Font(wx.FontInfo(points).Family(wx.FONTFAMILY_TELETYPE))
+            if abs(scale - 1.0) < 1e-9 and reported_points == body_base:
+                return wx.Font(system_font)
+            return wx.Font(wx.FontInfo(points))
+
+        def dip_size(window, width: int, height: int = -1):
+            size = wx.Size(width, height)
+            return window.FromDIP(size) if hasattr(window, "FromDIP") else size
+
+        dlg = wx.Dialog(None, title=title, style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
+        dlg.SetFont(make_font(scale_state["value"]))
+        root = wx.BoxSizer(wx.VERTICAL)
+        book = wx.Notebook(dlg)
+        board_page = wx.Panel(book)
+        board_sizer = wx.BoxSizer(wx.VERTICAL)
+        board_path = wx.StaticText(board_page, label=snapshot.split("\n", 1)[0])
+        board_sizer.Add(board_path, 0, wx.ALL, 8)
+        scrolled = wx.ScrolledWindow(board_page, style=wx.VSCROLL)
+        scrolled.SetScrollRate(0, 16)
+        form_sizer = wx.BoxSizer(wx.VERTICAL)
+        controls = {}
+        choices = {"cut_style": ["auto", "hole", "knife"], "output": ["in_place", "separate"]}
+        labels = dict(board_editor_labels())
+        wide_keys = {"slotted", "skip", "knife_cuts", "offboard_refs", "cut_marker_layer"}
+        for title_text, keys in board_form_groups():
+            box = wx.StaticBox(scrolled, label=title_text)
+            group = wx.StaticBoxSizer(box, wx.VERTICAL)
+            if title_text == "Origin":
+                help_text = wx.StaticText(scrolled, label=ORIGIN_HELP)
+                if hasattr(help_text, "Wrap"):
+                    help_text.Wrap(dlg.FromDIP(520) if hasattr(dlg, "FromDIP") else 520)
+                group.Add(help_text, 0, wx.ALL, 6)
+            grid = wx.FlexGridSizer(cols=2, vgap=6, hgap=12)
+            for key in keys:
+                grid.Add(wx.StaticText(scrolled, label=labels[key]), 0, wx.ALIGN_CENTER_VERTICAL)
+                kind = "origin" if key.startswith("origin_") else board_field_kind(key)
+                value = board_form.get(key, "")
+                if kind == "bool":
+                    ctrl = wx.CheckBox(scrolled)
+                    ctrl.SetValue(value == "true")
+                elif kind == "choice":
+                    ctrl = wx.Choice(scrolled, choices=choices[key])
+                    if value in choices[key]:
+                        ctrl.SetStringSelection(value)
+                    else:
+                        ctrl.SetSelection(0)
+                    ctrl.SetMinSize(dip_size(scrolled, 180))
+                else:
+                    ctrl = wx.TextCtrl(scrolled, value=value)
+                    ctrl.SetMinSize(dip_size(scrolled, 320 if key in wide_keys else 140))
+                controls[key] = ctrl
+                grid.Add(ctrl, 0, wx.ALIGN_CENTER_VERTICAL)
+            group.Add(grid, 0, wx.ALL, 6)
+            form_sizer.Add(group, 0, wx.EXPAND | wx.BOTTOM, 8)
+        scrolled.SetSizer(form_sizer)
+        scrolled.SetVirtualSize(form_sizer.CalcMin())
+        board_sizer.Add(scrolled, 1, wx.EXPAND | wx.LEFT | wx.RIGHT, 8)
+        dirty_label = wx.StaticText(board_page, label="Matches the saved stripboard.toml")
+        buttons = wx.BoxSizer(wx.HORIZONTAL)
+        save_board = wx.Button(board_page, label="Save board settings")
+        reload_board = wx.Button(board_page, label="Reload")
+        edit_toml = wx.Button(board_page, label="Edit stripboard.toml")
+        buttons.Add(save_board, 0, wx.RIGHT, 8)
+        buttons.Add(reload_board, 0, wx.RIGHT, 8)
+        buttons.Add(edit_toml, 0, wx.RIGHT, 8)
+        buttons.Add(dirty_label, 0, wx.ALIGN_CENTER_VERTICAL)
+        board_sizer.Add(buttons, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
+        board_page.SetSizer(board_sizer)
+        book.AddPage(board_page, "Board")
+
+        backup_page = wx.Panel(book)
+        backup_sizer = wx.BoxSizer(wx.VERTICAL)
+        policy_box = wx.StaticBox(backup_page, label="Save points")
+        policy_group = wx.StaticBoxSizer(policy_box, wx.VERTICAL)
+        move = wx.RadioButton(backup_page, label="Move (keep every save point)", style=wx.RB_GROUP)
+        retention = wx.RadioButton(backup_page, label="Retention (delete older save points)")
+        (retention if policy == "retention" else move).SetValue(True)
+        policy_group.Add(move, 0, wx.ALL, 4)
+        keep_row = wx.BoxSizer(wx.HORIZONTAL)
+        keep_row.Add(retention, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 12)
+        keep_row.Add(wx.StaticText(backup_page, label="Keep"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
+        keep_ctrl = wx.SpinCtrl(backup_page, min=0, max=999, initial=max(0, int(keep)))
+        keep_ctrl.Enable(policy == "retention")
+        keep_ctrl.SetMinSize(dip_size(backup_page, 80))
+        keep_row.Add(keep_ctrl, 0)
+        policy_group.Add(keep_row, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 4)
+        policy_help = wx.StaticText(
+            backup_page,
+            label="Saving does not delete anything. Retention deletes older save points on the next "
+            "build, sheet or link update, and only when Keep is 1 or more. The default is move.",
+        )
+        if hasattr(policy_help, "Wrap"):
+            policy_help.Wrap(dlg.FromDIP(520) if hasattr(dlg, "FromDIP") else 520)
+        policy_group.Add(policy_help, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
+        save_btn = wx.Button(backup_page, label="Save backup policy")
+        policy_group.Add(save_btn, 0, wx.LEFT | wx.BOTTOM, 6)
+        backup_sizer.Add(policy_group, 0, wx.ALL, 8)
+        backup_page.SetSizer(backup_sizer)
+        book.AddPage(backup_page, "Backup")
+
+        text_box = wx.StaticBox(dlg, label="Text size")
+        text_group = wx.StaticBoxSizer(text_box, wx.VERTICAL)
+        text_bar = wx.BoxSizer(wx.HORIZONTAL)
+        larger = wx.Button(dlg, label="Larger text")
+        smaller = wx.Button(dlg, label="Smaller text")
+        reset_text = wx.Button(dlg, label="Reset text size")
+        size_label = wx.StaticText(dlg, label=f"Text size: {scale_percent(scale_state['value'])}")
+        text_bar.Add(larger, 0, wx.RIGHT, 8)
+        text_bar.Add(smaller, 0, wx.RIGHT, 8)
+        text_bar.Add(reset_text, 0, wx.RIGHT, 12)
+        text_bar.Add(size_label, 0, wx.ALIGN_CENTER_VERTICAL)
+        text_group.Add(text_bar, 0, wx.ALL, 6)
+        text_hint = wx.StaticText(
+            dlg,
+            label="Command-plus, Command-minus, and Command-0 on a Mac. Ctrl with those keys on "
+            "Windows and Linux.",
+        )
+        text_group.Add(text_hint, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
+        root.Add(text_group, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 8)
+        root.Add(book, 3, wx.EXPAND | wx.ALL, 8)
+
+        def _toggle(_evt):
+            keep_ctrl.Enable(retention.GetValue())
+
+        move.Bind(wx.EVT_RADIOBUTTON, _toggle)
+        retention.Bind(wx.EVT_RADIOBUTTON, _toggle)
+
+        baseline = [dict(board_form)]
+        saved_backup = {"policy": "retention" if policy == "retention" else "move", "keep": max(0, int(keep))}
+        raw_windows: list = []
+        raw_open = {"value": False}
+
+        def current_form() -> dict:
+            form = {}
+            for key, _label in board_editor_labels():
+                ctrl = controls[key]
+                kind = "origin" if key.startswith("origin_") else board_field_kind(key)
+                if kind == "bool":
+                    form[key] = "true" if ctrl.GetValue() else "false"
+                elif kind == "choice":
+                    form[key] = ctrl.GetStringSelection()
+                else:
+                    form[key] = ctrl.GetValue()
+            return form
+
+        def is_dirty() -> bool:
+            return board_form_is_dirty(baseline[0], current_form())
+
+        def backup_is_dirty() -> bool:
+            which = "retention" if retention.GetValue() else "move"
+            return which != saved_backup["policy"] or int(keep_ctrl.GetValue()) != int(saved_backup["keep"])
+
+        def show_backup(policy_name: str, keep_value: int) -> None:
+            saved_backup["policy"] = policy_name
+            saved_backup["keep"] = int(keep_value)
+            if policy_name == "retention":
+                retention.SetValue(True)
+            else:
+                move.SetValue(True)
+            keep_ctrl.SetValue(int(keep_value))
+            keep_ctrl.Enable(policy_name == "retention")
+
+        def refresh_dirty(_evt=None) -> None:
+            dirty_label.SetLabel(
+                "Unsaved board settings" if is_dirty() else "Matches the saved stripboard.toml"
+            )
+
+        for key, ctrl in controls.items():
+            kind = "origin" if key.startswith("origin_") else board_field_kind(key)
+            if kind == "bool":
+                ctrl.Bind(wx.EVT_CHECKBOX, refresh_dirty)
+            elif kind == "choice":
+                ctrl.Bind(wx.EVT_CHOICE, refresh_dirty)
+            else:
+                ctrl.Bind(wx.EVT_TEXT, refresh_dirty)
+
+        def apply_form(form: dict) -> None:
+            for key, _label in board_editor_labels():
+                ctrl = controls[key]
+                kind = "origin" if key.startswith("origin_") else board_field_kind(key)
+                value = form.get(key, "")
+                if kind == "bool":
+                    ctrl.SetValue(value == "true")
+                elif kind == "choice":
+                    if value in choices[key]:
+                        ctrl.SetStringSelection(value)
+                else:
+                    ctrl.ChangeValue(value)
+            baseline[0] = dict(form)
+            refresh_dirty()
+
+        report_box = wx.StaticBox(dlg, label="Report")
+        report_sizer = wx.StaticBoxSizer(report_box, wx.VERTICAL)
+        report = wx.TextCtrl(
+            dlg,
+            value="Results appear here after Analyze, Build strips, Add links, Run DRC, "
+            "Build sheet, or Restore last.",
+            style=report_text_style(wx),
+        )
+        report.SetFont(make_font(scale_state["value"], teletype=True))
+        report.SetMinSize(dip_size(dlg, -1, 96))
+        report_sizer.Add(report, 1, wx.EXPAND | wx.ALL, 6)
+
+        def _save_board(_evt):
+            try:
+                path, fresh, snap = on_save_board(current_form())
+            except (OSError, ValueError) as exc:
+                report.SetValue(f"Board settings were not saved. The file is unchanged.\n\n{exc}")
+                return
+            apply_form(fresh)
+            report.SetValue(f"Saved board settings in {path}.\nParts were not moved.\n\n{snap}")
+
+        def _reload(_evt):
+            try:
+                fresh = on_reload_board()
+                cfg = load(toml_path) if toml_path is not None and Path(toml_path).is_file() else None
+            except (OSError, ValueError) as exc:
+                report.SetValue(f"Could not reload stripboard.toml.\n\n{exc}")
+                return
+            apply_form(fresh)
+            if cfg is not None:
+                show_backup(cfg.backup_policy, cfg.backup_keep)
+            elif toml_path is not None:
+                show_backup("move", 0)
+            report.SetValue("Reloaded stripboard.toml. Unsaved edits were discarded.")
+
+        save_board.Bind(wx.EVT_BUTTON, _save_board)
+        reload_board.Bind(wx.EVT_BUTTON, _reload)
+
+        def _save(_evt):
+            if is_dirty():
+                report.SetValue(UNSAVED_BOARD_MESSAGE)
+                return
+            which = "retention" if retention.GetValue() else "move"
+            try:
+                _snap, status = on_save(which, int(keep_ctrl.GetValue()))
+            except (OSError, ValueError) as exc:
+                report.SetValue(f"Backup policy was not saved.\n\n{exc}")
+                return
+            show_backup(which, int(keep_ctrl.GetValue()))
+            report.SetValue(status)
+
+        save_btn.Bind(wx.EVT_BUTTON, _save)
+
+        actions = wx.WrapSizer(wx.HORIZONTAL) if hasattr(wx, "WrapSizer") else wx.BoxSizer(wx.HORIZONTAL)
+        action_groups = (("analyze", "build"), ("links", "drc", "sheet"), ("restore",))
+        labels_by_action = dict(DIALOG_ACTIONS)
+        first_button = True
+        for group in action_groups:
+            if not first_button:
+                actions.AddSpacer(16)
+            first_button = False
+            for action in group:
+                button = wx.Button(dlg, label=labels_by_action[action])
+
+                def _run(_evt, action=action):
+                    if raw_open["value"]:
+                        report.SetValue(
+                            "The TOML editor is open. Save it or close it before running an action. "
+                            "Nothing was read from that text, and nothing was written or built."
+                        )
+                        return
+                    if is_dirty():
+                        report.SetValue(UNSAVED_BOARD_MESSAGE)
+                        return
+                    report.SetValue(on_action(action))
+
+                button.Bind(wx.EVT_BUTTON, _run)
+                actions.Add(button, 0, wx.RIGHT, 6)
+        root.Add(actions, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 8)
+        root.Add(report_sizer, 1, wx.EXPAND | wx.ALL, 8)
+
+        bottom = wx.BoxSizer(wx.HORIZONTAL)
+        copy = wx.Button(dlg, label="Copy report")
+
+        def _copy(_evt):
+            if wx.TheClipboard.Open():
+                wx.TheClipboard.SetData(wx.TextDataObject(report.GetValue()))
+                wx.TheClipboard.Close()
+
+        copy.Bind(wx.EVT_BUTTON, _copy)
+        bottom.Add(copy, 0, wx.RIGHT, 8)
+        close = wx.Button(dlg, wx.ID_CLOSE, "Close")
+        close.Bind(wx.EVT_BUTTON, lambda _evt: dlg.EndModal(wx.ID_CLOSE))
+        bottom.Add(close, 0)
+        root.Add(bottom, 0, wx.ALIGN_RIGHT | wx.ALL, 8)
+
+        def apply_text_scale(scale: float, *, persist: bool) -> None:
+            """Resize fonts and the layout. Field values, radios, and focus stay put."""
+            scale_state["value"] = scale
+            if persist:
+                save_text_scale(scale_path, scale)
+            size_label.SetLabel(f"Text size: {scale_percent(scale)}")
+            focused = dlg.FindFocus()
+            form_now = current_form()
+            saved_baseline = dict(baseline[0])
+            policy_now = "retention" if retention.GetValue() else "move"
+            keep_now = int(keep_ctrl.GetValue())
+            report_now = report.GetValue()
+            body = make_font(scale)
+            mono = make_font(scale, teletype=True)
+
+            def walk(win) -> None:
+                mono_this = win is report or getattr(win, "_stripforge_mono", False)
+                win.SetFont(mono if mono_this else body)
+                for child in win.GetChildren():
+                    walk(child)
+
+            walk(dlg)
+            for extra in raw_windows:
+                walk(extra)
+            # apply_form writes the baseline; put the real saved baseline back so an unsaved
+            # origin is still unsaved after the fonts change.
+            apply_form(form_now)
+            baseline[0] = saved_baseline
+            refresh_dirty()
+            if policy_now == "retention":
+                retention.SetValue(True)
+            else:
+                move.SetValue(True)
+            keep_ctrl.SetValue(keep_now)
+            keep_ctrl.Enable(policy_now == "retention")
+            report.ChangeValue(report_now)
+            dlg.Layout()
+            scrolled.SetVirtualSize(form_sizer.CalcMin())
+            try:
+                display = wx.DisplaySize()
+                limit_w, limit_h = max(640, display[0] - 80), max(480, display[1] - 80)
+            except Exception:
+                limit_w, limit_h = 1400, 1000
+            best = dlg.GetBestSize()
+            cur = dlg.GetSize()
+            dlg.SetSize(
+                min(limit_w, max(cur.width, best.width)),
+                min(limit_h, max(cur.height, best.height)),
+            )
+            if focused is not None:
+                focused.SetFocus()
+
+        def enlarge(_evt=None) -> None:
+            apply_text_scale(step_text_scale(scale_state["value"], 1), persist=True)
+
+        def shrink(_evt=None) -> None:
+            apply_text_scale(step_text_scale(scale_state["value"], -1), persist=True)
+
+        def reset_size(_evt=None) -> None:
+            apply_text_scale(step_text_scale(scale_state["value"], 0), persist=True)
+
+        larger.Bind(wx.EVT_BUTTON, enlarge)
+        smaller.Bind(wx.EVT_BUTTON, shrink)
+        reset_text.Bind(wx.EVT_BUTTON, reset_size)
+
+        def on_char_hook(evt) -> None:
+            if not (evt.CmdDown() or evt.ControlDown()):
+                evt.Skip()
+                return
+            code = evt.GetKeyCode()
+            plus = {ord("="), ord("+")}
+            minus = {ord("-"), ord("_")}
+            zero = {ord("0")}
+            if hasattr(wx, "WXK_NUMPAD_ADD"):
+                plus.add(wx.WXK_NUMPAD_ADD)
+            if hasattr(wx, "WXK_NUMPAD_SUBTRACT"):
+                minus.add(wx.WXK_NUMPAD_SUBTRACT)
+            if hasattr(wx, "WXK_NUMPAD0"):
+                zero.add(wx.WXK_NUMPAD0)
+            if code in plus:
+                enlarge()
+            elif code in minus:
+                shrink()
+            elif code in zero:
+                reset_size()
+            else:
+                evt.Skip()
+
+        dlg.Bind(wx.EVT_CHAR_HOOK, on_char_hook)
+        # macOS trackpad pinch arrives as wxEVT_MAGNIFY (a delta) and, on some wx builds,
+        # wxEVT_GESTURE_ZOOM (a factor since the gesture started). If neither binder exists,
+        # the buttons and shortcuts still work.
+        if hasattr(wx, "EVT_MAGNIFY"):
+
+            def on_magnify(evt) -> None:
+                delta = evt.GetMagnification() if hasattr(evt, "GetMagnification") else 0.0
+                apply_text_scale(scale_from_magnify_delta(scale_state["value"], delta), persist=True)
+
+            dlg.Bind(wx.EVT_MAGNIFY, on_magnify)
+        if hasattr(wx, "EVT_GESTURE_ZOOM"):
+
+            def on_zoom(evt) -> None:
+                if getattr(evt, "IsGestureStart", lambda: False)():
+                    scale_state["gesture_start"] = scale_state["value"]
+                start = scale_state["gesture_start"]
+                if start is None:
+                    start = scale_state["value"]
+                factor = evt.GetZoomFactor() if hasattr(evt, "GetZoomFactor") else 1.0
+                apply_text_scale(scale_from_zoom_factor(start, factor), persist=False)
+                if getattr(evt, "IsGestureEnd", lambda: False)():
+                    scale_state["gesture_start"] = None
+                    save_text_scale(scale_path, scale_state["value"])
+
+            dlg.Bind(wx.EVT_GESTURE_ZOOM, on_zoom)
+
+        def open_raw(_evt=None) -> None:
+            blocked = raw_toml_blocked(is_dirty(), backup_is_dirty())
+            if blocked:
+                report.SetValue(blocked)
+                return
+            if toml_path is None:
+                report.SetValue("No stripboard.toml is selected for this board. Nothing was written.")
+                return
+            try:
+                loaded, baseline = read_stripboard_text(toml_path)
+            except (OSError, ValueError) as exc:
+                report.SetValue(f"Could not open {toml_path}.\n\n{exc}")
+                return
+            state = {"baseline": baseline, "loaded": loaded}
+            ed = wx.Dialog(
+                dlg,
+                title="StripForge: stripboard.toml",
+                style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER,
+            )
+            ed.SetMinSize(dip_size(dlg, 480, 320))
+            ed.SetFont(make_font(scale_state["value"]))
+            box = wx.BoxSizer(wx.VERTICAL)
+            box.Add(wx.StaticText(ed, label=str(toml_path)), 0, wx.ALL, 8)
+            box.Add(
+                wx.StaticText(
+                    ed,
+                    label="Edits this file, including [bend], [drc], [manual] and [stretch]. "
+                    "A [bend] number is millimetres (SW1 = 0.46 is 0.46 mm). "
+                    "Save checks the TOML and the config loader, then writes the text as typed.",
+                ),
+                0,
+                wx.LEFT | wx.RIGHT | wx.BOTTOM,
+                8,
+            )
+            edit_style = wx.TE_MULTILINE | wx.HSCROLL
+            if hasattr(wx, "TE_DONTWRAP"):
+                edit_style |= wx.TE_DONTWRAP
+            editor = wx.TextCtrl(ed, value=loaded, style=edit_style)
+            editor._stripforge_mono = True
+            editor.SetFont(make_font(scale_state["value"], teletype=True))
+            box.Add(editor, 1, wx.EXPAND | wx.LEFT | wx.RIGHT, 8)
+            box.Add(wx.StaticText(ed, label="Check"), 0, wx.LEFT | wx.RIGHT | wx.TOP, 8)
+            status = wx.TextCtrl(ed, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.HSCROLL)
+            status._stripforge_mono = True
+            status.SetFont(make_font(scale_state["value"], teletype=True))
+            status.SetMinSize(dip_size(ed, -1, 72))
+            box.Add(status, 0, wx.EXPAND | wx.ALL, 8)
+            row = wx.BoxSizer(wx.HORIZONTAL)
+            save_text = wx.Button(ed, label="Save")
+            reload_text = wx.Button(ed, label="Reload")
+            cancel_text = wx.Button(ed, label="Cancel")
+            row.Add(save_text, 0, wx.RIGHT, 8)
+            row.Add(reload_text, 0, wx.RIGHT, 8)
+            row.Add(cancel_text, 0)
+            box.Add(row, 0, wx.ALIGN_RIGHT | wx.ALL, 8)
+            ed.SetSizer(box)
+            ed.SetSize((720, 520))
+            raw_windows.append(ed)
+
+            def do_save(_evt=None) -> None:
+                typed = editor.GetValue()
+                try:
+                    cfg = save_stripboard_text(toml_path, typed, state["baseline"])
+                except StripboardConflict as exc:
+                    status.SetValue(str(exc))
+                    return
+                except (OSError, ValueError) as exc:
+                    status.SetValue(f"Not saved. The file is unchanged.\n\n{exc}")
+                    return
+                try:
+                    fresh_text, fresh_bytes = read_stripboard_text(toml_path)
+                except (OSError, ValueError) as exc:
+                    status.SetValue(f"Saved, but could not re-read {toml_path}.\n\n{exc}")
+                    return
+                state["baseline"] = fresh_bytes
+                state["loaded"] = fresh_text
+                editor.ChangeValue(fresh_text)
+                apply_form(board_form_from_file(toml_path))
+                show_backup(cfg.backup_policy, cfg.backup_keep)
+                lines = [f"Saved {toml_path}.", "The Board and Backup controls now match this file."]
+                if cfg.warnings:
+                    lines.append("")
+                    lines.extend(cfg.warnings)
+                status.SetValue("\n".join(lines))
+                report.SetValue("\n".join(lines))
+
+            def do_reload(_evt=None) -> None:
+                try:
+                    fresh_text, fresh_bytes = read_stripboard_text(toml_path)
+                except (OSError, ValueError) as exc:
+                    status.SetValue(
+                        f"Could not reload {toml_path}. The text in this window was kept.\n\n{exc}"
+                    )
+                    return
+                state["baseline"] = fresh_bytes
+                state["loaded"] = fresh_text
+                editor.ChangeValue(fresh_text)
+                status.SetValue("Reloaded stripboard.toml. Unsaved text in this window was discarded.")
+
+            def do_cancel(_evt=None) -> None:
+                ed.EndModal(wx.ID_CANCEL)
+
+            save_text.Bind(wx.EVT_BUTTON, do_save)
+            reload_text.Bind(wx.EVT_BUTTON, do_reload)
+            cancel_text.Bind(wx.EVT_BUTTON, do_cancel)
+
+            def on_editor_key(evt) -> None:
+                code = evt.GetKeyCode()
+                escape = getattr(wx, "WXK_ESCAPE", None)
+                if escape is not None and code == escape:
+                    do_cancel()
+                    return
+                on_char_hook(evt)
+
+            def on_editor_close(evt) -> None:
+                if ed.IsModal():
+                    ed.EndModal(wx.ID_CANCEL)
+                else:
+                    evt.Skip()
+
+            ed.Bind(wx.EVT_CHAR_HOOK, on_editor_key)
+            ed.Bind(wx.EVT_CLOSE, on_editor_close)
+            if hasattr(wx, "EVT_MAGNIFY"):
+                ed.Bind(wx.EVT_MAGNIFY, on_magnify)
+            if hasattr(wx, "EVT_GESTURE_ZOOM"):
+                ed.Bind(wx.EVT_GESTURE_ZOOM, on_zoom)
+            editor.SetFocus()
+            raw_open["value"] = True
+            try:
+                ed.ShowModal()
+            finally:
+                raw_open["value"] = False
+                if ed in raw_windows:
+                    raw_windows.remove(ed)
+            discarded = editor.GetValue() != state["loaded"]
+            ed.Destroy()
+            if discarded:
+                report.SetValue(
+                    "Closed the TOML editor. Text that was not saved was discarded. "
+                    "Closing did not write the file."
+                )
+
+        edit_toml.Bind(wx.EVT_BUTTON, open_raw)
+
+        dlg.SetSizer(root)
+        dlg.SetMinSize(dip_size(dlg, 680, 520))
+        dlg.SetSize(dip_size(dlg, 780, 680))
+        dlg._board_controls = controls  # tests set values without a click on each field
+        dlg._text_scale = scale_state
+        apply_text_scale(scale_state["value"], persist=False)
+        dlg.CentreOnScreen()
+        if not show:
+            return
+        dlg.ShowModal()
+        dlg.Destroy()
+
     def report(self, title: str, text: str, path: Path | None = None, log: Path | None = None) -> None:
         if self.wx is None:
             print(f"{title}: no wxPython, so no dialog; the report is in {log}"
@@ -349,8 +1160,17 @@ class Ui:
         wx = self.wx
         dlg = wx.Dialog(None, title=title, size=(900, 640), style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
         box = wx.BoxSizer(wx.VERTICAL)
-        txt = wx.TextCtrl(dlg, value=text, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.HSCROLL)
-        txt.SetFont(wx.Font(wx.FontInfo(11).Family(wx.FONTFAMILY_TELETYPE)))
+        from stripforge.dialog_text import report_text_style
+
+        txt = wx.TextCtrl(dlg, value=text, style=report_text_style(wx))
+        try:
+            reported = int(wx.SystemSettings.GetFont(wx.SYS_DEFAULT_GUI_FONT).GetPointSize())
+        except Exception:
+            reported = 0
+        from stripforge.dialog_text import baseline_point_size, point_size
+
+        body = point_size(1.0, baseline_point_size(reported, sys.platform))
+        txt.SetFont(wx.Font(wx.FontInfo(body).Family(wx.FONTFAMILY_TELETYPE)))
         box.Add(txt, 1, wx.EXPAND | wx.ALL, 8)
         buttons = wx.BoxSizer(wx.HORIZONTAL)
         if path is not None:
@@ -479,44 +1299,12 @@ def run(action: str) -> int:
         if board is None:
             ui.report(title, "Save the board to a .kicad_pcb file first, then run the action again.")
             return 0
-        in_place = False
-        if action == "build" and bootstrap():
-            config = find_config(board) or fallback_config(board)[0]
-            in_place = built_path(board, output_mode(config)) == board
-        if action in ("build", "analyze") and board.is_file() and bootstrap():
-            config = find_config(board) or fallback_config(board)[0]
-            problem = outline_problem(board, config)
-            if problem:  # before saving: a board with no outline can't be built (issue #1)
-                ui.report(title, f"Board: {board}\nResult: refused (nothing was saved or built)\n\n{problem}")
-                return 2
-        choice = ui.ask_save(board, required=in_place)
-        if choice is None:
-            if ui.wx is None:  # no dialog to confirm an in-place build: refuse, loudly
-                ui.report(title, f"Board: {board}\nResult: refused (nothing was saved or built)\n\n"
-                          "Build strips writes into the open board file and needs you to confirm "
-                          "that in a dialog, which can't be shown without wxPython.")  # fmt: skip
-                return 2
-            return 0
-        if choice:
-            busy_retry(board_doc.save, "saving the board")
-        if not board.is_file():
-            ui.report(title, f"Board file not found: {board}\nSave the board first.")
-            return 0
-        before = board.stat().st_mtime_ns
-        text, shown = _run_action(action, board, project.name, _kicad_cli(kicad))
-        if in_place and board.stat().st_mtime_ns != before:
-            try:  # reload the rewritten file into the editor (RevertDocument)
-                busy_retry(board_doc.revert, "reloading the built board")
-                text = text.replace(RELOAD_HINT, "Reloaded the built board in the PCB editor.")
-            except Exception as exc:
-                why = "KiCad was busy" if isinstance(exc, KiCadBusy) else str(exc)
-                text = text.replace(
-                    RELOAD_HINT,
-                    f"Could not reload it ({why}): use File > Revert now, and don't save the board "
-                    "before that (saving would overwrite the build with the old board).",
-                )
-        ui.report(title, text, shown)
-        return 0
+        if action == "dialog":
+            return _open_dialog(ui, kicad, board_doc, board, project.name)
+        code, text, shown = _perform(ui, action, kicad, board_doc, board, project.name)
+        if text is not None:
+            ui.report(TITLES[action], text, shown)
+        return code
     except KiCadBusy as exc:  # nothing was built: a plain message, not a traceback
         print(f"StripForge: {exc}", file=sys.stderr)
         ui.report(title, BUSY_NOTE.format(what=exc.what, title=title))
@@ -531,6 +1319,120 @@ def run(action: str) -> int:
 RELOAD_HINT = "[reload]"
 
 
+def _perform(ui, action, kicad, board_doc, board, project_name):
+    """Run one existing action. Returns ``(code, report or None, path or None)``.
+
+    A None report means the user cancelled. The toolbar and the shared dialog both call this.
+    """
+    if action == "restore":
+        return _restore(ui, board, board_doc)
+    in_place = False
+    if action == "build" and bootstrap():
+        config = find_config(board) or fallback_config(board)[0]
+        in_place = built_path(board, output_mode(config)) == board
+    if action in ("build", "analyze") and board.is_file() and bootstrap():
+        config = find_config(board) or fallback_config(board)[0]
+        problem = outline_problem(board, config)
+        if problem:  # before saving: a board with no outline can't be built (issue #1)
+            text = f"Board: {board}\nResult: refused (nothing was saved or built)\n\n{problem}"
+            return 2, text, None
+    choice = ui.ask_save(board, required=in_place)
+    if choice is None:
+        if ui.wx is None:  # no dialog to confirm an in-place build: refuse, loudly
+            text = (
+                f"Board: {board}\nResult: refused (nothing was saved or built)\n\n"
+                "Build strips writes into the open board file and needs you to confirm "
+                "that in a dialog, which can't be shown without wxPython."
+            )
+            return 2, text, None
+        return 0, None, None
+    if choice:
+        busy_retry(board_doc.save, "saving the board")
+    if not board.is_file():
+        return 0, f"Board file not found: {board}\nSave the board first.", None
+    before = board.stat().st_mtime_ns
+    text, shown = _run_action(action, board, project_name, _kicad_cli(kicad))
+    if in_place and board.stat().st_mtime_ns != before:
+        try:  # reload the rewritten file into the editor (RevertDocument)
+            busy_retry(board_doc.revert, "reloading the built board")
+            text = text.replace(RELOAD_HINT, "Reloaded the built board in the PCB editor.")
+        except Exception as exc:
+            why = "KiCad was busy" if isinstance(exc, KiCadBusy) else str(exc)
+            text = text.replace(
+                RELOAD_HINT,
+                f"Could not reload it ({why}): use File > Revert now, and don't save the board "
+                "before that (saving would overwrite the build with the old board).",
+            )
+    return 0, text, shown
+
+
+def _open_dialog(ui, kicad, board_doc, board, project_name) -> int:
+    """Shared window. Opening it does not save the board or change the backup policy."""
+    if not board.is_file():
+        ui.report(TITLES["dialog"], f"Board file not found: {board}\nSave the board first.")
+        return 0
+    try:
+        _path, _note, cfg, raw = _loaded_config(board)
+    except (OSError, ValueError):
+        cfg, raw = None, {}
+    from stripforge.config import board_form_from_raw
+
+    board_form = board_form_from_raw(raw if cfg is not None else {})
+    snapshot = dialog_snapshot(board)
+    if ui.wx is None:
+        ui.report(
+            TITLES["dialog"],
+            snapshot + "\n\nResult: no dialog (wxPython is missing)\n\n"
+            "The toolbar has only this Dialog button. The backup policy was not changed.",
+        )
+        return 0
+
+    def on_save(policy, keep):
+        path = apply_backup_policy(board, policy, keep)
+        status = (
+            f"Saved backup policy {policy!r}, backup_keep {keep}, in {path}.\n"
+            "Nothing was deleted. Retention deletes older save points on the next build, "
+            "sheet or link update, and only when Keep is 1 or more."
+        )
+        return dialog_snapshot(board), status
+
+    def on_save_board(form):
+        from stripforge.config import board_form_from_file, save_board_form
+
+        path = backup_settings_path(board)
+        save_board_form(path, form)
+        return path, board_form_from_file(path), dialog_snapshot(board)
+
+    def on_reload_board():
+        from stripforge.config import board_form_from_file
+
+        path = backup_settings_path(board)
+        return board_form_from_file(path) if path.is_file() else board_form_from_file(path)
+
+    def on_action(action):
+        _code, text, _shown = _perform(ui, action, kicad, board_doc, board, project_name)
+        if text is None:
+            text = "Cancelled. Nothing was changed."
+        log = write_log(board, TITLES[action], text)
+        if log is not None:
+            text = f"{text.rstrip()}\n\nLog: {log}"
+        return text
+
+    ui.show_hub(
+        TITLES["dialog"],
+        snapshot,
+        cfg.backup_policy if cfg is not None else "move",
+        cfg.backup_keep if cfg is not None else 0,
+        on_save,
+        on_action,
+        board_form,
+        on_save_board,
+        on_reload_board,
+        toml_path=backup_settings_path(board),
+    )
+    return 0
+
+
 def _run_action(
     action: str, board: Path, project_name: str, kicad_cli: str | None
 ) -> tuple[str, Path | None]:
@@ -542,7 +1444,7 @@ def _run_action(
     if fallback_note:
         notes.append(fallback_note)
     mode = output_mode(config)
-    out_board = built_path(board, mode)
+    out_board = built_path(board, mode, config)
     in_place = action == "build" and out_board == board
     rebuild = action == "build" and has_strips(board)
     if rebuild:
@@ -588,7 +1490,7 @@ def _run_action(
             notes += [line for line in lines if line.startswith("Backup: ")]
             out = "\n".join(line for line in lines if not line.startswith("Backup: "))
         else:
-            notes.append(f"Wrote {shown.name} next to the board (output = \"separate\"); open it in KiCad to "
+            notes.append(f"Wrote {shown} (output = \"separate\"); open it in KiCad to "
                          "see the strips. The open board was not changed.")  # fmt: skip
     if action == "sheet" and sheet_path(target).is_file():
         shown = sheet_path(target)
@@ -600,32 +1502,45 @@ def _run_action(
 
 def _add_links(board: Path, project_name: str, config: Path | None, notes: list) -> tuple[str, Path | None]:
     """ "Add links to schematic": write a StripForge:Link symbol for every placed W footprint into the
-    project's schematic, in place (each changed sheet backed up first as <sheet>-pre-links.kicad_sch,
-    rotated like the board backups)."""
+    project's schematic, in place (a save point of the changed sheets first; "Restore last" undoes it)."""
     from stripforge.linksym import LinkSymbolError, add_link_symbols, board_links, format_text
 
-    schematic = find_schematic(board, project_name)
-    if schematic is None:
-        missing = f"No {project_name or base_stem(board)}.kicad_sch next to the board."
-        return "\n".join([*notes, "", missing]), None
-    notes.append(f"Schematic: {schematic}")
+    link_board = board
     links, _fps, _warns = board_links(board)
     if not links:
+        separate = built_path(board, "separate", config)
+        if separate != board and separate.is_file() and board_links(separate)[0]:
+            link_board = separate
+            links = board_links(separate)[0]
+            notes.append(f"W links are on the separate build {separate.name}, not on {board.name}.")
+    schematic = find_schematic(link_board, project_name)
+    if schematic is None:
+        missing = (
+            f"No {project_name or base_stem(link_board)}.kicad_sch in the project folder "
+            f"({link_board.parent})."
+        )
+        return "\n".join([*notes, "", missing]), None
+    notes.append(f"Schematic: {schematic}")
+    notes.append(f"Links board: {link_board}")
+    if not links:
         hint = (
-            f'No W link footprints on the board yet: run "{TITLES["build"]}" first '
+            f"No W link footprints on {link_board.name}. Add links to schematic writes one "
+            f"StripForge:Link symbol per placed W footprint (W1, W2, ...). None are on this board, "
+            f"so there is no symbol to add. KiCad's Update Schematic from PCB then says it cannot "
+            f'find a symbol for each of those footprints. Run "{TITLES["build"]}" first '
             "(place_links = true, the default, places them on their holes)."
         )
         return "\n".join([*notes, "", hint]), None
-    keep = 0
+    cfg = None
     if config is not None:
         try:
             from stripforge.config import load
 
-            keep = load(config).backup_keep
+            cfg = load(config)
         except Exception:
             pass
     try:
-        res = add_link_symbols(schematic, board, in_place=True, backup_keep=keep)
+        res = add_link_symbols(schematic, link_board, in_place=True, cfg=cfg)
     except (LinkSymbolError, OSError, ValueError) as exc:
         return "\n".join([*notes, "Result: refused (nothing written)", "", str(exc)]), None
     if res.added or res.completed or res.removed:
@@ -646,10 +1561,8 @@ def _add_links(board: Path, project_name: str, config: Path | None, notes: list)
                 f"they are, not duplicated): {', '.join(res.completed)}. Bare pins got net labels, and each "
                 "symbol was re-linked to its placed footprint where needed (details below)."
             )
-        notes += [
-            f"Backup: {b} (the sheet just before this; older ones move up to -1, -2, ...)"
-            for b in res.backups
-        ]
+        notes += [f"Backup: {b} (save point: the sheets just before this; {TITLES['restore']} undoes it)"
+                  for b in res.backups]  # fmt: skip
         notes.append(REOPEN_NOTE)
         notes.append(
             "Then F8 (Update PCB from Schematic) finds every W footprint already placed and matched "
@@ -663,6 +1576,59 @@ def _add_links(board: Path, project_name: str, config: Path | None, notes: list)
         notes += [f"CONFLICT: {c}" for c in res.conflicts]
         status = "finished with conflicts (see the report)"
     return "\n".join([*notes, f"Result: {status}", "", format_text(res)]), schematic
+
+
+def _restore(ui, board: Path, board_doc):
+    """Restore last. Returns ``(code, report or None, path)``. The caller shows the report.
+
+    Each confirmed call loads the next earlier save point. At the first one, a further call
+    reports that and does not change the board. The dialog and the toolbar button both use this.
+    """
+    import zipfile
+
+    from stripforge import layout
+    from stripforge.config import load
+
+    config = find_config(board)
+    cfg = load(config) if config else None
+    try:
+        target = layout.select_restore_zip(board, cfg)
+    except layout.RestoreExhausted as exc:
+        return 0, f"Board: {board}\n{layout.format_exhausted(board, exc.oldest, cfg)}", None
+    except FileNotFoundError:
+        none = f"No save point yet in {layout.backup_dir(board, cfg)}. Build strips or Add links make one."
+        return 0, f"Board: {board}\nResult: nothing to restore\n\n{none}", None
+    if not ui.confirm_restore(board, target):
+        if ui.wx is None:
+            text = (
+                f"Board: {board}\nResult: refused (nothing changed)\n\nRestore last "
+                "replaces files and needs you to confirm that in a dialog, which can't be shown "
+                "without wxPython. From a terminal: stripforge restore <board>."
+            )
+            return 2, text, None
+        return 0, None, None
+    try:
+        res = layout.restore(board, cfg, target)
+    except (OSError, ValueError, zipfile.BadZipFile) as exc:
+        text = (
+            f"Board: {board}\nResult: refused (nothing changed)\n\n{exc}\n\nThe save points were not deleted."
+        )
+        return 2, text, None
+    notes = [f"Board: {board}", "Result: OK", "", layout.format_restore(res)]
+    rel = lambda p: p.absolute().relative_to(layout.project_dir(board).absolute()).as_posix()  # noqa: E731
+    if rel(board) in res.restored or rel(board) in res.removed:
+        try:
+            busy_retry(board_doc.revert, "reloading the restored board")
+            notes.insert(2, "Reloaded the restored board in the PCB editor: respawned where you left off.")
+        except Exception as exc:
+            why = "KiCad was busy" if isinstance(exc, KiCadBusy) else str(exc)
+            notes.insert(
+                2,
+                f"Could not reload it ({why}): use File > Revert now, and don't save the board before that.",
+            )
+    if any(r.endswith(".kicad_sch") for r in res.restored):
+        notes.append(REOPEN_NOTE.replace("remove the links again", "undo the restore"))
+    return 0, "\n".join(notes), None
 
 
 if __name__ == "__main__":  # python stripforge_plugin.py <action>, for debugging from a terminal
