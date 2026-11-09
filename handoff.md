@@ -120,12 +120,12 @@ The plugin zip does not contain `footprints/`, `symbols/`, or `3dmodels/` at the
 The libraries zip does, and it does not contain `plugins/`.
 
 - Plugin `StripForge-0.3.0-pcm.zip`: sha256
-  `28d6f4c9ea015b1b5b629970ad52691d1863ffab31daf566e30bcf9a7347db2d`, 653495 bytes.
+  `f6d388031b0e317aae9268924bcd68abe17e048a18a50e039e9c1bd9c7da8783`, 611642 bytes.
 - Libraries `StripForge-libraries-0.3.0-pcm.zip`: sha256
-  `d330372d6148e0802a694e74c54ab87c53b975b1de09f7e7a3e584aaffb9cdcb`, 10826951 bytes.
-The 2026-11-08 19:58 MST LedSwitch25 archive builds in place without a bend override. Its
-Edge.Cuts span is 33.020 mm, not 38.1 mm, so the build writes A1–L12 rather than a full 13×13.
-That outline was not edited. KiCad was not installed here, so Install from File was not clicked.
+  `64b69707a27b35c354e3a17c23b40c1767811e7546e6e4f71ce2cf1d0292b4f8`, 10826948 bytes.
+The current LedSwitch25 archive is 12 by 12 holes on a 33.020 mm (1.3 in) square. It builds in
+place without a bend override, and the copper is the whole A1–L12 grid, 2.54 mm inside Edge.Cuts
+on every side. KiCad was not installed here, so Install from File was not clicked.
 
 Skips: the five `kicad-cli` tests, `test_clicking_rows_ticks_strikes_saves_and_resets` (headless
 Chrome did not finish), and `test_headless_dialog_saves_origin_and_refuses_a_dirty_action`
@@ -207,17 +207,19 @@ real builds of the TPI fixture whose final bytes match the unbuilt board (`R3` s
 
 PCM from this tree, version 0.3.0:
 
-`1a4182cecc187592a1f8a3ecd855a3fff99462d8f84e727931dd0ef89d8ef4c2` (644664 bytes)
+`f6d388031b0e317aae9268924bcd68abe17e048a18a50e039e9c1bd9c7da8783` (611642 bytes)
 
-`dist/StripForge-0.3.0-pcm.zip`. Install that file, not an older zip. The PNG audit above was
-against the previous hash.
+`dist/StripForge-0.3.0-pcm.zip`. The libraries zip is
+`64b69707a27b35c354e3a17c23b40c1767811e7546e6e4f71ce2cf1d0292b4f8` (10826948 bytes). Install
+the libraries file first, then the plugin. The PNG audit above was against an earlier hash.
 
 ## LedSwitch25 acceptance archive (2026-11-08)
 
-Kevin's current circuit is `tests/fixtures/ledswitch25/LedSwitch25-kicad.zip`. Source file
-`Niveus Dropbox/KiCad/LedSwitch25-kicad.zip`, mtime 2026-11-08 19:58 MST, 26091 bytes, sha256
-`b98f3c460938e215e9c3e6cbf87239d3cb8fce3c77d736c215f4c69600832209`. The committed file is those
-bytes. The previous acceptance zip is kept as
+Kevin's current circuit is `tests/fixtures/ledswitch25/LedSwitch25-kicad.zip`, 25819 bytes,
+sha256 `4b6641a48ca721d24437f30cdbdc85c4168e3854628f75778c3d98b421883e3c`. He approved this
+baseline from the 2026-11-08 archive (`b98f3c460938e215e9c3e6cbf87239d3cb8fce3c77d736c215f4c69600832209`,
+26091 bytes) with only `rows = 12` and `cols = 12` changed. Every other member, including
+`__MACOSX` and `.DS_Store`, is byte-identical to that file. The previous acceptance zip is kept as
 `tests/fixtures/ledswitch25/LedSwitch25-kicad-2026-11-07-2158.zip` (53157 bytes, sha256
 `a6686c6265ef05eb9a9ed1c85a405f472a3deab466ef3f64e4825496b0ba4592`, source mtime 2026-11-07
 21:58:07 EST) and is not what tests open. A 9022-byte `LedSwitch25-kicad.zip` under agent
@@ -233,22 +235,22 @@ acceptance circuit. An older LedSwitch zip is not this file.
 Disposable extract, measured, config not rewritten:
 
 - 9 footprints, 20 through-hole pads, no segments, arcs, or vias. One `gr_rect` outline,
-  (127.00, 101.60)–(160.02, 134.62) mm. Both spans are 33.020 mm (1.300 in). Kevin described a
-  1.5 in (38.1 mm) square. The archive is not that, and the file was not edited.
-- Hole A1 at (129.54, 104.14) is 2.54 mm inside the near edges. The last hole centres of the
-  13×13 grid sit on the far edges (margin 0.000 mm).
-- The pcb is `67523a6f52b6d0ae74961c9b9216f4684ee65db5ad89f6560b55f8defff8d2a2` (63855 bytes).
-  This zip has no KiCad backup folder.
+  (127.00, 101.60)–(160.02, 134.62) mm. Both spans are 33.020 mm (1.300 in).
+- Hole A1 at (129.54, 104.14) is 2.54 mm inside the left and top edges. L12 at (157.48, 132.08)
+  is 2.54 mm inside the right and bottom edges.
+- The pcb is `67523a6f52b6d0ae74961c9b9216f4684ee65db5ad89f6560b55f8defff8d2a2` (63855 bytes),
+  the same bytes as the 13 by 13 archive. This zip has no KiCad backup folder.
 - Comments still say 25 by 25, a 63.5 mm outline, and hole A1 at (1.27, 1.27) mm. Those comments
-  are stale. The loaded settings are rows 13, cols 13, origin `[129.54, 104.14]`, pitch 2.54,
-  `output = "in_place"`, `link_lead_allowance_in = 0.15` (inches a leg), `backup_policy = "move"`,
-  `backup_keep = 0`. Those settings were left as archived.
+  are stale and were kept as Kevin's. The loaded settings are rows 12, cols 12, origin
+  `[129.54, 104.14]`, pitch 2.54, `output = "in_place"`, `link_lead_allowance_in = 0.15`
+  (inches a leg), `backup_policy = "move"`, `backup_keep = 0`.
 - All nine parts snap, including SW1
   (`Button_Switch_THT:SW_Slide-03_Wuerth-WS-SLTV_10x2.5x6.4_P2.54mm` at (129.54, 127.00) mm).
   No `[bend]` line is required. R2, R3, and R5 are 10.16 mm pad to pad. `stripforge build`
-  follows `output = "in_place"` and exits 0. Because the far holes are on Edge.Cuts, copper is
-  written for A1–L12 only, not a full 13×13. Six of those builds and six restores return the
-  original pcb bytes. The zip is not rewritten.
+  follows `output = "in_place"` and exits 0. It writes 118 B.Cu tracks at 1.8 mm, 7 hole cuts,
+  108 drawn holes and 8 links, covering every hole of A1–L12. Track copper, including the 1.8 mm
+  width, stays inside Edge.Cuts. C1's pads are 0.020 mm along the strip from E8 and F8. Six of
+  those builds and six restores return the original pcb bytes. The zip is not rewritten.
 - Add links to schematic writes one `StripForge:Link` per placed W footprint. KiCad matches a
   footprint's `(path)` to `"/"` plus that symbol's uuid on the root sheet, and reports that it
   cannot find a symbol for the footprint when they differ. The symbol file

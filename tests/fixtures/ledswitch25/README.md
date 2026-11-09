@@ -1,11 +1,13 @@
 # LedSwitch25 acceptance archive
 
-`LedSwitch25-kicad.zip` is the only current StripForge circuit acceptance project. It is the
-bytes of Kevin's `Niveus Dropbox/KiCad/LedSwitch25-kicad.zip` from 2026-11-08 19:58 MST.
+`LedSwitch25-kicad.zip` is the only current StripForge circuit acceptance project. Kevin
+approved this baseline from his 2026-11-08 archive with only `rows = 12` and `cols = 12`
+changed in `stripboard.toml`. Every other member, including `__MACOSX` and `.DS_Store`, is
+byte-identical to sha256 `b98f3c460938e215e9c3e6cbf87239d3cb8fce3c77d736c215f4c69600832209`.
 
 - File: `LedSwitch25-kicad.zip`
-- Size: 26091 bytes
-- sha256: `b98f3c460938e215e9c3e6cbf87239d3cb8fce3c77d736c215f4c69600832209`
+- Size: 25819 bytes
+- sha256: `4b6641a48ca721d24437f30cdbdc85c4168e3854628f75778c3d98b421883e3c`
 
 Check that hash before use. Extract a new copy for each run. Do not edit, replace, or re-zip
 this file. On extract, skip `__MACOSX`, `.DS_Store`, and lock files (`*.lck`, names starting
@@ -19,18 +21,16 @@ The previous acceptance zip is kept next to it and is not current:
 - Source mtime: 2026-11-07 21:58:07 EST
 
 The `stripboard.toml` comments still describe a 25 by 25 board and a 63.5 mm outline, with hole
-A1 at (1.27, 1.27) mm. Those comments are stale. The settings in the file are `rows = 13`,
-`cols = 13`, `origin_mm = [129.54, 104.14]`, `pitch_mm = 2.54`, `output = "in_place"`,
-`link_lead_allowance_in = 0.15` (inches a leg), `backup_policy = "move"`, and `backup_keep = 0`.
-Do not rewrite the file so the comments match, and do not turn on retention.
+A1 at (1.27, 1.27) mm. Those comments are stale. Kevin left them as they are. The settings in
+the file are `rows = 12`, `cols = 12`, `origin_mm = [129.54, 104.14]`, `pitch_mm = 2.54`,
+`output = "in_place"`, `link_lead_allowance_in = 0.15` (inches a leg), `backup_policy = "move"`,
+and `backup_keep = 0`. Do not rewrite the comments, and do not turn on retention.
 `tests/ledswitch_fixture.py` is how tests open the current zip.
 
-Kevin described this board as 13 by 13 holes on a 1.5 in (38.1 mm) square outline. The archived
-Edge.Cuts rectangle is not that. It runs from (127.00, 101.60) mm to (160.02, 134.62) mm, so
-both spans are 33.020 mm (1.300 in). Hole A1 is 2.54 mm inside the near edges. The last hole
-centres of the 13 by 13 grid sit on the far edges (margin 0). The file was not edited to enlarge
-the outline. Because those far holes are on the edge, a build writes copper only for the holes
-inside the outline (A1-L12), not a full 13 by 13.
+The board is 12 by 12 holes at 2.54 mm on a 1.3 in (33.02 mm) square. Edge.Cuts runs from
+(127.00, 101.60) mm to (160.02, 134.62) mm. Hole A1 is 2.54 mm inside the left and top edges.
+The last hole, L12, is 2.54 mm inside the right and bottom edges (100 mil margins all around).
+A build writes that whole A1–L12 grid. The copper stays inside Edge.Cuts.
 
 `examples/tpi-fixture/` and `tests/fixtures/tpi-m1/` stay unit fixtures. They are not a
 substitute for this archive, and neither is an older LedSwitch zip. The 9022-byte

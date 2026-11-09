@@ -6,8 +6,8 @@ The PCB editor toolbar has one StripForge button, **Dialog**. Analyze, Build str
 
 Install both packages with Plugin and Content Manager > Install from File, libraries first, then the plugin. Restart KiCad.
 
-1. `StripForge-libraries-0.3.0-pcm.zip`
-2. `StripForge-0.3.0-pcm.zip`
+1. `StripForge-libraries-0.3.0-pcm.zip` — sha256 `64b69707a27b35c354e3a17c23b40c1767811e7546e6e4f71ce2cf1d0292b4f8`, 10826948 bytes
+2. `StripForge-0.3.0-pcm.zip` — sha256 `f6d388031b0e317aae9268924bcd68abe17e048a18a50e039e9c1bd9c7da8783`, 611642 bytes
 
 KiCad's manual says a library package is added to the global tables with the `PCM_` nickname prefix by default. That was not clicked for this release. If the rows are `PCM_StripForge`, rename them to `StripForge`. If they are missing, add nickname `StripForge` at:
 

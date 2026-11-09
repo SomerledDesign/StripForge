@@ -378,16 +378,17 @@ embeds the symbol in the schematic.
 
 The acceptance circuit is Kevin's **LedSwitch25** project, the zip
 [tests/fixtures/ledswitch25/LedSwitch25-kicad.zip](tests/fixtures/ledswitch25/LedSwitch25-kicad.zip)
-(26091 bytes, sha256 `b98f3c460938e215e9c3e6cbf87239d3cb8fce3c77d736c215f4c69600832209`,
-2026-11-08 19:58 MST). Check the hash, extract a new copy, and do not edit or re-zip the
-archive. The previous zip is `LedSwitch25-kicad-2026-11-07-2158.zip` in that same folder and is
-not current. The toml comments still say 25 by 25, a 63.5 mm outline, and origin (1.27, 1.27) mm.
-The settings are 13 by 13, origin `[129.54, 104.14]`, `output = "in_place"`,
-`link_lead_allowance_in = 0.15`, `backup_policy = "move"`, `backup_keep = 0`. Leave that file as
-it is. The Edge.Cuts rectangle in the pcb is 33.020 mm square, from (127.00, 101.60) to
-(160.02, 134.62), not the 38.1 mm (1.5 in) square described for this board. An older LedSwitch
-zip, including a 9022-byte copy, is not this archive. SW1 is on the hole grid and the archived
-build does not use a `[bend]` override.
+(25819 bytes, sha256 `4b6641a48ca721d24437f30cdbdc85c4168e3854628f75778c3d98b421883e3c`).
+Check the hash, extract a new copy, and do not edit or re-zip the archive. It is Kevin's
+2026-11-08 board with only `rows = 12` and `cols = 12` changed. The previous zip is
+`LedSwitch25-kicad-2026-11-07-2158.zip` in that same folder and is not current. The toml
+comments still say 25 by 25, a 63.5 mm outline, and origin (1.27, 1.27) mm. Those comments are
+Kevin's and were left as archived. The settings are 12 by 12, origin `[129.54, 104.14]`,
+`output = "in_place"`, `link_lead_allowance_in = 0.15`, `backup_policy = "move"`,
+`backup_keep = 0`. Edge.Cuts is a 33.020 mm (1.3 in) square, from (127.00, 101.60) to
+(160.02, 134.62). The first hole is 2.54 mm in from the edges, and the last hole has the same
+100 mil margin on the far sides. An older LedSwitch zip, including a 9022-byte copy, is not
+this archive. SW1 is on the hole grid and the archived build does not use a `[bend]` override.
 
 The **ATtiny10 TPI** boards stay unit fixtures (22 real parts in
 [examples/tpi-fixture](examples/tpi-fixture/); the 25-part M1 board is frozen in

@@ -4,14 +4,15 @@ Clicks in KiCad can't be automated, so run these by hand after an install (READM
 KiCad"). Use a **copy** of a project, because Build strips writes files next to the board.
 
 For a circuit check, unzip `tests/fixtures/ledswitch25/LedSwitch25-kicad.zip` (sha256
-`b98f3c460938e215e9c3e6cbf87239d3cb8fce3c77d736c215f4c69600832209`, 26091 bytes) to a new folder.
+`4b6641a48ca721d24437f30cdbdc85c4168e3854628f75778c3d98b421883e3c`, 25819 bytes) to a new folder.
 Ignore `__MACOSX`, `.DS_Store`, and lock files. Do not use
 `LedSwitch25-kicad-2026-11-07-2158.zip`, a 9022-byte LedSwitch zip, or the TPI fixture for this
-check. The toml comments describe 25 by 25 and a 63.5 mm outline at (1.27, 1.27) mm. The
-settings are 13 by 13, origin `[129.54, 104.14]`, `output = "in_place"`,
-`link_lead_allowance_in = 0.15`, move, `backup_keep = 0`. Do not rewrite them. The pcb
-Edge.Cuts span is 33.020 mm, not 38.1 mm. SW1 is on the hole grid, so Build strips does not
-need a `[bend]` line. The steps below are the plugin click-through on whatever project you opened.
+check. The toml comments describe 25 by 25 and a 63.5 mm outline at (1.27, 1.27) mm. Those
+comments are Kevin's and stay as archived. The settings are 12 by 12, origin `[129.54, 104.14]`,
+`output = "in_place"`, `link_lead_allowance_in = 0.15`, move, `backup_keep = 0`. The pcb
+Edge.Cuts span is 33.020 mm (1.3 in). Hole A1 and hole L12 are each 2.54 mm inside the outline.
+SW1 is on the hole grid, so Build strips does not need a `[bend]` line. The steps below are the
+plugin click-through on whatever project you opened.
 
 1. Quit KiCad fully (KiCad > Quit), then start it again so it scans the plugin folders.
 2. Preferences > Plugins: **Enable KiCad API** is ticked. Keep the default interpreter (KiCad's

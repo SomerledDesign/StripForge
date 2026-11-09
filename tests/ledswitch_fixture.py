@@ -2,9 +2,10 @@
 # Copyright (C) 2026 Somerled Design
 """Kevin's current LedSwitch25 archive, the only circuit acceptance fixture.
 
-The file ``tests/fixtures/ledswitch25/LedSwitch25-kicad.zip`` is the bytes of
-``Niveus Dropbox/KiCad/LedSwitch25-kicad.zip`` (mtime 2026-11-08 19:58 MST, 26091 bytes,
-sha256 below). It supersedes the 53157-byte archive kept beside it as
+The file ``tests/fixtures/ledswitch25/LedSwitch25-kicad.zip`` is Kevin's approved 12 by 12
+baseline (25819 bytes, sha256 below). It is his 2026-11-08 archive with only ``rows = 12`` and
+``cols = 12`` changed in ``stripboard.toml``. Every other member, including ``__MACOSX`` and
+``.DS_Store``, is the earlier file. It supersedes the 53157-byte archive kept beside it as
 ``LedSwitch25-kicad-2026-11-07-2158.zip``. Read the current file and check the hash. Extract a
 new copy for each scenario. Do not write either zip, replace them, or pack a new one.
 ``__MACOSX``, ``.DS_Store``, and lock files are skipped on extract and are not deleted from the
@@ -20,8 +21,8 @@ from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parents[1]
 ARCHIVE = ROOT / "tests" / "fixtures" / "ledswitch25" / "LedSwitch25-kicad.zip"
-ZIP_SHA256 = "b98f3c460938e215e9c3e6cbf87239d3cb8fce3c77d736c215f4c69600832209"
-ZIP_SIZE = 26091
+ZIP_SHA256 = "4b6641a48ca721d24437f30cdbdc85c4168e3854628f75778c3d98b421883e3c"
+ZIP_SIZE = 25819
 # LedSwitch25.kicad_pcb inside the current zip. This archive has no KiCad backup zip.
 PCB_SHA256 = "67523a6f52b6d0ae74961c9b9216f4684ee65db5ad89f6560b55f8defff8d2a2"
 HISTORICAL_ZIP = ARCHIVE.with_name("LedSwitch25-kicad-2026-11-07-2158.zip")
