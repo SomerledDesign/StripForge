@@ -569,6 +569,35 @@ def board_field_kind(key: str) -> str:
     raise KeyError(key)
 
 
+def board_form_groups() -> list[tuple[str, tuple[str, ...]]]:
+    """Board-tab sections, in tab order. Every editor key appears once."""
+    return [
+        ("Origin", ("origin_x_mm", "origin_y_mm", "hole_inset_mm")),
+        ("Grid", ("rows", "cols", "pitch_mm")),
+        (
+            "Copper and cuts",
+            ("strip_width_mm", "hole_drill_mm", "slot_max_mm", "cut_style", "cut_marker_layer"),
+        ),
+        (
+            "Links",
+            (
+                "max_link_mm",
+                "link_lead_allowance_in",
+                "max_diagonal_shift",
+                "diagonal_links",
+                "off_pitch_links",
+                "bus_strips",
+                "place_links",
+            ),
+        ),
+        (
+            "Build",
+            ("snap_tol_mm", "trim_min_free", "draw_holes", "trim_pieces", "respect_edits", "output"),
+        ),
+        ("Parts", ("slotted", "skip", "knife_cuts", "offboard_refs")),
+    ]
+
+
 def board_editor_labels() -> list[tuple[str, str]]:
     """``(form key, label)`` in tab order, including the two origin boxes."""
     labels = {

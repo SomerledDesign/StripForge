@@ -51,12 +51,18 @@ action buttons stay. The window has two tabs and the same action buttons as the 
   Reload discards unsaved edits. While the form is dirty, the action buttons do not run.
   The editor does not move parts or guess an origin.
 - **Backup** edits `backup_policy` and `backup_keep` in that same file.
-- **Text size** is not a board setting. Larger text, Smaller text, and Reset text size (and
-  Command-plus / Command-minus / Command-0, or Ctrl on Windows and Linux) write a per-user
-  file: `~/Library/Application Support/StripForge/dialog-text-scale` on macOS,
+- **Text size** is not a board setting. 100% is the system GUI font. On macOS that is never
+  below 13pt, which is body text. The old dialog requested 10pt, and wx on macOS can draw a
+  font built from a point size smaller than that request (10 * 72/96 is 7.5). The dialog no
+  longer does that. Larger text, Smaller text, and Reset (Command-plus / Command-minus /
+  Command-0, or Ctrl on Windows and Linux) multiply that baseline once, from 100% to 300% in
+  25% steps. They do not scale the font that is already on the control. The preference file is
+  `~/Library/Application Support/StripForge/dialog-text-scale` on macOS,
   `%APPDATA%\StripForge\dialog-text-scale` on Windows, `$XDG_CONFIG_HOME/stripforge/dialog-text-scale`
-  on Linux. Range 100% to 300% in 25% steps. Pinch is bound to wx magnify / zoom gestures when
-  that wx build has them. It has not been tried on a Mac trackpad.
+  on Linux. Pinch is bound to wx magnify / zoom gestures when that wx build has them. It has
+  not been tried on a Mac trackpad. The Board tab groups Origin, Grid, Copper and cuts, Links,
+  Build, and Parts. Value fields are a fixed width. The report is labeled. There is no wx on
+  this machine, so this was not opened on a Mac and there is no new screenshot.
 - Analyze, Build strips, Add links, Run DRC, Build sheet and Restore last go through `_perform`.
 
 The end state is still one dialog. This button is not that end state.
@@ -87,8 +93,9 @@ pip install -e '.[dev]'
 python tools/make_pcm_zip.py
 ```
 
-In KiCad: Plugin and Content Manager, Install from File, pick `dist/StripForge-0.2.1-pcm.zip` from
-that checkout, restart KiCad. Use a copy of a project. Expect the existing buttons plus Dialog.
+In KiCad: Plugin and Content Manager, Install from File. Install
+`dist/StripForge-libraries-0.2.1-pcm.zip` first, then `dist/StripForge-0.2.1-pcm.zip`, and restart
+KiCad. Use a copy of a project. Expect the existing buttons plus Dialog.
 
 ## Checks
 
@@ -106,7 +113,7 @@ On this checkout (Linux, CPython 3.12.3), after the 2026-11-07 23:22 archive:
 
 - `ruff check .` — exit 0
 - `ruff format --check .` — exit 0
-- `pytest -q` — exit 0, **399 passed, 8 skipped** in 831.43s
+- `pytest -q` — exit 0, **401 passed, 8 skipped** in 837.46s
 
 The eighth skip is the wx click-through of Edit stripboard.toml (`wx` is not installed here).
 KiCad's addon guide requires a plugin archive and a library archive. This checkout builds both.
@@ -114,7 +121,7 @@ The plugin zip does not contain `footprints/`, `symbols/`, or `3dmodels/` at the
 The libraries zip does, and it does not contain `plugins/`.
 
 - Plugin `StripForge-0.2.1-pcm.zip`: sha256
-  `7964fe70f5c66fbc5bf43fcab9cd1e02be74de5ac36a4b471d069f0b7c383f7b`, 651874 bytes.
+  `28d6f4c9ea015b1b5b629970ad52691d1863ffab31daf566e30bcf9a7347db2d`, 653495 bytes.
 - Libraries `StripForge-libraries-0.2.1-pcm.zip`: sha256
   `d330372d6148e0802a694e74c54ab87c53b975b1de09f7e7a3e584aaffb9cdcb`, 10826951 bytes.
 Six actual builds of the archived LedSwitch25 board were not run: both the archived separate

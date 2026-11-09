@@ -560,6 +560,7 @@ class Ui:
             board_editor_labels,
             board_field_kind,
             board_form_from_file,
+            board_form_groups,
             board_form_is_dirty,
             load,
             raw_toml_blocked,
@@ -567,6 +568,7 @@ class Ui:
             save_stripboard_text,
         )
         from stripforge.dialog_text import (
+            baseline_point_size,
             default_dialog_text_scale_path,
             load_text_scale,
             point_size,
@@ -580,40 +582,74 @@ class Ui:
         wx = self.wx
         scale_path = text_scale_path if text_scale_path is not None else default_dialog_text_scale_path()
         scale_state = {"value": load_text_scale(scale_path), "gesture_start": None}
+        system_font = wx.SystemSettings.GetFont(wx.SYS_DEFAULT_GUI_FONT)
+        try:
+            reported_points = int(system_font.GetPointSize())
+        except Exception:
+            reported_points = 0
+        body_base = baseline_point_size(reported_points, sys.platform)
+
+        def make_font(scale: float, teletype: bool = False):
+            """Absolute font for this scale, from the baseline. Not a scale of the current font."""
+            points = point_size(scale, body_base)
+            if teletype:
+                return wx.Font(wx.FontInfo(points).Family(wx.FONTFAMILY_TELETYPE))
+            if abs(scale - 1.0) < 1e-9 and reported_points == body_base:
+                return wx.Font(system_font)
+            return wx.Font(wx.FontInfo(points))
+
+        def dip_size(window, width: int, height: int = -1):
+            size = wx.Size(width, height)
+            return window.FromDIP(size) if hasattr(window, "FromDIP") else size
+
         dlg = wx.Dialog(None, title=title, style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
-        dlg.SetFont(wx.Font(wx.FontInfo(point_size(scale_state["value"]))))
+        dlg.SetFont(make_font(scale_state["value"]))
         root = wx.BoxSizer(wx.VERTICAL)
         book = wx.Notebook(dlg)
         board_page = wx.Panel(book)
         board_sizer = wx.BoxSizer(wx.VERTICAL)
-        board_sizer.Add(wx.StaticText(board_page, label=ORIGIN_HELP), 0, wx.ALL, 8)
-        board_sizer.Add(wx.StaticText(board_page, label=snapshot.split("\n", 1)[0]), 0, wx.LEFT | wx.RIGHT, 8)
+        board_path = wx.StaticText(board_page, label=snapshot.split("\n", 1)[0])
+        board_sizer.Add(board_path, 0, wx.ALL, 8)
         scrolled = wx.ScrolledWindow(board_page, style=wx.VSCROLL)
         scrolled.SetScrollRate(0, 16)
-        grid = wx.FlexGridSizer(cols=2, vgap=4, hgap=8)
-        grid.AddGrowableCol(1, 1)
+        form_sizer = wx.BoxSizer(wx.VERTICAL)
         controls = {}
         choices = {"cut_style": ["auto", "hole", "knife"], "output": ["in_place", "separate"]}
-        for key, label in board_editor_labels():
-            grid.Add(wx.StaticText(scrolled, label=label), 0, wx.ALIGN_CENTER_VERTICAL)
-            kind = "origin" if key.startswith("origin_") else board_field_kind(key)
-            value = board_form.get(key, "")
-            if kind == "bool":
-                ctrl = wx.CheckBox(scrolled)
-                ctrl.SetValue(value == "true")
-            elif kind == "choice":
-                ctrl = wx.Choice(scrolled, choices=choices[key])
-                if value in choices[key]:
-                    ctrl.SetStringSelection(value)
+        labels = dict(board_editor_labels())
+        wide_keys = {"slotted", "skip", "knife_cuts", "offboard_refs", "cut_marker_layer"}
+        for title_text, keys in board_form_groups():
+            box = wx.StaticBox(scrolled, label=title_text)
+            group = wx.StaticBoxSizer(box, wx.VERTICAL)
+            if title_text == "Origin":
+                help_text = wx.StaticText(scrolled, label=ORIGIN_HELP)
+                if hasattr(help_text, "Wrap"):
+                    help_text.Wrap(dlg.FromDIP(520) if hasattr(dlg, "FromDIP") else 520)
+                group.Add(help_text, 0, wx.ALL, 6)
+            grid = wx.FlexGridSizer(cols=2, vgap=6, hgap=12)
+            for key in keys:
+                grid.Add(wx.StaticText(scrolled, label=labels[key]), 0, wx.ALIGN_CENTER_VERTICAL)
+                kind = "origin" if key.startswith("origin_") else board_field_kind(key)
+                value = board_form.get(key, "")
+                if kind == "bool":
+                    ctrl = wx.CheckBox(scrolled)
+                    ctrl.SetValue(value == "true")
+                elif kind == "choice":
+                    ctrl = wx.Choice(scrolled, choices=choices[key])
+                    if value in choices[key]:
+                        ctrl.SetStringSelection(value)
+                    else:
+                        ctrl.SetSelection(0)
+                    ctrl.SetMinSize(dip_size(scrolled, 180))
                 else:
-                    ctrl.SetSelection(0)
-            else:
-                ctrl = wx.TextCtrl(scrolled, value=value)
-            controls[key] = ctrl
-            grid.Add(ctrl, 1, wx.EXPAND)
-        scrolled.SetSizer(grid)
-        scrolled.SetVirtualSize(grid.CalcMin())
-        board_sizer.Add(scrolled, 1, wx.EXPAND | wx.ALL, 8)
+                    ctrl = wx.TextCtrl(scrolled, value=value)
+                    ctrl.SetMinSize(dip_size(scrolled, 320 if key in wide_keys else 140))
+                controls[key] = ctrl
+                grid.Add(ctrl, 0, wx.ALIGN_CENTER_VERTICAL)
+            group.Add(grid, 0, wx.ALL, 6)
+            form_sizer.Add(group, 0, wx.EXPAND | wx.BOTTOM, 8)
+        scrolled.SetSizer(form_sizer)
+        scrolled.SetVirtualSize(form_sizer.CalcMin())
+        board_sizer.Add(scrolled, 1, wx.EXPAND | wx.LEFT | wx.RIGHT, 8)
         dirty_label = wx.StaticText(board_page, label="Matches the saved stripboard.toml")
         buttons = wx.BoxSizer(wx.HORIZONTAL)
         save_board = wx.Button(board_page, label="Save board settings")
@@ -629,50 +665,54 @@ class Ui:
 
         backup_page = wx.Panel(book)
         backup_sizer = wx.BoxSizer(wx.VERTICAL)
-        row = wx.BoxSizer(wx.HORIZONTAL)
-        row.Add(wx.StaticText(backup_page, label="Backup policy"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
+        policy_box = wx.StaticBox(backup_page, label="Save points")
+        policy_group = wx.StaticBoxSizer(policy_box, wx.VERTICAL)
         move = wx.RadioButton(backup_page, label="Move (keep every save point)", style=wx.RB_GROUP)
         retention = wx.RadioButton(backup_page, label="Retention (delete older save points)")
         (retention if policy == "retention" else move).SetValue(True)
-        row.Add(move, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
-        row.Add(retention, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 12)
-        row.Add(wx.StaticText(backup_page, label="Keep"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
+        policy_group.Add(move, 0, wx.ALL, 4)
+        keep_row = wx.BoxSizer(wx.HORIZONTAL)
+        keep_row.Add(retention, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 12)
+        keep_row.Add(wx.StaticText(backup_page, label="Keep"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
         keep_ctrl = wx.SpinCtrl(backup_page, min=0, max=999, initial=max(0, int(keep)))
         keep_ctrl.Enable(policy == "retention")
-        row.Add(keep_ctrl, 0, wx.RIGHT, 8)
-        save_btn = wx.Button(backup_page, label="Save backup policy")
-        row.Add(save_btn, 0)
-        backup_sizer.Add(row, 0, wx.ALL, 8)
-        backup_sizer.Add(
-            wx.StaticText(
-                backup_page,
-                label="Saving does not delete anything. Retention deletes older save points on the next "
-                "build, sheet or link update, and only when Keep is 1 or more. The default is move.",
-            ),
-            0,
-            wx.LEFT | wx.RIGHT | wx.BOTTOM,
-            8,
+        keep_ctrl.SetMinSize(dip_size(backup_page, 80))
+        keep_row.Add(keep_ctrl, 0)
+        policy_group.Add(keep_row, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 4)
+        policy_help = wx.StaticText(
+            backup_page,
+            label="Saving does not delete anything. Retention deletes older save points on the next "
+            "build, sheet or link update, and only when Keep is 1 or more. The default is move.",
         )
+        if hasattr(policy_help, "Wrap"):
+            policy_help.Wrap(dlg.FromDIP(520) if hasattr(dlg, "FromDIP") else 520)
+        policy_group.Add(policy_help, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
+        save_btn = wx.Button(backup_page, label="Save backup policy")
+        policy_group.Add(save_btn, 0, wx.LEFT | wx.BOTTOM, 6)
+        backup_sizer.Add(policy_group, 0, wx.ALL, 8)
         backup_page.SetSizer(backup_sizer)
         book.AddPage(backup_page, "Backup")
 
-        text_bar = wx.WrapSizer(wx.HORIZONTAL) if hasattr(wx, "WrapSizer") else wx.BoxSizer(wx.HORIZONTAL)
+        text_box = wx.StaticBox(dlg, label="Text size")
+        text_group = wx.StaticBoxSizer(text_box, wx.VERTICAL)
+        text_bar = wx.BoxSizer(wx.HORIZONTAL)
         larger = wx.Button(dlg, label="Larger text")
         smaller = wx.Button(dlg, label="Smaller text")
         reset_text = wx.Button(dlg, label="Reset text size")
         size_label = wx.StaticText(dlg, label=f"Text size: {scale_percent(scale_state['value'])}")
+        text_bar.Add(larger, 0, wx.RIGHT, 8)
+        text_bar.Add(smaller, 0, wx.RIGHT, 8)
+        text_bar.Add(reset_text, 0, wx.RIGHT, 12)
+        text_bar.Add(size_label, 0, wx.ALIGN_CENTER_VERTICAL)
+        text_group.Add(text_bar, 0, wx.ALL, 6)
         text_hint = wx.StaticText(
             dlg,
             label="Command-plus, Command-minus, and Command-0 on a Mac. Ctrl with those keys on "
-            "Windows and Linux. A trackpad pinch is used only when wx sends a magnify gesture.",
+            "Windows and Linux.",
         )
-        text_bar.Add(larger, 0, wx.RIGHT | wx.BOTTOM, 6)
-        text_bar.Add(smaller, 0, wx.RIGHT | wx.BOTTOM, 6)
-        text_bar.Add(reset_text, 0, wx.RIGHT | wx.BOTTOM, 6)
-        text_bar.Add(size_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT | wx.BOTTOM, 8)
-        text_bar.Add(text_hint, 0, wx.ALIGN_CENTER_VERTICAL | wx.BOTTOM, 6)
-        root.Add(text_bar, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 8)
-        root.Add(book, 2, wx.EXPAND | wx.ALL, 8)
+        text_group.Add(text_hint, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
+        root.Add(text_group, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 8)
+        root.Add(book, 3, wx.EXPAND | wx.ALL, 8)
 
         def _toggle(_evt):
             keep_ctrl.Enable(retention.GetValue())
@@ -744,8 +784,17 @@ class Ui:
             baseline[0] = dict(form)
             refresh_dirty()
 
-        report = wx.TextCtrl(dlg, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.HSCROLL)
-        report.SetFont(wx.Font(wx.FontInfo(point_size(scale_state["value"])).Family(wx.FONTFAMILY_TELETYPE)))
+        report_box = wx.StaticBox(dlg, label="Report")
+        report_sizer = wx.StaticBoxSizer(report_box, wx.VERTICAL)
+        report = wx.TextCtrl(
+            dlg,
+            value="Results appear here after Analyze, Build strips, Add links, Run DRC, "
+            "Build sheet, or Restore last.",
+            style=wx.TE_MULTILINE | wx.TE_READONLY | wx.HSCROLL,
+        )
+        report.SetFont(make_font(scale_state["value"], teletype=True))
+        report.SetMinSize(dip_size(dlg, -1, 96))
+        report_sizer.Add(report, 1, wx.EXPAND | wx.ALL, 6)
 
         def _save_board(_evt):
             try:
@@ -789,25 +838,32 @@ class Ui:
         save_btn.Bind(wx.EVT_BUTTON, _save)
 
         actions = wx.WrapSizer(wx.HORIZONTAL) if hasattr(wx, "WrapSizer") else wx.BoxSizer(wx.HORIZONTAL)
-        for action, label in DIALOG_ACTIONS:
-            button = wx.Button(dlg, label=label)
+        action_groups = (("analyze", "build"), ("links", "drc", "sheet"), ("restore",))
+        labels_by_action = dict(DIALOG_ACTIONS)
+        first_button = True
+        for group in action_groups:
+            if not first_button:
+                actions.AddSpacer(16)
+            first_button = False
+            for action in group:
+                button = wx.Button(dlg, label=labels_by_action[action])
 
-            def _run(_evt, action=action):
-                if raw_open["value"]:
-                    report.SetValue(
-                        "The TOML editor is open. Save it or close it before running an action. "
-                        "Nothing was read from that text, and nothing was written or built."
-                    )
-                    return
-                if is_dirty():
-                    report.SetValue(UNSAVED_BOARD_MESSAGE)
-                    return
-                report.SetValue(on_action(action))
+                def _run(_evt, action=action):
+                    if raw_open["value"]:
+                        report.SetValue(
+                            "The TOML editor is open. Save it or close it before running an action. "
+                            "Nothing was read from that text, and nothing was written or built."
+                        )
+                        return
+                    if is_dirty():
+                        report.SetValue(UNSAVED_BOARD_MESSAGE)
+                        return
+                    report.SetValue(on_action(action))
 
-            button.Bind(wx.EVT_BUTTON, _run)
-            actions.Add(button, 0, wx.RIGHT, 6)
+                button.Bind(wx.EVT_BUTTON, _run)
+                actions.Add(button, 0, wx.RIGHT, 6)
         root.Add(actions, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 8)
-        root.Add(report, 3, wx.EXPAND | wx.ALL, 8)
+        root.Add(report_sizer, 1, wx.EXPAND | wx.ALL, 8)
 
         bottom = wx.BoxSizer(wx.HORIZONTAL)
         copy = wx.Button(dlg, label="Copy report")
@@ -836,9 +892,8 @@ class Ui:
             policy_now = "retention" if retention.GetValue() else "move"
             keep_now = int(keep_ctrl.GetValue())
             report_now = report.GetValue()
-            point = point_size(scale)
-            body = wx.Font(wx.FontInfo(point))
-            mono = wx.Font(wx.FontInfo(point).Family(wx.FONTFAMILY_TELETYPE))
+            body = make_font(scale)
+            mono = make_font(scale, teletype=True)
 
             def walk(win) -> None:
                 mono_this = win is report or getattr(win, "_stripforge_mono", False)
@@ -862,7 +917,7 @@ class Ui:
             keep_ctrl.Enable(policy_now == "retention")
             report.ChangeValue(report_now)
             dlg.Layout()
-            scrolled.SetVirtualSize(grid.CalcMin())
+            scrolled.SetVirtualSize(form_sizer.CalcMin())
             try:
                 display = wx.DisplaySize()
                 limit_w, limit_h = max(640, display[0] - 80), max(480, display[1] - 80)
@@ -959,9 +1014,8 @@ class Ui:
                 title="StripForge: stripboard.toml",
                 style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER,
             )
-            ed.SetMinSize((480, 320))
-            point = point_size(scale_state["value"])
-            ed.SetFont(wx.Font(wx.FontInfo(point)))
+            ed.SetMinSize(dip_size(dlg, 480, 320))
+            ed.SetFont(make_font(scale_state["value"]))
             box = wx.BoxSizer(wx.VERTICAL)
             box.Add(wx.StaticText(ed, label=str(toml_path)), 0, wx.ALL, 8)
             box.Add(
@@ -980,11 +1034,13 @@ class Ui:
                 edit_style |= wx.TE_DONTWRAP
             editor = wx.TextCtrl(ed, value=loaded, style=edit_style)
             editor._stripforge_mono = True
-            editor.SetFont(wx.Font(wx.FontInfo(point).Family(wx.FONTFAMILY_TELETYPE)))
+            editor.SetFont(make_font(scale_state["value"], teletype=True))
             box.Add(editor, 1, wx.EXPAND | wx.LEFT | wx.RIGHT, 8)
+            box.Add(wx.StaticText(ed, label="Check"), 0, wx.LEFT | wx.RIGHT | wx.TOP, 8)
             status = wx.TextCtrl(ed, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.HSCROLL)
             status._stripforge_mono = True
-            status.SetFont(wx.Font(wx.FontInfo(point).Family(wx.FONTFAMILY_TELETYPE)))
+            status.SetFont(make_font(scale_state["value"], teletype=True))
+            status.SetMinSize(dip_size(ed, -1, 72))
             box.Add(status, 0, wx.EXPAND | wx.ALL, 8)
             row = wx.BoxSizer(wx.HORIZONTAL)
             save_text = wx.Button(ed, label="Save")
@@ -1084,6 +1140,8 @@ class Ui:
         edit_toml.Bind(wx.EVT_BUTTON, open_raw)
 
         dlg.SetSizer(root)
+        dlg.SetMinSize(dip_size(dlg, 680, 520))
+        dlg.SetSize(dip_size(dlg, 780, 680))
         dlg._board_controls = controls  # tests set values without a click on each field
         dlg._text_scale = scale_state
         apply_text_scale(scale_state["value"], persist=False)
@@ -1102,7 +1160,14 @@ class Ui:
         dlg = wx.Dialog(None, title=title, size=(900, 640), style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
         box = wx.BoxSizer(wx.VERTICAL)
         txt = wx.TextCtrl(dlg, value=text, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.HSCROLL)
-        txt.SetFont(wx.Font(wx.FontInfo(11).Family(wx.FONTFAMILY_TELETYPE)))
+        try:
+            reported = int(wx.SystemSettings.GetFont(wx.SYS_DEFAULT_GUI_FONT).GetPointSize())
+        except Exception:
+            reported = 0
+        from stripforge.dialog_text import baseline_point_size, point_size
+
+        body = point_size(1.0, baseline_point_size(reported, sys.platform))
+        txt.SetFont(wx.Font(wx.FontInfo(body).Family(wx.FONTFAMILY_TELETYPE)))
         box.Add(txt, 1, wx.EXPAND | wx.ALL, 8)
         buttons = wx.BoxSizer(wx.HORIZONTAL)
         if path is not None:

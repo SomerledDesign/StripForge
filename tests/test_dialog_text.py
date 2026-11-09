@@ -4,10 +4,13 @@
 
 from __future__ import annotations
 
+from stripforge.config import board_editor_labels, board_form_groups
 from stripforge.dialog_text import (
+    MAC_BODY_POINT_SIZE,
     SCALE_DEFAULT,
     SCALE_MAX,
     SCALE_MIN,
+    baseline_point_size,
     clamp_text_scale,
     load_text_scale,
     point_size,
@@ -17,6 +20,35 @@ from stripforge.dialog_text import (
     scale_percent,
     step_text_scale,
 )
+
+
+def test_default_body_is_the_system_font_and_not_the_old_10pt_request():
+    """100% is the platform GUI font. On macOS that is never below 13pt body text."""
+    assert baseline_point_size(10, "darwin") == MAC_BODY_POINT_SIZE == 13
+    assert baseline_point_size(0, "darwin") == 13
+    assert baseline_point_size(None, "darwin") == 13
+    assert baseline_point_size(16, "darwin") == 16  # a larger system font is kept
+    assert baseline_point_size(9, "win32") == 9
+    assert baseline_point_size(0, "linux") == 11
+    assert point_size(1.0, 13) == 13
+    assert point_size(1.25, 13) == 16
+    assert point_size(2.0, 13) == 26  # one multiply, not a second pass
+    assert point_size(1.0, baseline_point_size(10, "darwin")) == 13
+
+
+def test_board_form_groups_cover_every_field_once():
+    labels = [key for key, _label in board_editor_labels()]
+    grouped = [key for _title, keys in board_form_groups() for key in keys]
+    assert sorted(grouped) == sorted(labels)
+    assert len(grouped) == len(set(grouped))
+    assert [title for title, _keys in board_form_groups()] == [
+        "Origin",
+        "Grid",
+        "Copper and cuts",
+        "Links",
+        "Build",
+        "Parts",
+    ]
 
 
 def test_steps_stay_inside_bounds_and_reset():

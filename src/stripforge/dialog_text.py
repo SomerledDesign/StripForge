@@ -16,7 +16,16 @@ SCALE_MIN = 1.0
 SCALE_MAX = 3.0
 SCALE_STEP = 0.25
 SCALE_DEFAULT = 1.0
+# Kept so a caller that has no system font still has a defined size. The dialog
+# does not use this as the Mac baseline: see baseline_point_size.
 BASE_POINT_SIZE = 10
+# Apple's Human Interface Guidelines use 13pt for body text. The dialog used to
+# request 10pt. wx on macOS has also drawn a font built from a point size smaller
+# than the same number on the system font (a 10pt request landing near 7.5pt,
+# which is 10 * 72/96). 100% is the system GUI font, and on macOS it is never
+# below this body size. A larger text-size step multiplies this baseline once.
+MAC_BODY_POINT_SIZE = 13
+FALLBACK_BODY_POINT_SIZE = 11
 
 
 def clamp_text_scale(value: float) -> float:
@@ -34,8 +43,33 @@ def clamp_text_scale(value: float) -> float:
     return number
 
 
-def point_size(scale: float) -> int:
-    return max(1, int(round(BASE_POINT_SIZE * clamp_text_scale(scale))))
+def baseline_point_size(system_point_size: int | None, platform: str) -> int:
+    """Point size of the dialog at 100%.
+
+    ``system_point_size`` is ``GetPointSize()`` of ``SYS_DEFAULT_GUI_FONT``. A missing
+    or unusable value does not fall back to the old 10pt request. On macOS the result
+    is never below 13pt, so a report of 10pt (or of 0) cannot shrink the dialog.
+    """
+    try:
+        reported = int(system_point_size)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        reported = 0
+    if reported < 0:
+        reported = 0
+    if platform == "darwin":
+        return max(reported, MAC_BODY_POINT_SIZE)
+    return reported if reported > 0 else FALLBACK_BODY_POINT_SIZE
+
+
+def point_size(scale: float, base: int = BASE_POINT_SIZE) -> int:
+    """``base`` times the text-size scale, rounded. The scale is applied once."""
+    try:
+        base_n = int(base)
+    except (TypeError, ValueError):
+        base_n = BASE_POINT_SIZE
+    if base_n < 1:
+        base_n = BASE_POINT_SIZE
+    return max(1, int(round(base_n * clamp_text_scale(scale))))
 
 
 def step_text_scale(current: float, steps: int) -> float:
